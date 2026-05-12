@@ -1,6 +1,24 @@
 # coding_orchestration 插件使用说明
 
-这个仓库保存 Hermes Coding Orchestration 插件源码。推荐开发期先落到当前目录，再通过软链接接入 Hermes：
+这个仓库保存 Hermes Coding Orchestration 插件源码。生产环境应该直接通过 Hermes 插件安装命令安装，软链接只用于本地 debug。
+
+## 生产安装
+
+```bash
+hermes plugins install cc-Listener/coding-orchestration-plugin --enable
+```
+
+如果需要使用 SSH Git URL：
+
+```bash
+hermes plugins install git@github.com:cc-Listener/coding-orchestration-plugin.git --enable
+```
+
+插件启用后需要重启或开启新的 Hermes session 才会生效。
+
+## Debug 安装
+
+开发期可以先把源码落到当前目录，再通过软链接接入 Hermes：
 
 ```bash
 rtk proxy python3 scripts/install_symlink.py --hermes-home ~/.hermes
@@ -11,6 +29,8 @@ rtk proxy python3 scripts/install_symlink.py --hermes-home ~/.hermes
 ```text
 ~/.hermes/plugins/coding_orchestration -> 当前仓库/coding_orchestration
 ```
+
+生产环境不要依赖软链接安装；软链接会把 Hermes 绑定到本地 checkout，适合快速调试，不适合稳定部署。
 
 Hermes 配置启用示例：
 

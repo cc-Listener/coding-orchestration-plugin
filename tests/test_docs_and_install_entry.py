@@ -32,6 +32,12 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         self.assertIn("~/.hermes/plugins/coding_orchestration", usage)
         self.assertIn("软链接", usage)
         self.assertIn("LLM Wiki", usage)
+        self.assertIn("hermes plugins install cc-Listener/coding-orchestration-plugin --enable", usage)
+
+        readme = (repo_root / "README.md").read_text(encoding="utf-8")
+        self.assertIn("生产安装", readme)
+        self.assertIn("本地调试安装", readme)
+        self.assertIn("生产环境不要依赖软链接安装", readme)
 
     def test_install_script_runs_when_invoked_by_path(self):
         repo_root = Path(__file__).resolve().parents[1]

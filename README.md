@@ -41,7 +41,25 @@ Feishu input
 
 ## 安装到 Hermes
 
-推荐开发期把源码留在当前仓库，通过软链接接入 Hermes：
+### 生产安装
+
+生产环境或团队成员集成时，推荐直接通过 Hermes 插件安装命令安装仓库：
+
+```bash
+hermes plugins install cc-Listener/coding-orchestration-plugin --enable
+```
+
+如果需要使用 SSH Git URL：
+
+```bash
+hermes plugins install git@github.com:cc-Listener/coding-orchestration-plugin.git --enable
+```
+
+插件启用后需要重启或开启新的 Hermes session 才会生效。
+
+### 本地调试安装
+
+软链接只用于本地 debug 阶段，适合在当前 checkout 里快速修改插件源码，并让 Hermes 直接加载最新代码：
 
 ```bash
 rtk proxy python3 scripts/install_symlink.py --hermes-home ~/.hermes
@@ -59,7 +77,7 @@ rtk proxy python3 scripts/install_symlink.py --hermes-home ~/.hermes
 hermes plugins enable coding_orchestration
 ```
 
-插件启用后需要重启或开启新的 Hermes session 才会生效。
+生产环境不要依赖软链接安装；软链接会把运行中的 Hermes 绑定到本地工作区，适合开发调试，不适合作为稳定部署方式。
 
 ## Hermes 配置示例
 
