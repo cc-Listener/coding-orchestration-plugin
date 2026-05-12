@@ -1,0 +1,69 @@
+# coding_orchestration 插件使用说明
+
+这个仓库保存 Hermes Coding Orchestration 插件源码。推荐开发期先落到当前目录，再通过软链接接入 Hermes：
+
+```bash
+rtk proxy python3 scripts/install_symlink.py --hermes-home ~/.hermes
+```
+
+软链接目标：
+
+```text
+~/.hermes/plugins/coding_orchestration -> 当前仓库/coding_orchestration
+```
+
+Hermes 配置启用示例：
+
+```yaml
+plugins:
+  enabled:
+    - coding_orchestration
+
+coding_orchestration:
+  enabled: true
+  default_runner: codex_cli
+  ledger_db: ~/.hermes/coding-orchestration/ledger.db
+  run_root: ~/.hermes/coding-orchestration/runs
+  workspace_root: ~/.hermes/coding-orchestration/workspaces
+  project_registry: ~/.hermes/coding-orchestration/project-registry.json
+  llm_wiki:
+    adapter: local
+    root: ~/.hermes/coding-orchestration/llm-wiki
+```
+
+## Hermes 集成原则
+
+- Hermes Gateway 是唯一主控。
+- 插件只注册 Hermes hook 和命令，不直接改 Hermes 主程序。
+- Codex CLI、Claude Code、Gemini 都只是 Runner，不能直接操作飞书，不能自己决定项目，不能自动发布。
+- Task Ledger 是运行期事实源。
+- LLM Wiki 只保存 verified knowledge、draft knowledge、run summary、QA 经验，不保存任务状态事实。
+
+## 常用命令
+
+```text
+/coding-task --project 订单系统 修复发货失败
+/codex-task --project 订单系统 生成实现计划
+/coding-run task_xxx
+/coding-implement task_xxx
+/coding-prepare-merge-test task_xxx
+/coding-status task_xxx
+/coding-cancel task_xxx
+```
+
+低置信度项目识别会进入人工确认；implementation 模式会使用隔离 workspace，并在 run 完成后做 diff guard。发布和合并 test 仍然人工执行。
+
+## LLM Wiki 自动写入
+
+插件会在以下时机写入 LLM Wiki：
+
+- 创建任务时，把飞书输入写为 `draft_knowledge`。
+- Codex 或其他 runner 完成后，把 `summary.md` 与 `report.json` 汇总写为 `run_summary`。
+- bug 任务通过 `--bug-of task_id` 关联原任务时，会读取原任务 run summary 注入新 prompt。
+
+## 项目接入
+
+项目可以通过 `WORKFLOW.md` 或 `project-registry.json` 接入。见：
+
+- `examples/WORKFLOW.md`
+- `examples/project-registry.json`

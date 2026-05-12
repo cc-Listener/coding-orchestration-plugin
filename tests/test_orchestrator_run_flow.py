@@ -1,0 +1,398 @@
+import json
+import tempfile
+import unittest
+from pathlib import Path
+
+from coding_orchestration.ledger import TaskLedger
+from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
+from coding_orchestration.models import ArtifactSet, RunMode, RunnerCapabilities
+from coding_orchestration.orchestrator import CodingOrchestrator
+from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
+from coding_orchestration.runners.base import RunResult
+
+
+class FakeRunner:
+    name = "codex_cli"
+
+    def __init__(self, mutate=None, status="success"):
+        self.mutate = mutate
+        self.status = status
+        self.calls = []
+
+    def capabilities(self):
+        return RunnerCapabilities(
+            supports_plan_only=True,
+            supports_implementation=True,
+            supports_streaming_events=True,
+            supports_cancel=True,
+            supports_resume=False,
+            supports_app_server=False,
+            supports_structured_output=True,
+            output_format="json_events",
+            sandbox_level="test",
+        )
+
+    def run(self, *, run_id, run_dir, project_path, workspace_path, mode, timeout_seconds):
+        cwd = workspace_path if mode == RunMode.IMPLEMENTATION else project_path
+        self.calls.append(
+            {
+                "run_id": run_id,
+                "run_dir": run_dir,
+                "project_path": project_path,
+                "workspace_path": workspace_path,
+                "mode": mode,
+                "timeout_seconds": timeout_seconds,
+            }
+        )
+        if self.mutate:
+            self.mutate(cwd)
+        (run_dir / "stdout.log").write_text("stdout", encoding="utf-8")
+        (run_dir / "stderr.log").write_text("", encoding="utf-8")
+        (run_dir / "summary.md").write_text("计划完成", encoding="utf-8")
+        report = {
+            "runner": self.name,
+            "status": self.status,
+            "mode": mode.value,
+            "modified_files": [],
+            "test_commands": ["rtk pnpm test"],
+            "test_results": [{"command": "rtk pnpm test", "status": "passed"}],
+            "risks": [],
+            "human_required": False,
+            "next_actions": ["人工 review 后合并 test"],
+        }
+        (run_dir / "report.json").write_text(
+            json.dumps(report, ensure_ascii=False),
+            encoding="utf-8",
+        )
+        artifacts = ArtifactSet(
+            run_dir=run_dir,
+            input_prompt=run_dir / "input-prompt.md",
+            manifest=run_dir / "run-manifest.json",
+            stdout=run_dir / "stdout.log",
+            stderr=run_dir / "stderr.log",
+            events=run_dir / "events.jsonl",
+            report=run_dir / "report.json",
+            summary=run_dir / "summary.md",
+            diff=run_dir / "diff.patch",
+        )
+        return RunResult(status=self.status, exit_code=0, artifacts=artifacts, report=report)
+
+
+class FakeRouter:
+    def __init__(self, runner):
+        self.runner = runner
+
+    def select_runner(self, mode, requested=None):
+        return self.runner
+
+
+def _task_id_from_message(message: str) -> str:
+    for part in message.split():
+        if part.startswith("task_"):
+            return part
+    raise AssertionError(f"task id not found in message: {message}")
+
+
+def _write_workflow(project: Path) -> None:
+    (project / "src").mkdir()
+    (project / "src" / "app.ts").write_text("export const ok = true\n", encoding="utf-8")
+    (project / "WORKFLOW.md").write_text(
+        """
+# WORKFLOW
+
+## Allowed Paths
+- src/
+- tests/
+
+## Forbidden Paths
+- .env
+- deploy/
+
+## Test Commands
+- rtk pnpm test
+
+## Merge Policy
+manual_only
+
+## Publish Policy
+manual_only
+""",
+        encoding="utf-8",
+    )
+
+
+class OrchestratorRunFlowTest(unittest.TestCase):
+    def test_plan_only_run_generates_artifacts_updates_ledger_and_writes_run_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            wiki_ref = wiki.upsert(
+                {
+                    "kind": "verified_knowledge",
+                    "title": "发货模块知识",
+                    "body": "发货失败先检查 shipping service。",
+                    "source_refs": [],
+                    "project": "order-system",
+                    "module": "shipping",
+                    "tags": ["shipping"],
+                    "confidence": "high",
+                    "status": "verified",
+                },
+                options={"dedupe_key": "shipping"},
+            )
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "order-system",
+                            "aliases": ["订单系统"],
+                            "path": str(project),
+                            "keywords": ["发货"],
+                        }
+                    ]
+                )
+            )
+            fake_runner = FakeRunner()
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+
+            message = orchestrator.command_coding_task("--project 订单系统 修复发货失败")
+            task_id = _task_id_from_message(message)
+            result = orchestrator.start_run(task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
+
+            task = ledger.get_task(task_id)
+            self.assertEqual(result["status"], "success")
+            self.assertEqual(task["status"], "ready_for_review")
+            self.assertEqual(task["llm_wiki_refs"][0]["id"], wiki_ref["id"])
+            self.assertEqual(len(task["agent_runs"]), 1)
+            self.assertTrue(Path(task["artifacts"][0]["input_prompt"]).exists())
+            prompt = Path(task["artifacts"][0]["input_prompt"]).read_text(encoding="utf-8")
+            self.assertIn("发货失败先检查 shipping service", prompt)
+            manifest = json.loads(Path(task["artifacts"][0]["manifest"]).read_text(encoding="utf-8"))
+            self.assertEqual(manifest["task_id"], task_id)
+            self.assertEqual(manifest["mode"], "plan-only")
+            summaries = wiki.search("计划完成", {"project": "order-system"})
+            self.assertEqual(summaries[0]["kind"], "run_summary")
+
+    def test_implementation_run_uses_workspace_and_blocks_unauthorized_diff(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "order-system",
+                            "aliases": ["订单系统"],
+                            "path": str(project),
+                            "keywords": ["发货"],
+                        }
+                    ]
+                )
+            )
+
+            def mutate_outside_allowed(cwd: Path):
+                (cwd / "deploy").mkdir()
+                (cwd / "deploy" / "release.sh").write_text("echo no\n", encoding="utf-8")
+
+            fake_runner = FakeRunner(mutate=mutate_outside_allowed)
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+            task_id = _task_id_from_message(
+                orchestrator.command_coding_task("--project 订单系统 修复发货失败")
+            )
+
+            result = orchestrator.start_run(task_id, mode=RunMode.IMPLEMENTATION, timeout_seconds=5)
+
+            task = ledger.get_task(task_id)
+            report = json.loads(Path(task["artifacts"][0]["report"]).read_text(encoding="utf-8"))
+            self.assertEqual(result["status"], "blocked")
+            self.assertEqual(task["status"], "blocked")
+            self.assertTrue(fake_runner.calls[0]["workspace_path"].is_dir())
+            self.assertFalse((project / "deploy" / "release.sh").exists())
+            self.assertEqual(report["status"], "blocked")
+            self.assertIn("deploy/release.sh", "\n".join(report["risks"]))
+
+    def test_bug_task_links_parent_task_and_recovers_parent_run_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            wiki.upsert(
+                {
+                    "kind": "run_summary",
+                    "title": "原任务上下文",
+                    "body": "原任务修改了 shipping adapter，QA 关注库存回滚。",
+                    "source_refs": [{"type": "task", "task_id": "task_parent", "run_id": "run_parent"}],
+                    "project": "order-system",
+                    "module": "shipping",
+                    "tags": ["qa"],
+                    "confidence": "medium",
+                    "status": "draft",
+                },
+                options={"dedupe_key": "parent-run-summary"},
+            )
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "order-system",
+                            "aliases": ["订单系统"],
+                            "path": str(project),
+                            "keywords": ["发货"],
+                        }
+                    ]
+                )
+            )
+            fake_runner = FakeRunner()
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+
+            task_id = _task_id_from_message(
+                orchestrator.command_coding_task("--project 订单系统 --bug-of task_parent 修复 QA 缺陷")
+            )
+            orchestrator.start_run(task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
+
+            task = ledger.get_task(task_id)
+            prompt = Path(task["artifacts"][0]["input_prompt"]).read_text(encoding="utf-8")
+            self.assertEqual(task["source"]["related_task_id"], "task_parent")
+            self.assertIn("库存回滚", prompt)
+
+    def test_prepare_merge_to_test_is_manual_interface_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_1",
+                source={"type": "manual"},
+                requirement_summary="done",
+                project_path="/repo/order",
+                status="ready_for_review",
+                llm_wiki_refs=[],
+                human_decisions=[],
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            message = orchestrator.command_prepare_merge_test("task_1")
+
+            self.assertIn("人工执行", message)
+            self.assertIn("merge-to-test", message)
+            self.assertEqual(ledger.get_task("task_1")["status"], "ready_for_review")
+
+    def test_command_coding_run_starts_plan_only_for_existing_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "order-system",
+                            "aliases": ["订单系统"],
+                            "path": str(project),
+                            "keywords": ["发货"],
+                        }
+                    ]
+                )
+            )
+            fake_runner = FakeRunner()
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+            task_id = _task_id_from_message(
+                orchestrator.command_coding_task("--project 订单系统 修复发货失败")
+            )
+
+            message = orchestrator.command_coding_run(task_id)
+
+            self.assertIn("plan-only run 已完成", message)
+            self.assertIn("ready_for_review", message)
+            self.assertEqual(fake_runner.calls[0]["mode"], RunMode.PLAN_ONLY)
+
+    def test_command_coding_implement_starts_implementation_for_existing_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "order-system",
+                            "aliases": ["订单系统"],
+                            "path": str(project),
+                            "keywords": ["发货"],
+                        }
+                    ]
+                )
+            )
+            fake_runner = FakeRunner()
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+            task_id = _task_id_from_message(
+                orchestrator.command_coding_task("--project 订单系统 修复发货失败")
+            )
+
+            message = orchestrator.command_coding_implement(task_id)
+
+            self.assertIn("implementation run 已完成", message)
+            self.assertIn("ready_for_review", message)
+            self.assertEqual(fake_runner.calls[0]["mode"], RunMode.IMPLEMENTATION)
+
+
+if __name__ == "__main__":
+    unittest.main()

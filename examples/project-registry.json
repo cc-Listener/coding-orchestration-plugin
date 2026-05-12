@@ -1,0 +1,14 @@
+{
+  "projects": [
+    {
+      "name": "order-system",
+      "aliases": ["订单系统", "OMS"],
+      "path": "/Users/xiaojing/Desktop/projects/order-system",
+      "keywords": ["订单", "发货", "库存"],
+      "allowed_paths": ["src/", "tests/"],
+      "forbidden_paths": [".env", "deploy/", "scripts/release"],
+      "default_test_commands": ["rtk pnpm test", "rtk pnpm build"],
+      "default_runner": "codex_cli"
+    }
+  ]
+}

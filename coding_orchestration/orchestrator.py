@@ -1,0 +1,498 @@
+from __future__ import annotations
+
+import re
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+from .diff_guard import DiffGuard
+from .feishu_messages import render_task_created, render_task_needs_human
+from .ledger import TaskLedger
+from .llm_wiki_adapter import LocalLlmWikiAdapter
+from .models import RunManifest, RunMode, RunnerName, TaskStatus
+from .prompt_builder import PromptBuilder
+from .project_resolver import ProjectRegistry, ProjectResolver
+from .run_summary_writer import RunSummaryWriter
+from .runner_router import RunnerRouter
+from .state_machine import TaskStateMachine
+from .symphony_compat.workflow_loader import WorkflowLoader, WorkflowSpec
+from .symphony_compat.workspace_manager import WorkspaceManager
+
+
+_TASK_TRIGGER_RE = re.compile(
+    r"(^|\s)/(coding-task|codex-task)\b|(^|\s)(coding-task|codex-task)\b|编码任务|project\.feishu\.cn|meego\.feishu\.cn",
+    re.I,
+)
+
+
+@dataclass
+class CodingOrchestrator:
+    ledger: TaskLedger
+    resolver: ProjectResolver
+    wiki: LocalLlmWikiAdapter
+    run_root: Path | None = None
+    workspace_root: Path | None = None
+    runner_router: Any | None = None
+    workflow_loader: WorkflowLoader = field(default_factory=WorkflowLoader)
+    prompt_builder: PromptBuilder = field(default_factory=PromptBuilder)
+    diff_guard: DiffGuard = field(default_factory=DiffGuard)
+    default_timeout_seconds: int = 3600
+    heartbeat_interval_seconds: int = 30
+
+    def __post_init__(self) -> None:
+        root = Path.home() / ".hermes" / "coding-orchestration"
+        if self.run_root is None:
+            self.run_root = root / "runs"
+        if self.workspace_root is None:
+            self.workspace_root = root / "workspaces"
+        self.run_root.mkdir(parents=True, exist_ok=True)
+        self.workspace_root.mkdir(parents=True, exist_ok=True)
+        if self.runner_router is None:
+            self.runner_router = RunnerRouter.from_config({"default_runner": "codex_cli"})
+        self.workspace_manager = WorkspaceManager(self.workspace_root)
+        self.summary_writer = RunSummaryWriter(self.wiki)
+
+    @classmethod
+    def from_default_config(cls) -> "CodingOrchestrator":
+        root = Path.home() / ".hermes" / "coding-orchestration"
+        registry = ProjectRegistry.from_file(root / "project-registry.json")
+        return cls(
+            ledger=TaskLedger(root / "ledger.db"),
+            resolver=ProjectResolver(registry),
+            wiki=LocalLlmWikiAdapter(root / "llm-wiki"),
+            run_root=root / "runs",
+            workspace_root=root / "workspaces",
+            runner_router=RunnerRouter.from_config({"default_runner": "codex_cli"}),
+        )
+
+    def handle_gateway_event(self, event: Any, gateway: Any = None, session_store: Any = None) -> dict | None:
+        text = str(getattr(event, "text", "") or "")
+        if not self._looks_like_task(text):
+            return None
+        message = self.create_task_from_text(text)
+        self._reply_if_possible(gateway, event, message)
+        return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+
+    def command_coding_task(self, raw_args: str) -> str:
+        return self.create_task_from_text(raw_args)
+
+    def command_codex_task(self, raw_args: str) -> str:
+        return self.create_task_from_text(f"--runner codex_cli {raw_args}".strip())
+
+    def command_coding_status(self, raw_args: str) -> str:
+        task_id = raw_args.strip()
+        if not task_id:
+            return "请提供 task_id。"
+        task = self.ledger.get_task(task_id)
+        if not task:
+            return f"未找到任务：{task_id}"
+        return f"[{task_id}] 状态：{task['status']}\n项目：{task.get('project_path') or '未确定'}"
+
+    def command_coding_cancel(self, raw_args: str) -> str:
+        target = raw_args.strip()
+        if not target:
+            return "请提供 task_id 或 run_id。"
+        changed = self.ledger.mark_cancelled(target)
+        return f"已标记取消：{target}" if changed else f"未找到可取消对象：{target}"
+
+    def command_coding_run(self, raw_args: str) -> str:
+        task_id = raw_args.strip()
+        if not task_id:
+            return "请提供 task_id。"
+        result = self.start_run(task_id, mode=RunMode.PLAN_ONLY)
+        return (
+            f"[{task_id}] plan-only run 已完成：{result['run_id']}\n"
+            f"状态：{result['task_status']}\n"
+            f"artifact：{result['artifacts']['run_dir']}"
+        )
+
+    def command_coding_implement(self, raw_args: str) -> str:
+        task_id = raw_args.strip()
+        if not task_id:
+            return "请提供 task_id。"
+        result = self.start_run(task_id, mode=RunMode.IMPLEMENTATION)
+        return (
+            f"[{task_id}] implementation run 已完成：{result['run_id']}\n"
+            f"状态：{result['task_status']}\n"
+            f"artifact：{result['artifacts']['run_dir']}"
+        )
+
+    def command_prepare_merge_test(self, raw_args: str) -> str:
+        task_id = raw_args.strip()
+        if not task_id:
+            return "请提供 task_id。"
+        task = self.ledger.get_task(task_id)
+        if not task:
+            return f"未找到任务：{task_id}"
+        if task["status"] != TaskStatus.READY_FOR_REVIEW.value:
+            return f"[{task_id}] 当前状态是 {task['status']}，还不能准备 merge-to-test。"
+        return (
+            f"[{task_id}] 已准备人工 merge-to-test。\n"
+            f"项目目录：{task.get('project_path') or '未确定'}\n"
+            "请人工执行 merge-to-test 流程并发布测试环境；插件不会自动合并或自动发布。"
+        )
+
+    def create_task_from_text(self, text: str) -> str:
+        explicit_project = self._extract_flag(text, "--project")
+        requested_runner = self._extract_flag(text, "--runner")
+        related_task_id = self._extract_flag(text, "--bug-of") or self._extract_flag(text, "--parent-task")
+        clean_text = self._strip_flags(text)
+        resolved = self.resolver.resolve(clean_text, explicit_project=explicit_project)
+        task_id = f"task_{uuid.uuid4().hex[:12]}"
+        self.ledger.create_task(
+            task_id=task_id,
+            source={
+                "type": "feishu_chat",
+                "raw_text": text,
+                "project_name": resolved.project_name,
+                "project_confidence": resolved.confidence,
+                "match_evidence": [
+                    {"source": item.source, "value": item.value, "score": item.score}
+                    for item in resolved.match_evidence
+                ],
+                "requested_runner": requested_runner,
+                "related_task_id": related_task_id,
+            },
+            requirement_summary=clean_text,
+            project_path=resolved.project_path,
+            status="needs_human" if resolved.needs_human else "planned",
+            llm_wiki_refs=[],
+            human_decisions=[],
+        )
+        self.wiki.upsert(
+            {
+                "kind": "draft_knowledge",
+                "title": f"需求草稿 {task_id}",
+                "body": clean_text,
+                "source_refs": [{"type": "task", "task_id": task_id}],
+                "project": resolved.project_name,
+                "module": None,
+                "tags": ["requirement", "draft"],
+                "confidence": "low" if resolved.needs_human else "medium",
+                "status": "draft",
+            },
+            options={"dedupe_key": f"{task_id}:draft_knowledge"},
+        )
+        if resolved.needs_human:
+            return render_task_needs_human(task_id, clean_text, resolved.candidates)
+        return render_task_created(task_id, clean_text, resolved.project_name or "", resolved.project_path or "")
+
+    def start_run(
+        self,
+        task_id: str,
+        *,
+        mode: RunMode = RunMode.PLAN_ONLY,
+        runner_name: str | None = None,
+        timeout_seconds: int | None = None,
+    ) -> dict[str, Any]:
+        task = self.ledger.get_task(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        if not task.get("project_path"):
+            self.ledger.update_status(task_id, TaskStatus.NEEDS_HUMAN.value)
+            raise ValueError(f"task has no project_path: {task_id}")
+
+        mode = RunMode(mode)
+        timeout = timeout_seconds or self.default_timeout_seconds
+        run_id = f"run_{uuid.uuid4().hex[:12]}"
+        run_dir = self.run_root / task_id / run_id
+        run_dir.mkdir(parents=True, exist_ok=True)
+        project_path = Path(task["project_path"]).expanduser().resolve()
+        source = task["source"]
+        project_name = source.get("project_name") or self._project_name_for_path(str(project_path)) or project_path.name
+        workflow = self._workflow_for_project(project_path)
+        runner = self.runner_router.select_runner(mode=mode, requested=runner_name or source.get("requested_runner"))
+        workspace_path = None
+        if mode == RunMode.IMPLEMENTATION:
+            workspace_path = self.workspace_manager.create_workspace(
+                project_path=project_path,
+                task_id=task_id,
+                run_id=run_id,
+            )
+        execution_root = workspace_path or project_path
+
+        wiki_docs = self._wiki_docs_for_task(task, project_name)
+        wiki_refs = [self._wiki_ref(doc) for doc in wiki_docs]
+        self.ledger.replace_llm_wiki_refs(task_id, wiki_refs)
+
+        self._write_report_schema(run_dir / "report.schema.json")
+        prompt = self.prompt_builder.build(
+            requirement_summary=task["requirement_summary"],
+            source=source,
+            project_path=str(project_path),
+            workflow=workflow,
+            wiki_refs=wiki_docs,
+            mode=mode,
+            runner_name=runner.name,
+        )
+        (run_dir / "input-prompt.md").write_text(prompt, encoding="utf-8")
+        manifest = self._build_manifest(
+            task=task,
+            run_id=run_id,
+            mode=mode,
+            runner_name=runner.name,
+            project_path=project_path,
+            workspace_path=workspace_path,
+            workflow=workflow,
+            wiki_refs=wiki_refs,
+            timeout_seconds=timeout,
+            run_dir=run_dir,
+        )
+        (run_dir / "run-manifest.json").write_text(
+            self._json(manifest.to_dict()),
+            encoding="utf-8",
+        )
+
+        before = self.diff_guard.snapshot(execution_root)
+        self.ledger.update_status(task_id, TaskStatus.QUEUED.value)
+        self.ledger.update_status(task_id, TaskStatus.RUNNING.value)
+        result = runner.run(
+            run_id=run_id,
+            run_dir=run_dir,
+            project_path=project_path,
+            workspace_path=workspace_path,
+            mode=mode,
+            timeout_seconds=timeout,
+        )
+
+        changed_files = self.diff_guard.changed_files(execution_root, before)
+        violations = self.diff_guard.find_violations(
+            changed_files=changed_files,
+            allowed_paths=workflow.allowed_paths,
+            forbidden_paths=workflow.forbidden_paths,
+        )
+        self.diff_guard.write_diff_summary(result.artifacts.diff, changed_files, violations)
+        report = dict(result.report)
+        report["modified_files"] = changed_files
+        status = str(result.status)
+        if violations:
+            status = "blocked"
+            report["status"] = status
+            report["human_required"] = True
+            report["risks"] = list(report.get("risks") or []) + violations
+            report["next_actions"] = list(report.get("next_actions") or []) + [
+                "人工检查越权 diff，确认是否丢弃或重跑。"
+            ]
+            result.artifacts.report.write_text(self._json(report), encoding="utf-8")
+
+        task_status = TaskStateMachine.task_status_for_run_status(status)
+        self.ledger.update_status(task_id, task_status.value)
+        artifact_record = self._artifact_record(result.artifacts)
+        self.ledger.append_artifact(task_id, artifact_record)
+        self.ledger.append_agent_run(
+            task_id,
+            {
+                "run_id": run_id,
+                "runner": runner.name,
+                "mode": mode.value,
+                "status": status,
+                "exit_code": result.exit_code,
+                "artifact": artifact_record,
+                "workspace_path": str(workspace_path) if workspace_path else None,
+                "diff_guard": {
+                    "changed_files": changed_files,
+                    "violations": violations,
+                },
+            },
+        )
+        summary = result.artifacts.summary.read_text(encoding="utf-8") if result.artifacts.summary.exists() else ""
+        self.summary_writer.write_run_summary(
+            task_id=task_id,
+            run_id=run_id,
+            runner=runner.name,
+            project=project_name,
+            report=report,
+            summary=summary,
+        )
+        return {
+            "task_id": task_id,
+            "run_id": run_id,
+            "status": status,
+            "task_status": task_status.value,
+            "artifacts": artifact_record,
+        }
+
+    @staticmethod
+    def _looks_like_task(text: str) -> bool:
+        return bool(_TASK_TRIGGER_RE.search(text or ""))
+
+    @staticmethod
+    def _extract_flag(text: str, flag: str) -> str | None:
+        parts = text.split()
+        for idx, part in enumerate(parts):
+            if part == flag and idx + 1 < len(parts):
+                return parts[idx + 1]
+        return None
+
+    @staticmethod
+    def _strip_flags(text: str) -> str:
+        parts = text.split()
+        result: list[str] = []
+        skip = False
+        for idx, part in enumerate(parts):
+            if skip:
+                skip = False
+                continue
+            if part in {"--project", "--runner", "--bug-of", "--parent-task"} and idx + 1 < len(parts):
+                skip = True
+                continue
+            result.append(part)
+        return " ".join(result).strip()
+
+    def _project_name_for_path(self, project_path: str) -> str | None:
+        for project in self.resolver.registry.projects:
+            if Path(project.path).expanduser().resolve() == Path(project_path).expanduser().resolve():
+                return project.name
+        return None
+
+    def _workflow_for_project(self, project_path: Path) -> WorkflowSpec:
+        loaded = self.workflow_loader.load(project_path)
+        project = None
+        for item in self.resolver.registry.projects:
+            if Path(item.path).expanduser().resolve() == project_path:
+                project = item
+                break
+        if project is None:
+            return loaded
+        return WorkflowSpec(
+            project_path=loaded.project_path,
+            allowed_paths=loaded.allowed_paths or list(project.allowed_paths),
+            forbidden_paths=loaded.forbidden_paths or list(project.forbidden_paths),
+            default_test_commands=loaded.default_test_commands or list(project.default_test_commands),
+            plan_required=loaded.plan_required,
+            implementation_allowed=loaded.implementation_allowed,
+            merge_policy=loaded.merge_policy,
+            publish_policy=loaded.publish_policy,
+            recommended_runner=loaded.recommended_runner or project.default_runner,
+            notes=loaded.notes,
+        )
+
+    def _wiki_docs_for_task(self, task: dict[str, Any], project_name: str) -> list[dict[str, Any]]:
+        refs = self.wiki.search(task["requirement_summary"], {"project": project_name})
+        related_task_id = task["source"].get("related_task_id")
+        if related_task_id:
+            refs.extend(self.wiki.find_by_source_task(related_task_id))
+        docs: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for ref in refs:
+            ref_id = ref.get("id")
+            if not ref_id or ref_id in seen:
+                continue
+            doc = self.wiki.read(ref_id)
+            if doc and not self._is_source_doc_for_task(doc, task["task_id"]):
+                docs.append(doc)
+                seen.add(ref_id)
+        return docs
+
+    @staticmethod
+    def _is_source_doc_for_task(doc: dict[str, Any], task_id: str) -> bool:
+        return any(source.get("task_id") == task_id for source in doc.get("source_refs", []))
+
+    @staticmethod
+    def _wiki_ref(doc: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": doc.get("id"),
+            "title": doc.get("title"),
+            "kind": doc.get("kind"),
+            "project": doc.get("project"),
+            "status": doc.get("status"),
+        }
+
+    def _build_manifest(
+        self,
+        *,
+        task: dict[str, Any],
+        run_id: str,
+        mode: RunMode,
+        runner_name: str,
+        project_path: Path,
+        workspace_path: Path | None,
+        workflow: WorkflowSpec,
+        wiki_refs: list[dict[str, Any]],
+        timeout_seconds: int,
+        run_dir: Path,
+    ) -> RunManifest:
+        now = datetime.now(timezone.utc)
+        return RunManifest(
+            task_id=task["task_id"],
+            run_id=run_id,
+            mode=mode,
+            runner=runner_name if runner_name != RunnerName.CODEX_CLI.value else RunnerName.CODEX_CLI,
+            source=task["source"],
+            project_path=str(project_path),
+            workspace_path=str(workspace_path) if workspace_path else None,
+            workflow_refs=[str(project_path / "WORKFLOW.md")],
+            llm_wiki_refs=[str(ref.get("id")) for ref in wiki_refs],
+            allowed_paths=workflow.allowed_paths,
+            forbidden_paths=workflow.forbidden_paths,
+            timeout_seconds=timeout_seconds,
+            deadline_at=(now + timedelta(seconds=timeout_seconds)).isoformat(),
+            heartbeat_interval_seconds=self.heartbeat_interval_seconds,
+            output_schema_path=str(run_dir / "report.schema.json"),
+            created_at=now.isoformat(),
+        )
+
+    @staticmethod
+    def _write_report_schema(path: Path) -> None:
+        schema = {
+            "type": "object",
+            "required": [
+                "runner",
+                "status",
+                "mode",
+                "modified_files",
+                "test_commands",
+                "test_results",
+                "risks",
+                "human_required",
+                "next_actions",
+            ],
+            "properties": {
+                "runner": {"type": "string"},
+                "status": {
+                    "type": "string",
+                    "enum": ["success", "failed", "blocked", "cancelled", "timeout", "completed_unstructured"],
+                },
+                "mode": {"type": "string", "enum": ["plan-only", "implementation"]},
+                "modified_files": {"type": "array", "items": {"type": "string"}},
+                "test_commands": {"type": "array", "items": {"type": "string"}},
+                "test_results": {"type": "array"},
+                "risks": {"type": "array", "items": {"type": "string"}},
+                "human_required": {"type": "boolean"},
+                "next_actions": {"type": "array", "items": {"type": "string"}},
+            },
+        }
+        path.write_text(CodingOrchestrator._json(schema), encoding="utf-8")
+
+    @staticmethod
+    def _artifact_record(artifacts: Any) -> dict[str, str]:
+        return {
+            "run_dir": str(artifacts.run_dir),
+            "input_prompt": str(artifacts.input_prompt),
+            "manifest": str(artifacts.manifest),
+            "stdout": str(artifacts.stdout),
+            "stderr": str(artifacts.stderr),
+            "events": str(artifacts.events),
+            "report": str(artifacts.report),
+            "summary": str(artifacts.summary),
+            "diff": str(artifacts.diff),
+        }
+
+    @staticmethod
+    def _json(data: Any) -> str:
+        import json
+
+        return json.dumps(data, ensure_ascii=False, indent=2)
+
+    @staticmethod
+    def _reply_if_possible(gateway: Any, event: Any, message: str) -> None:
+        # Gateway reply APIs differ by platform. The plugin command path returns
+        # text directly; the hook path is best-effort and intentionally silent.
+        sender = getattr(gateway, "send_message", None)
+        if callable(sender):
+            try:
+                sender(event.source, message)
+            except Exception:
+                pass

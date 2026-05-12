@@ -1,0 +1,11 @@
+name: coding_orchestration
+version: 0.1.0
+description: "Hermes-controlled coding task orchestration with pluggable coding-agent runners."
+author: local
+kind: standalone
+platforms:
+  - linux
+  - macos
+  - windows
+provides_hooks:
+  - pre_gateway_dispatch
