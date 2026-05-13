@@ -182,7 +182,7 @@ report.json
 diff.patch
 ```
 
-这些产物会被写入 Task Ledger。run 完成后，插件会把 `summary.md` 和 `report.json` 汇总为 `run_summary` 写入 LLM Wiki。
+这些产物会被写入 Task Ledger。run 完成后，插件会把 `summary.md` 和 `report.json` 汇总为 `run_summary` 写入 LLM Wiki。Codex CLI 的最终结构化输出会落到 `report.json`，其中 `summary_markdown` 会由 Hermes 转存为 `summary.md` 并直接回写飞书。
 
 ## LLM Wiki 写入规则
 

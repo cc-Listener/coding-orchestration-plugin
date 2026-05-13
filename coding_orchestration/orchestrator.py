@@ -14,7 +14,7 @@ from .diff_guard import DiffGuard
 from .feishu_messages import render_task_created, render_task_needs_human
 from .ledger import TaskLedger
 from .llm_wiki_adapter import LocalLlmWikiAdapter
-from .models import RunManifest, RunMode, RunnerName, TaskStatus
+from .models import AgentRunStatus, RunManifest, RunMode, RunnerName, TaskStatus
 from .prompt_builder import PromptBuilder
 from .project_resolver import ProjectRegistry, ProjectResolver
 from .run_summary_writer import RunSummaryWriter
@@ -513,6 +513,7 @@ class CodingOrchestrator:
                 "runner",
                 "status",
                 "mode",
+                "summary_markdown",
                 "modified_files",
                 "test_commands",
                 "test_results",
@@ -527,6 +528,10 @@ class CodingOrchestrator:
                     "enum": ["success", "failed", "blocked", "cancelled", "timeout", "completed_unstructured"],
                 },
                 "mode": {"type": "string", "enum": ["plan-only", "implementation"]},
+                "summary_markdown": {
+                    "type": "string",
+                    "description": "Human-readable Markdown summary or plan to show in Feishu.",
+                },
                 "modified_files": {"type": "array", "items": {"type": "string"}},
                 "test_commands": {"type": "array", "items": {"type": "string"}},
                 "test_results": {"type": "array"},
@@ -573,11 +578,7 @@ class CodingOrchestrator:
     def _run_plan_only_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
         try:
             result = self.start_run(task_id, mode=RunMode.PLAN_ONLY)
-            message = (
-                f"[{task_id}] plan-only run 已完成：{result['run_id']}\n"
-                f"状态：{result['task_status']}\n"
-                f"artifact：{result['artifacts']['run_dir']}"
-            )
+            message = self._format_run_completion_message(task_id, result)
         except Exception as exc:
             try:
                 self.ledger.update_status(task_id, TaskStatus.FAILED.value)
@@ -585,6 +586,57 @@ class CodingOrchestrator:
                 pass
             message = f"[{task_id}] plan-only run 启动或执行失败：{exc}\n请人工检查 Hermes 日志和 task ledger。"
         self._reply_if_possible(gateway, event, message, loop=loop)
+
+    @staticmethod
+    def _format_run_completion_message(task_id: str, result: dict[str, Any]) -> str:
+        artifacts = result.get("artifacts") or {}
+        report = {}
+        report_path = Path(str(artifacts.get("report") or ""))
+        if report_path.exists():
+            try:
+                import json
+
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+            except Exception:
+                report = {}
+
+        lines = [
+            f"[{task_id}] plan-only run 已完成：{result['run_id']}",
+            f"状态：{result['task_status']}",
+        ]
+        summary = CodingOrchestrator._read_text_excerpt(artifacts.get("summary"), limit=1800)
+        if summary:
+            lines.extend(["", "计划摘要：", summary])
+
+        risks = [str(item) for item in report.get("risks") or [] if str(item).strip()]
+        if risks:
+            lines.extend(["", "风险："])
+            lines.extend(f"- {item}" for item in risks[:5])
+
+        next_actions = [str(item) for item in report.get("next_actions") or [] if str(item).strip()]
+        if next_actions:
+            lines.extend(["", "下一步："])
+            lines.extend(f"- {item}" for item in next_actions[:5])
+
+        if not summary and report.get("status") == AgentRunStatus.COMPLETED_UNSTRUCTURED.value:
+            stderr = CodingOrchestrator._read_text_excerpt(artifacts.get("stderr"), limit=1000)
+            if stderr:
+                lines.extend(["", "执行错误摘要：", stderr])
+
+        lines.extend(["", f"artifact：{artifacts.get('run_dir')}"])
+        return "\n".join(lines)
+
+    @staticmethod
+    def _read_text_excerpt(path_value: Any, *, limit: int) -> str:
+        if not path_value:
+            return ""
+        path = Path(str(path_value))
+        if not path.exists():
+            return ""
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
+        if len(text) <= limit:
+            return text
+        return text[:limit].rstrip() + "\n...（已截断，完整内容见 artifact）"
 
     @staticmethod
     async def _call_sender(sender: Any, *args: Any) -> None:

@@ -53,6 +53,7 @@ class FakeRunner:
             "runner": self.name,
             "status": self.status,
             "mode": mode.value,
+            "summary_markdown": "计划完成",
             "modified_files": [],
             "test_commands": ["rtk pnpm test"],
             "test_results": [{"command": "rtk pnpm test", "status": "passed"}],
@@ -196,6 +197,84 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(scheduled_event.text, "订单系统有个需求，新增发货状态筛选")
             self.assertEqual(ledger.get_task(task_id)["status"], "planned")
             self.assertIn("plan-only 已自动启动", gateway.messages[0])
+
+    def test_plan_only_completion_reply_includes_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "order-system",
+                            "aliases": ["订单系统"],
+                            "path": str(project),
+                            "keywords": ["发货"],
+                        }
+                    ]
+                )
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+            created = orchestrator._create_task_from_text("订单系统有个需求，新增发货状态筛选")
+
+            orchestrator._run_plan_only_and_notify(
+                created.task_id,
+                gateway,
+                FakeGatewayEvent("订单系统有个需求，新增发货状态筛选"),
+                None,
+            )
+
+            self.assertIn("plan-only run 已完成", gateway.messages[0])
+            self.assertIn("计划完成", gateway.messages[0])
+            self.assertIn("人工 review 后合并 test", gateway.messages[0])
+
+    def test_unstructured_completion_reply_includes_stderr_excerpt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            report_path = run_dir / "report.json"
+            stderr_path = run_dir / "stderr.log"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "completed_unstructured",
+                        "risks": ["Structured report was not produced."],
+                        "next_actions": ["Review stderr."],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            stderr_path.write_text("unexpected argument '--ask-for-approval' found", encoding="utf-8")
+
+            message = CodingOrchestrator._format_run_completion_message(
+                "task_1",
+                {
+                    "run_id": "run_1",
+                    "task_status": "blocked",
+                    "artifacts": {
+                        "run_dir": str(run_dir),
+                        "report": str(report_path),
+                        "stderr": str(stderr_path),
+                        "summary": str(run_dir / "summary.md"),
+                    },
+                },
+            )
+
+            self.assertIn("状态：blocked", message)
+            self.assertIn("Structured report was not produced.", message)
+            self.assertIn("unexpected argument", message)
 
     def test_plan_only_run_generates_artifacts_updates_ledger_and_writes_run_summary(self):
         with tempfile.TemporaryDirectory() as tmp:

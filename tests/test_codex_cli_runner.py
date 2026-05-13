@@ -21,10 +21,12 @@ class CodexCliRunnerTest(unittest.TestCase):
         self.assertIn("--json", command)
         self.assertIn("--output-schema", command)
         self.assertIn("--output-last-message", command)
+        self.assertEqual(command[command.index("--output-last-message") + 1], "/tmp/run/report.json")
         self.assertIn("--sandbox", command)
         self.assertIn("read-only", command)
-        self.assertIn("--ask-for-approval", command)
-        self.assertIn("never", command)
+        self.assertNotIn("--ask-for-approval", command)
+        self.assertIn("-c", command)
+        self.assertIn("approval_policy=\"never\"", command)
         self.assertIn("-C", command)
         self.assertIn("/repo/project", command)
         self.assertEqual(command[-1], "-")
@@ -63,6 +65,33 @@ class CodexCliRunnerTest(unittest.TestCase):
 
             saved = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
             self.assertEqual(saved, report)
+
+    def test_valid_report_generates_summary_markdown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "report.json").write_text(
+                json.dumps(
+                    {
+                        "runner": "codex_cli",
+                        "status": "success",
+                        "mode": "plan-only",
+                        "summary_markdown": "## Plan\n- Add status filter",
+                        "modified_files": [],
+                        "test_commands": [],
+                        "test_results": [],
+                        "risks": [],
+                        "human_required": False,
+                        "next_actions": ["Review plan"],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            report = CodexCliRunner(command="codex").load_or_build_report(run_dir, RunMode.PLAN_ONLY)
+
+            self.assertEqual(report["status"], "success")
+            self.assertEqual((run_dir / "summary.md").read_text(encoding="utf-8"), "## Plan\n- Add status filter")
 
 
 if __name__ == "__main__":

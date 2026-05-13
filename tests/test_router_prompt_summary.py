@@ -46,7 +46,7 @@ class RouterPromptSummaryTest(unittest.TestCase):
         self.assertIn("修复发货失败", prompt)
         self.assertIn("Allowed Paths", prompt)
         self.assertIn("wiki_1", prompt)
-        self.assertIn("report.json", prompt)
+        self.assertIn("summary_markdown", prompt)
 
     def test_run_summary_writer_upserts_to_wiki(self):
         with tempfile.TemporaryDirectory() as tmp:

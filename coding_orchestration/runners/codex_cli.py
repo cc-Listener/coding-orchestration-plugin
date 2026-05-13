@@ -47,11 +47,11 @@ class CodexCliRunner(CodingAgentRunner):
             "--output-schema",
             str(run_dir / "report.schema.json"),
             "--output-last-message",
-            str(run_dir / "summary.md"),
+            str(run_dir / "report.json"),
             "--sandbox",
             sandbox,
-            "--ask-for-approval",
-            "never",
+            "-c",
+            'approval_policy="never"',
             "-C",
             str(cwd),
             "-",
@@ -146,10 +146,27 @@ class CodexCliRunner(CodingAgentRunner):
             try:
                 report = json.loads(report_path.read_text(encoding="utf-8"))
                 if self._is_valid_report(report):
+                    self.ensure_summary(run_dir, report)
                     return report
             except json.JSONDecodeError:
                 pass
         return self.build_fallback_report(run_dir=run_dir, mode=mode)
+
+    def ensure_summary(self, run_dir: Path, report: dict[str, Any]) -> None:
+        summary = str(report.get("summary_markdown") or "").strip()
+        if not summary:
+            next_actions = "\n".join(f"- {item}" for item in report.get("next_actions") or [])
+            risks = "\n".join(f"- {item}" for item in report.get("risks") or [])
+            parts = [
+                f"Status: {report.get('status', 'unknown')}",
+                "",
+                "Next actions:",
+                next_actions or "- none",
+            ]
+            if risks:
+                parts.extend(["", "Risks:", risks])
+            summary = "\n".join(parts)
+        (run_dir / "summary.md").write_text(summary, encoding="utf-8")
 
     def build_fallback_report(
         self,

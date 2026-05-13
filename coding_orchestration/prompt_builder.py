@@ -56,8 +56,8 @@ Publish Policy: {workflow.publish_policy}
 {wiki_block}
 
 ## Required Outputs
-- Write `summary.md` for human review.
-- Write `report.json` matching the runner schema.
+- Return a final JSON object matching the runner schema.
+- Put the human-readable plan or implementation summary in `summary_markdown`; Hermes will persist it to `summary.md` and show it in Feishu.
 - Do not publish, merge, or operate Feishu directly.
 """
 
