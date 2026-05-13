@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from .models import RunMode
@@ -22,7 +23,9 @@ class RunnerRouter:
         runners_cfg = config.get("runners") or {}
         runners: dict[str, Any] = {
             "codex_cli": CodexCliRunner(
-                command=(runners_cfg.get("codex_cli") or {}).get("command", "codex")
+                command=(runners_cfg.get("codex_cli") or {}).get("command")
+                or os.environ.get("CODEX_CLI_COMMAND")
+                or "codex"
             )
         }
         if (runners_cfg.get("claude_code") or {}).get("enabled"):

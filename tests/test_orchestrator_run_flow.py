@@ -86,6 +86,30 @@ class FakeRouter:
         return self.runner
 
 
+class FakeSource:
+    chat_type = "dm"
+    user_id = "user_1"
+    chat_id = "chat_1"
+    platform = "feishu"
+
+
+class FakeGatewayEvent:
+    def __init__(self, text: str):
+        self.text = text
+        self.source = FakeSource()
+
+
+class FakeGateway:
+    def __init__(self):
+        self.messages = []
+
+    def _is_user_authorized(self, source):
+        return True
+
+    def send_message(self, source, message):
+        self.messages.append(message)
+
+
 def _task_id_from_message(message: str) -> str:
     for part in message.split():
         if part.startswith("task_"):
@@ -122,6 +146,57 @@ manual_only
 
 
 class OrchestratorRunFlowTest(unittest.TestCase):
+    def test_gateway_event_auto_schedules_plan_only_for_resolved_project(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "order-system",
+                            "aliases": ["订单系统"],
+                            "path": str(project),
+                            "keywords": ["发货"],
+                        }
+                    ]
+                )
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("订单系统有个需求，新增发货状态筛选"),
+                gateway=gateway,
+            )
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(len(orchestrator.auto_started), 1)
+            task_id, scheduled_gateway, scheduled_event = orchestrator.auto_started[0]
+            self.assertEqual(scheduled_gateway, gateway)
+            self.assertEqual(scheduled_event.text, "订单系统有个需求，新增发货状态筛选")
+            self.assertEqual(ledger.get_task(task_id)["status"], "planned")
+            self.assertIn("plan-only 已自动启动", gateway.messages[0])
+
     def test_plan_only_run_generates_artifacts_updates_ledger_and_writes_run_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

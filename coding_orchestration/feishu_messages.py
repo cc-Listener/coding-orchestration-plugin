@@ -3,12 +3,20 @@ from __future__ import annotations
 from .models import ProjectCandidate
 
 
-def render_task_created(task_id: str, summary: str, project_name: str, project_path: str) -> str:
+def render_task_created(
+    task_id: str,
+    summary: str,
+    project_name: str,
+    project_path: str,
+    *,
+    auto_plan_started: bool = False,
+) -> str:
+    next_step = "plan-only 已自动启动，完成后会回写结果。" if auto_plan_started else "进入 plan-only。"
     return (
         f"已创建编码任务： {task_id}\n"
         f"项目：{project_name} ({project_path})\n"
         f"需求：{summary}\n"
-        "下一步：进入 plan-only。"
+        f"下一步：{next_step}"
     )
 
 

@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
@@ -17,6 +18,14 @@ class RouterPromptSummaryTest(unittest.TestCase):
         runner = router.select_runner(mode=RunMode.PLAN_ONLY)
 
         self.assertEqual(runner.name, "codex_cli")
+
+    def test_runner_router_reads_codex_command_from_env(self):
+        with patch.dict("os.environ", {"CODEX_CLI_COMMAND": "/opt/bin/codex"}):
+            router = RunnerRouter.from_config({"default_runner": "codex_cli"})
+
+        runner = router.select_runner(mode=RunMode.PLAN_ONLY)
+
+        self.assertEqual(runner.command, "/opt/bin/codex")
 
     def test_prompt_builder_includes_workflow_and_wiki_refs(self):
         prompt = PromptBuilder().build(

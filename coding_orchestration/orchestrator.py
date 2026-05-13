@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import re
+import threading
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -35,6 +36,14 @@ _PROJECT_HINT_RE = re.compile(
     r"(^|[\s，,。；;：:])(?:[A-Za-z][A-Za-z0-9_-]{1,}|[\u4e00-\u9fff]{2,})(?:运营后台|后台|系统|平台|项目|小程序|服务|模块|APP|app)",
     re.I,
 )
+
+
+@dataclass(frozen=True)
+class CreatedTask:
+    task_id: str
+    message: str
+    needs_human: bool
+    auto_plan_started: bool
 
 
 @dataclass
@@ -83,8 +92,10 @@ class CodingOrchestrator:
             return None
         if not self._should_handle_gateway_text(text, event):
             return None
-        message = self.create_task_from_text(text)
-        self._reply_if_possible(gateway, event, message)
+        created = self._create_task_from_text(text, auto_plan_on_ready=True)
+        self._reply_if_possible(gateway, event, created.message)
+        if created.auto_plan_started:
+            self._start_background_plan_only(created.task_id, gateway, event)
         return {"action": "skip", "reason": "handled_by_coding_orchestration"}
 
     def command_coding_task(self, raw_args: str) -> str:
@@ -147,6 +158,9 @@ class CodingOrchestrator:
         )
 
     def create_task_from_text(self, text: str) -> str:
+        return self._create_task_from_text(text).message
+
+    def _create_task_from_text(self, text: str, *, auto_plan_on_ready: bool = False) -> CreatedTask:
         explicit_project = self._extract_flag(text, "--project")
         requested_runner = self._extract_flag(text, "--runner")
         related_task_id = self._extract_flag(text, "--bug-of") or self._extract_flag(text, "--parent-task")
@@ -188,8 +202,25 @@ class CodingOrchestrator:
             options={"dedupe_key": f"{task_id}:draft_knowledge"},
         )
         if resolved.needs_human:
-            return render_task_needs_human(task_id, clean_text, resolved.candidates)
-        return render_task_created(task_id, clean_text, resolved.project_name or "", resolved.project_path or "")
+            return CreatedTask(
+                task_id=task_id,
+                message=render_task_needs_human(task_id, clean_text, resolved.candidates),
+                needs_human=True,
+                auto_plan_started=False,
+            )
+        auto_plan_started = bool(auto_plan_on_ready)
+        return CreatedTask(
+            task_id=task_id,
+            message=render_task_created(
+                task_id,
+                clean_text,
+                resolved.project_name or "",
+                resolved.project_path or "",
+                auto_plan_started=auto_plan_started,
+            ),
+            needs_human=False,
+            auto_plan_started=auto_plan_started,
+        )
 
     def start_run(
         self,
@@ -526,14 +557,68 @@ class CodingOrchestrator:
 
         return json.dumps(data, ensure_ascii=False, indent=2)
 
+    def _start_background_plan_only(self, task_id: str, gateway: Any, event: Any) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        worker = threading.Thread(
+            target=self._run_plan_only_and_notify,
+            args=(task_id, gateway, event, loop),
+            name=f"coding-plan-{task_id}",
+            daemon=True,
+        )
+        worker.start()
+
+    def _run_plan_only_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
+        try:
+            result = self.start_run(task_id, mode=RunMode.PLAN_ONLY)
+            message = (
+                f"[{task_id}] plan-only run 已完成：{result['run_id']}\n"
+                f"状态：{result['task_status']}\n"
+                f"artifact：{result['artifacts']['run_dir']}"
+            )
+        except Exception as exc:
+            try:
+                self.ledger.update_status(task_id, TaskStatus.FAILED.value)
+            except Exception:
+                pass
+            message = f"[{task_id}] plan-only run 启动或执行失败：{exc}\n请人工检查 Hermes 日志和 task ledger。"
+        self._reply_if_possible(gateway, event, message, loop=loop)
+
     @staticmethod
-    def _reply_if_possible(gateway: Any, event: Any, message: str) -> None:
+    async def _call_sender(sender: Any, *args: Any) -> None:
+        result = sender(*args)
+        if inspect.isawaitable(result):
+            await result
+
+    @staticmethod
+    def _schedule_sender(sender: Any, args: tuple[Any, ...], loop: Any | None) -> None:
+        if loop is None:
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+        if loop is not None and getattr(loop, "is_running", lambda: False)():
+            loop.call_soon_threadsafe(
+                lambda: asyncio.create_task(CodingOrchestrator._call_sender(sender, *args))
+            )
+            return
+        try:
+            asyncio.run(CodingOrchestrator._call_sender(sender, *args))
+        except RuntimeError:
+            result = sender(*args)
+            if inspect.isawaitable(result):
+                pass
+
+    @staticmethod
+    def _reply_if_possible(gateway: Any, event: Any, message: str, *, loop: Any | None = None) -> None:
         # Gateway reply APIs differ by platform. The plugin command path returns
         # text directly; the hook path is best-effort and intentionally silent.
         sender = getattr(gateway, "send_message", None)
         if callable(sender):
             try:
-                sender(event.source, message)
+                CodingOrchestrator._schedule_sender(sender, (event.source, message), loop)
             except Exception:
                 pass
             return
@@ -545,8 +630,6 @@ class CodingOrchestrator:
         if not callable(send) or not chat_id:
             return
         try:
-            result = send(chat_id, message)
-            if inspect.isawaitable(result):
-                asyncio.get_running_loop().create_task(result)
+            CodingOrchestrator._schedule_sender(send, (chat_id, message), loop)
         except Exception:
             pass
