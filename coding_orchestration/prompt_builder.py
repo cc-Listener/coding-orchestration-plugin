@@ -57,7 +57,10 @@ Publish Policy: {workflow.publish_policy}
 
 ## Required Outputs
 - Return a final JSON object matching the runner schema.
-- Put the human-readable plan or implementation summary in `summary_markdown`; Hermes will persist it to `summary.md` and show it in Feishu.
+- Put the human-readable plan or implementation summary in `summary_markdown`; Hermes will persist it to `summary.md` and show it in Feishu for human confirmation.
+- In plan-only mode, `summary_markdown` must contain a concrete plan with scope, files/modules to inspect, implementation steps, tests to run, risks, and open questions.
+- In plan-only mode, do not modify files; set `human_required` to true when the plan needs confirmation before implementation.
+- Use `test_results` entries shaped as `{{"command":"...","status":"passed|failed|not_run|blocked","output_summary":"..."}}`.
 - Do not publish, merge, or operate Feishu directly.
 """
 

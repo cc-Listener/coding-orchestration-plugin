@@ -125,11 +125,7 @@ class CodingOrchestrator:
         if not task_id:
             return "请提供 task_id。"
         result = self.start_run(task_id, mode=RunMode.PLAN_ONLY)
-        return (
-            f"[{task_id}] plan-only run 已完成：{result['run_id']}\n"
-            f"状态：{result['task_status']}\n"
-            f"artifact：{result['artifacts']['run_dir']}"
-        )
+        return self._format_run_completion_message(task_id, result)
 
     def command_coding_implement(self, raw_args: str) -> str:
         task_id = raw_args.strip()
@@ -320,7 +316,7 @@ class CodingOrchestrator:
             ]
             result.artifacts.report.write_text(self._json(report), encoding="utf-8")
 
-        task_status = TaskStateMachine.task_status_for_run_status(status)
+        task_status = self._task_status_for_run_result(mode, status)
         self.ledger.update_status(task_id, task_status.value)
         artifact_record = self._artifact_record(result.artifacts)
         self.ledger.append_artifact(task_id, artifact_record)
@@ -509,6 +505,7 @@ class CodingOrchestrator:
     def _write_report_schema(path: Path) -> None:
         schema = {
             "type": "object",
+            "additionalProperties": False,
             "required": [
                 "runner",
                 "status",
@@ -534,7 +531,22 @@ class CodingOrchestrator:
                 },
                 "modified_files": {"type": "array", "items": {"type": "string"}},
                 "test_commands": {"type": "array", "items": {"type": "string"}},
-                "test_results": {"type": "array"},
+                "test_results": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["command", "status", "output_summary"],
+                        "properties": {
+                            "command": {"type": "string"},
+                            "status": {
+                                "type": "string",
+                                "enum": ["passed", "failed", "not_run", "blocked"],
+                            },
+                            "output_summary": {"type": "string"},
+                        },
+                    },
+                },
                 "risks": {"type": "array", "items": {"type": "string"}},
                 "human_required": {"type": "boolean"},
                 "next_actions": {"type": "array", "items": {"type": "string"}},
@@ -555,6 +567,12 @@ class CodingOrchestrator:
             "summary": str(artifacts.summary),
             "diff": str(artifacts.diff),
         }
+
+    @staticmethod
+    def _task_status_for_run_result(mode: RunMode, status: str) -> TaskStatus:
+        if mode == RunMode.PLAN_ONLY and status == AgentRunStatus.SUCCESS.value:
+            return TaskStatus.PLANNED
+        return TaskStateMachine.task_status_for_run_status(status)
 
     @staticmethod
     def _json(data: Any) -> str:
@@ -607,6 +625,7 @@ class CodingOrchestrator:
         summary = CodingOrchestrator._read_text_excerpt(artifacts.get("summary"), limit=1800)
         if summary:
             lines.extend(["", "计划摘要：", summary])
+            lines.extend(["", "请人工确认计划完整度和正确性；确认后再进入 implementation。"])
 
         risks = [str(item) for item in report.get("risks") or [] if str(item).strip()]
         if risks:

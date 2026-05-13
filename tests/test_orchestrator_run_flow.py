@@ -276,6 +276,51 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIn("Structured report was not produced.", message)
             self.assertIn("unexpected argument", message)
 
+    def test_plan_only_completion_reply_asks_human_to_confirm_plan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            report_path = run_dir / "report.json"
+            summary_path = run_dir / "summary.md"
+            report_path.write_text(
+                json.dumps(
+                    {
+                        "status": "success",
+                        "risks": [],
+                        "next_actions": ["确认后进入 implementation。"],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            summary_path.write_text("## 计划\n- 增加状态筛选", encoding="utf-8")
+
+            message = CodingOrchestrator._format_run_completion_message(
+                "task_1",
+                {
+                    "run_id": "run_1",
+                    "task_status": "ready_for_review",
+                    "artifacts": {
+                        "run_dir": str(run_dir),
+                        "report": str(report_path),
+                        "summary": str(summary_path),
+                    },
+                },
+            )
+
+            self.assertIn("计划摘要：", message)
+            self.assertIn("增加状态筛选", message)
+            self.assertIn("请人工确认计划完整度和正确性", message)
+
+    def test_report_schema_disallows_additional_properties_for_structured_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema_path = Path(tmp) / "report.schema.json"
+
+            CodingOrchestrator._write_report_schema(schema_path)
+
+            schema = json.loads(schema_path.read_text(encoding="utf-8"))
+            self.assertIs(schema["additionalProperties"], False)
+            self.assertEqual(schema["properties"]["test_results"]["items"]["additionalProperties"], False)
+
     def test_plan_only_run_generates_artifacts_updates_ledger_and_writes_run_summary(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -326,7 +371,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             task = ledger.get_task(task_id)
             self.assertEqual(result["status"], "success")
-            self.assertEqual(task["status"], "ready_for_review")
+            self.assertEqual(task["status"], "planned")
             self.assertEqual(task["llm_wiki_refs"][0]["id"], wiki_ref["id"])
             self.assertEqual(len(task["agent_runs"]), 1)
             self.assertTrue(Path(task["artifacts"][0]["input_prompt"]).exists())
@@ -505,7 +550,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             message = orchestrator.command_coding_run(task_id)
 
             self.assertIn("plan-only run 已完成", message)
-            self.assertIn("ready_for_review", message)
+            self.assertIn("planned", message)
+            self.assertIn("请人工确认计划完整度和正确性", message)
             self.assertEqual(fake_runner.calls[0]["mode"], RunMode.PLAN_ONLY)
 
     def test_command_coding_implement_starts_implementation_for_existing_task(self):
