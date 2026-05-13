@@ -137,7 +137,7 @@ coding_orchestration:
 /codex-task --project 订单系统 生成实现计划
 ```
 
-执行 plan-only run：
+飞书 Gateway 中项目识别成功的自然语言需求会自动启动 plan-only run，并在完成后回写结果。手动创建任务或补跑已有任务时，可以执行 plan-only run：
 
 ```text
 /coding-run task_xxx
