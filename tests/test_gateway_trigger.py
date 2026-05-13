@@ -9,6 +9,12 @@ class GatewayTriggerTest(unittest.TestCase):
         self.assertFalse(CodingOrchestrator._looks_like_task("这个需求晚点再聊"))
         self.assertFalse(CodingOrchestrator._looks_like_task("修复一下群公告文案"))
 
+    def test_project_scoped_natural_requirement_triggers_gateway_hook(self):
+        self.assertTrue(
+            CodingOrchestrator._looks_like_task("BPS运营后台有个需求，在策略列表上，新增一个状态筛选")
+        )
+        self.assertTrue(CodingOrchestrator._looks_like_task("订单系统新增一个发货状态筛选"))
+
     def test_explicit_coding_commands_trigger_gateway_hook(self):
         self.assertTrue(CodingOrchestrator._looks_like_task("/coding-task --project 订单系统 修复发货"))
         self.assertTrue(CodingOrchestrator._looks_like_task("/codex-task --project 订单系统 写计划"))

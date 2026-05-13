@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from coding_orchestration.models import ArtifactSet, RunnerCapabilities
+from ..models import ArtifactSet, RunnerCapabilities
 
 
 @dataclass(frozen=True)

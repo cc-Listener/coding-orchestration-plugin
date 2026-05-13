@@ -7,8 +7,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from coding_orchestration.models import AgentRunStatus, ArtifactSet, RunMode, RunnerCapabilities
 from .base import CodingAgentRunner, RunResult
+from ..models import AgentRunStatus, ArtifactSet, RunMode, RunnerCapabilities
 
 
 class CodexCliRunner(CodingAgentRunner):

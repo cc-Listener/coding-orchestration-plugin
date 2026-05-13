@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from coding_orchestration.models import ArtifactSet, RunnerCapabilities
 from .base import CodingAgentRunner
+from ..models import ArtifactSet, RunnerCapabilities
 
 
 class GenericCliRunner(CodingAgentRunner):

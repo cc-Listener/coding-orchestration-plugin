@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 import re
 import uuid
 from dataclasses import dataclass, field
@@ -23,6 +25,14 @@ from .symphony_compat.workspace_manager import WorkspaceManager
 
 _TASK_TRIGGER_RE = re.compile(
     r"(^|\s)/(coding-task|codex-task)\b|(^|\s)(coding-task|codex-task)\b|编码任务|project\.feishu\.cn|meego\.feishu\.cn",
+    re.I,
+)
+_NATURAL_TASK_INTENT_RE = re.compile(
+    r"(需求|bug|缺陷|修复|新增|增加|添加|实现|开发|优化|改造|改一下|筛选)",
+    re.I,
+)
+_PROJECT_HINT_RE = re.compile(
+    r"(^|[\s，,。；;：:])(?:[A-Za-z][A-Za-z0-9_-]{1,}|[\u4e00-\u9fff]{2,})(?:运营后台|后台|系统|平台|项目|小程序|服务|模块|APP|app)",
     re.I,
 )
 
@@ -69,7 +79,9 @@ class CodingOrchestrator:
 
     def handle_gateway_event(self, event: Any, gateway: Any = None, session_store: Any = None) -> dict | None:
         text = str(getattr(event, "text", "") or "")
-        if not self._looks_like_task(text):
+        if not self._gateway_user_is_authorized(gateway, event):
+            return None
+        if not self._should_handle_gateway_text(text, event):
             return None
         message = self.create_task_from_text(text)
         self._reply_if_possible(gateway, event, message)
@@ -316,7 +328,35 @@ class CodingOrchestrator:
 
     @staticmethod
     def _looks_like_task(text: str) -> bool:
-        return bool(_TASK_TRIGGER_RE.search(text or ""))
+        value = text or ""
+        return bool(_TASK_TRIGGER_RE.search(value) or CodingOrchestrator._looks_like_natural_task(value))
+
+    @staticmethod
+    def _looks_like_natural_task(text: str) -> bool:
+        value = text or ""
+        return bool(_NATURAL_TASK_INTENT_RE.search(value) and _PROJECT_HINT_RE.search(value))
+
+    @staticmethod
+    def _should_handle_gateway_text(text: str, event: Any) -> bool:
+        value = text or ""
+        if _TASK_TRIGGER_RE.search(value):
+            return True
+        source = getattr(event, "source", None)
+        chat_type = str(getattr(source, "chat_type", "") or "").lower()
+        if chat_type and chat_type != "dm":
+            return False
+        return CodingOrchestrator._looks_like_natural_task(value)
+
+    @staticmethod
+    def _gateway_user_is_authorized(gateway: Any, event: Any) -> bool:
+        checker = getattr(gateway, "_is_user_authorized", None)
+        source = getattr(event, "source", None)
+        if not callable(checker) or source is None or getattr(source, "user_id", None) is None:
+            return True
+        try:
+            return bool(checker(source))
+        except Exception:
+            return True
 
     @staticmethod
     def _extract_flag(text: str, flag: str) -> str | None:
@@ -496,3 +536,17 @@ class CodingOrchestrator:
                 sender(event.source, message)
             except Exception:
                 pass
+            return
+        source = getattr(event, "source", None)
+        adapters = getattr(gateway, "adapters", {}) if gateway is not None else {}
+        adapter = adapters.get(getattr(source, "platform", None)) if isinstance(adapters, dict) else None
+        chat_id = getattr(source, "chat_id", None)
+        send = getattr(adapter, "send", None)
+        if not callable(send) or not chat_id:
+            return
+        try:
+            result = send(chat_id, message)
+            if inspect.isawaitable(result):
+                asyncio.get_running_loop().create_task(result)
+        except Exception:
+            pass
