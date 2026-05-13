@@ -98,6 +98,25 @@ coding_orchestration:
     root: ~/.hermes/coding-orchestration/llm-wiki
 ```
 
+### 飞书 Project 需求读取
+
+当飞书消息里包含 `project.feishu.cn/<project_key>/<type>/detail/<id>` 链接时，插件会先由 Hermes 读取工作项详情，把标题、描述和字段摘要整理进 Task Ledger、LLM Wiki draft 和 Codex prompt。Codex runner 只接收整理后的需求上下文，不直接访问飞书。
+
+飞书 Project/Meegle 工作项详情通常需要 Project 插件身份权限。请在 Hermes 环境里配置：
+
+```bash
+FEISHU_PROJECT_PLUGIN_TOKEN=...
+FEISHU_PROJECT_USER_KEY=...
+```
+
+如果你的租户使用了不同的工作项详情接口，可以覆盖 URL 模板：
+
+```bash
+FEISHU_PROJECT_WORK_ITEM_DETAIL_URL_TEMPLATE=https://project.feishu.cn/open_api/{project_key}/work_item/{work_item_type_key}/{work_item_id}
+```
+
+如果 Hermes 无法读取 Project 描述，插件会创建任务但停在 `needs_human`，并提示补充权限或直接粘贴需求描述；不会把只有链接的任务交给 Codex 自动 plan。
+
 ## 项目配置
 
 项目可以通过 `project-registry.json` 或项目内 `WORKFLOW.md` 接入。

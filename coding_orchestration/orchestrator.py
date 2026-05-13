@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any
 
 from .diff_guard import DiffGuard
-from .feishu_messages import render_task_created, render_task_needs_human
+from .feishu_messages import render_task_created, render_task_needs_human, render_task_needs_source_context
+from .feishu_project_reader import FeishuProjectReader
 from .ledger import TaskLedger
 from .llm_wiki_adapter import LocalLlmWikiAdapter
 from .models import AgentRunStatus, RunManifest, RunMode, RunnerName, TaskStatus
@@ -54,6 +55,7 @@ class CodingOrchestrator:
     run_root: Path | None = None
     workspace_root: Path | None = None
     runner_router: Any | None = None
+    feishu_project_reader: Any | None = None
     workflow_loader: WorkflowLoader = field(default_factory=WorkflowLoader)
     prompt_builder: PromptBuilder = field(default_factory=PromptBuilder)
     diff_guard: DiffGuard = field(default_factory=DiffGuard)
@@ -70,6 +72,8 @@ class CodingOrchestrator:
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         if self.runner_router is None:
             self.runner_router = RunnerRouter.from_config({"default_runner": "codex_cli"})
+        if self.feishu_project_reader is None:
+            self.feishu_project_reader = FeishuProjectReader()
         self.workspace_manager = WorkspaceManager(self.workspace_root)
         self.summary_writer = RunSummaryWriter(self.wiki)
 
@@ -92,7 +96,12 @@ class CodingOrchestrator:
             return None
         if not self._should_handle_gateway_text(text, event):
             return None
-        created = self._create_task_from_text(text, auto_plan_on_ready=True)
+        source_context = self._read_source_context(text, gateway)
+        created = self._create_task_from_text(
+            text,
+            auto_plan_on_ready=True,
+            source_context=source_context,
+        )
         self._reply_if_possible(gateway, event, created.message)
         if created.auto_plan_started:
             self._start_background_plan_only(created.task_id, gateway, event)
@@ -156,18 +165,30 @@ class CodingOrchestrator:
     def create_task_from_text(self, text: str) -> str:
         return self._create_task_from_text(text).message
 
-    def _create_task_from_text(self, text: str, *, auto_plan_on_ready: bool = False) -> CreatedTask:
+    def _create_task_from_text(
+        self,
+        text: str,
+        *,
+        auto_plan_on_ready: bool = False,
+        source_context: dict[str, Any] | None = None,
+    ) -> CreatedTask:
         explicit_project = self._extract_flag(text, "--project")
         requested_runner = self._extract_flag(text, "--runner")
         related_task_id = self._extract_flag(text, "--bug-of") or self._extract_flag(text, "--parent-task")
         clean_text = self._strip_flags(text)
-        resolved = self.resolver.resolve(clean_text, explicit_project=explicit_project)
+        requirement_summary = self._requirement_summary(clean_text, source_context)
+        message_summary = self._message_summary(clean_text, source_context)
+        resolved = self.resolver.resolve(requirement_summary, explicit_project=explicit_project)
+        source_context = source_context or {}
+        source_type = str(source_context.get("source_type") or "feishu_chat")
+        source_needs_human = bool(source_context.get("requires_human_context"))
         task_id = f"task_{uuid.uuid4().hex[:12]}"
         self.ledger.create_task(
             task_id=task_id,
             source={
-                "type": "feishu_chat",
+                "type": source_type,
                 "raw_text": text,
+                "source_context": self._source_context_for_ledger(source_context),
                 "project_name": resolved.project_name,
                 "project_confidence": resolved.confidence,
                 "match_evidence": [
@@ -177,9 +198,9 @@ class CodingOrchestrator:
                 "requested_runner": requested_runner,
                 "related_task_id": related_task_id,
             },
-            requirement_summary=clean_text,
+            requirement_summary=requirement_summary,
             project_path=resolved.project_path,
-            status="needs_human" if resolved.needs_human else "planned",
+            status="needs_human" if resolved.needs_human or source_needs_human else "planned",
             llm_wiki_refs=[],
             human_decisions=[],
         )
@@ -187,20 +208,32 @@ class CodingOrchestrator:
             {
                 "kind": "draft_knowledge",
                 "title": f"需求草稿 {task_id}",
-                "body": clean_text,
+                "body": requirement_summary,
                 "source_refs": [{"type": "task", "task_id": task_id}],
                 "project": resolved.project_name,
                 "module": None,
                 "tags": ["requirement", "draft"],
-                "confidence": "low" if resolved.needs_human else "medium",
+                "confidence": "low" if resolved.needs_human or source_needs_human else "medium",
                 "status": "draft",
             },
             options={"dedupe_key": f"{task_id}:draft_knowledge"},
         )
+        if source_needs_human:
+            return CreatedTask(
+                task_id=task_id,
+                message=render_task_needs_source_context(
+                    task_id,
+                    message_summary,
+                    str(source_context.get("url") or ""),
+                    str(source_context.get("error") or ""),
+                ),
+                needs_human=True,
+                auto_plan_started=False,
+            )
         if resolved.needs_human:
             return CreatedTask(
                 task_id=task_id,
-                message=render_task_needs_human(task_id, clean_text, resolved.candidates),
+                message=render_task_needs_human(task_id, message_summary, resolved.candidates),
                 needs_human=True,
                 auto_plan_started=False,
             )
@@ -209,7 +242,7 @@ class CodingOrchestrator:
             task_id=task_id,
             message=render_task_created(
                 task_id,
-                clean_text,
+                message_summary,
                 resolved.project_name or "",
                 resolved.project_path or "",
                 auto_plan_started=auto_plan_started,
@@ -217,6 +250,59 @@ class CodingOrchestrator:
             needs_human=False,
             auto_plan_started=auto_plan_started,
         )
+
+    def _read_source_context(self, text: str, gateway: Any) -> dict[str, Any] | None:
+        reader = self.feishu_project_reader
+        if reader is None or not hasattr(reader, "read_from_text"):
+            return None
+        try:
+            return reader.read_from_text(text, gateway=gateway)
+        except Exception as exc:
+            link = FeishuProjectReader.extract_first_link(text)
+            if link is None:
+                return None
+            return {
+                "read_status": "failed",
+                "source_type": f"feishu_project_{link.work_item_type_key}",
+                "url": link.url,
+                "project_key": link.project_key,
+                "work_item_type_key": link.work_item_type_key,
+                "work_item_id": link.work_item_id,
+                "error": str(exc),
+                "requires_human_context": True,
+            }
+
+    @staticmethod
+    def _requirement_summary(clean_text: str, source_context: dict[str, Any] | None) -> str:
+        if not source_context or source_context.get("read_status") != "success":
+            return clean_text
+        summary = str(source_context.get("summary_markdown") or "").strip()
+        if not summary:
+            return clean_text
+        return f"{clean_text}\n\n{summary}".strip()
+
+    @staticmethod
+    def _message_summary(clean_text: str, source_context: dict[str, Any] | None) -> str:
+        if source_context and source_context.get("title"):
+            return str(source_context["title"])
+        return clean_text
+
+    @staticmethod
+    def _source_context_for_ledger(source_context: dict[str, Any]) -> dict[str, Any]:
+        if not source_context:
+            return {}
+        allowed_keys = {
+            "read_status",
+            "source_type",
+            "url",
+            "project_key",
+            "work_item_type_key",
+            "work_item_id",
+            "title",
+            "error",
+            "requires_human_context",
+        }
+        return {key: source_context[key] for key in allowed_keys if key in source_context}
 
     def start_run(
         self,

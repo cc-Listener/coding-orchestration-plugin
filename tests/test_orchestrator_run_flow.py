@@ -111,6 +111,16 @@ class FakeGateway:
         self.messages.append(message)
 
 
+class FakeFeishuProjectReader:
+    def __init__(self, context):
+        self.context = context
+        self.calls = []
+
+    def read_from_text(self, text, gateway=None):
+        self.calls.append((text, gateway))
+        return self.context
+
+
 def _task_id_from_message(message: str) -> str:
     for part in message.split():
         if part.startswith("task_"):
@@ -197,6 +207,134 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(scheduled_event.text, "订单系统有个需求，新增发货状态筛选")
             self.assertEqual(ledger.get_task(task_id)["status"], "planned")
             self.assertIn("plan-only 已自动启动", gateway.messages[0])
+
+    def test_feishu_project_link_enriches_requirement_before_plan_only(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "bps-admin",
+                            "aliases": ["BPS运营后台"],
+                            "path": str(project),
+                            "keywords": ["订单列表"],
+                        }
+                    ]
+                )
+            )
+            reader = FakeFeishuProjectReader(
+                {
+                    "read_status": "success",
+                    "source_type": "feishu_project_story",
+                    "url": "https://project.feishu.cn/z9b9t3/story/detail/6983769492",
+                    "project_key": "z9b9t3",
+                    "work_item_type_key": "story",
+                    "work_item_id": "6983769492",
+                    "title": "BPS运营后台订单列表新增筛选",
+                    "summary_markdown": "## BPS运营后台订单列表新增筛选\n需求描述：订单列表需要新增店铺筛选。",
+                }
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+                feishu_project_reader=reader,
+            )
+            gateway = FakeGateway()
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("https://project.feishu.cn/z9b9t3/story/detail/6983769492"),
+                gateway=gateway,
+            )
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(len(orchestrator.auto_started), 1)
+            task_id = orchestrator.auto_started[0][0]
+            task = ledger.get_task(task_id)
+            self.assertEqual(task["status"], "planned")
+            self.assertEqual(task["source"]["type"], "feishu_project_story")
+            self.assertIn("订单列表需要新增店铺筛选", task["requirement_summary"])
+            self.assertIn("BPS运营后台订单列表新增筛选", gateway.messages[0])
+
+    def test_feishu_project_link_without_readable_detail_requires_human(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "bps-admin",
+                            "aliases": ["BPS运营后台"],
+                            "path": str(project),
+                            "keywords": ["订单列表"],
+                        }
+                    ]
+                )
+            )
+            reader = FakeFeishuProjectReader(
+                {
+                    "read_status": "failed",
+                    "source_type": "feishu_project_story",
+                    "url": "https://project.feishu.cn/z9b9t3/story/detail/6983769492",
+                    "error": "Feishu Project reader is not configured.",
+                    "requires_human_context": True,
+                }
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+                feishu_project_reader=reader,
+            )
+            gateway = FakeGateway()
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(
+                    "BPS运营后台 https://project.feishu.cn/z9b9t3/story/detail/6983769492"
+                ),
+                gateway=gateway,
+            )
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(orchestrator.auto_started, [])
+            task_id = _task_id_from_message(gateway.messages[0])
+            task = ledger.get_task(task_id)
+            self.assertEqual(task["status"], "needs_human")
+            self.assertIn("无法读取飞书 Project 描述", gateway.messages[0])
+            self.assertIn("FEISHU_PROJECT_PLUGIN_TOKEN", gateway.messages[0])
 
     def test_plan_only_completion_reply_includes_summary(self):
         with tempfile.TemporaryDirectory() as tmp:

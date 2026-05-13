@@ -34,5 +34,16 @@ def render_task_needs_human(task_id: str, summary: str, candidates: list[Project
     return "\n".join(lines)
 
 
+def render_task_needs_source_context(task_id: str, summary: str, source_url: str, reason: str) -> str:
+    return (
+        f"任务需要人工确认： {task_id}\n"
+        f"需求：{summary}\n"
+        f"飞书 Project：{source_url}\n"
+        f"原因：无法读取飞书 Project 描述。{reason}\n"
+        "下一步：请为 Hermes 配置 FEISHU_PROJECT_PLUGIN_TOKEN / FEISHU_PROJECT_USER_KEY，"
+        "或在飞书消息里补充/粘贴需求描述后重新提交。"
+    )
+
+
 def render_error(task_id: str, status: str, reason: str) -> str:
     return f"[{task_id}] 异常：{reason}\n当前状态：{status}\n请人工确认下一步。"
