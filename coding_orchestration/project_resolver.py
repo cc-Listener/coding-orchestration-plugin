@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -45,13 +46,20 @@ class ProjectRegistry:
         )
 
     def find_by_name_or_alias(self, value: str) -> Project | None:
-        needle = value.strip().lower()
+        needle = normalize_text(value).strip().lower()
         for project in self.projects:
-            if project.name.lower() == needle:
+            if normalize_text(project.name).lower() == needle:
                 return project
-            if any(alias.lower() == needle for alias in project.aliases):
+            if any(normalize_text(alias).lower() == needle for alias in project.aliases):
                 return project
         return None
+
+
+def normalize_text(value: str) -> str:
+    text = value or ""
+    text = re.sub(r"\\([\\`*_{}\[\]()#+\-.!|>])", r"\1", text)
+    text = text.replace("\u200b", "").replace("\ufeff", "")
+    return re.sub(r"[ \t]+", " ", text).strip()
 
 
 class ProjectResolver:
@@ -63,7 +71,7 @@ class ProjectResolver:
         self.registry = registry
 
     def resolve(self, text: str, explicit_project: str | None = None) -> ProjectResolveResult:
-        source_text = text or ""
+        source_text = normalize_text(text)
         if explicit_project:
             project = self.registry.find_by_name_or_alias(explicit_project)
             if project:
@@ -85,10 +93,10 @@ class ProjectResolver:
         exact_matches: list[tuple[Project, MatchEvidence]] = []
         lowered = source_text.lower()
         for project in self.registry.projects:
-            if project.name.lower() in lowered:
+            if normalize_text(project.name).lower() in lowered:
                 exact_matches.append((project, MatchEvidence("name", project.name, 0.95)))
             for alias in project.aliases:
-                if alias.lower() in lowered:
+                if normalize_text(alias).lower() in lowered:
                     exact_matches.append((project, MatchEvidence("alias", alias, 0.9)))
 
         unique_exact = self._unique_projects(exact_matches)

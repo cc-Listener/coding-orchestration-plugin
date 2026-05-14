@@ -7,6 +7,7 @@ from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import ArtifactSet, RunMode, RunnerCapabilities
 from coding_orchestration.orchestrator import CodingOrchestrator
+from coding_orchestration.project_knowledge_resolver import ProjectKnowledgeResolver
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
 from coding_orchestration.runners.base import RunResult
 
@@ -95,9 +96,11 @@ class FakeSource:
 
 
 class FakeGatewayEvent:
-    def __init__(self, text: str):
+    def __init__(self, text: str, media_urls=None, media_types=None):
         self.text = text
         self.source = FakeSource()
+        self.media_urls = list(media_urls or [])
+        self.media_types = list(media_types or [])
 
 
 class FakeGateway:
@@ -207,6 +210,136 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(scheduled_event.text, "订单系统有个需求，新增发货状态筛选")
             self.assertEqual(ledger.get_task(task_id)["status"], "planned")
             self.assertIn("plan-only 已自动启动", gateway.messages[0])
+
+    def test_gateway_event_handles_feishu_escaped_project_slug_and_media(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "bps-admin",
+                            "aliases": ["BPS运营后台", "bps-admin"],
+                            "path": str(project),
+                            "keywords": ["订单列表"],
+                        }
+                    ]
+                )
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(
+                    "这是bps\\-admin的一个前端需求，主要改动订单列表\n[Image]",
+                    media_urls=["/Users/xiaojing/.hermes/image_cache/img_a.jpg"],
+                    media_types=["image/jpeg"],
+                ),
+                gateway=gateway,
+            )
+
+            self.assertEqual(result["action"], "skip")
+            task_id = orchestrator.auto_started[0][0]
+            task = ledger.get_task(task_id)
+            self.assertEqual(task["source"]["project_name"], "bps-admin")
+            self.assertIn("bps-admin", task["requirement_summary"])
+            self.assertEqual(
+                task["source"]["media"][0]["url"],
+                "/Users/xiaojing/.hermes/image_cache/img_a.jpg",
+            )
+            self.assertEqual(task["llm_wiki_refs"][0]["kind"], "draft_knowledge")
+            draft = wiki.read(task["llm_wiki_refs"][0]["id"])
+            self.assertIn(
+                {
+                    "type": "media",
+                    "url": "/Users/xiaojing/.hermes/image_cache/img_a.jpg",
+                    "media_type": "image/jpeg",
+                },
+                draft["source_refs"],
+            )
+
+    def test_gateway_event_resolves_project_from_llm_wiki_profile_without_registry_entry(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "crm-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            wiki.upsert(
+                {
+                    "kind": "project_profile",
+                    "title": "CRM Admin 项目画像",
+                    "body": "CRM后台 客户列表 客户筛选",
+                    "project": "crm-admin",
+                    "project_id": "crm-admin",
+                    "name": "crm-admin",
+                    "aliases": ["CRM后台"],
+                    "local_paths": [str(project)],
+                    "modules": [
+                        {
+                            "name": "客户列表",
+                            "keywords": ["客户列表", "客户筛选"],
+                            "paths": ["src/customer"],
+                        }
+                    ],
+                    "status": "verified",
+                },
+                options={"dedupe_key": "project:crm-admin"},
+            )
+            resolver = ProjectKnowledgeResolver(
+                wiki=wiki,
+                fallback=ProjectResolver(ProjectRegistry([])),
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("CRM后台有个需求，客户列表新增状态筛选"),
+                gateway=gateway,
+            )
+
+            self.assertEqual(result["action"], "skip")
+            task_id = orchestrator.auto_started[0][0]
+            task = ledger.get_task(task_id)
+            self.assertEqual(task["source"]["project_name"], "crm-admin")
+            self.assertEqual(task["project_path"], str(project))
+            self.assertEqual(task["source"]["match_evidence"][0]["source"], "llm_wiki")
 
     def test_gateway_confirmation_starts_implementation_for_recent_planned_task(self):
         class RecordingOrchestrator(CodingOrchestrator):
@@ -363,6 +496,17 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["status"], "planned")
             self.assertEqual(task["source"]["type"], "feishu_project_story")
             self.assertIn("订单列表需要新增店铺筛选", task["requirement_summary"])
+            draft = wiki.read(task["llm_wiki_refs"][0]["id"])
+            self.assertIn(
+                {
+                    "type": "feishu_project_story",
+                    "url": "https://project.feishu.cn/z9b9t3/story/detail/6983769492",
+                    "project_key": "z9b9t3",
+                    "work_item_type_key": "story",
+                    "work_item_id": "6983769492",
+                },
+                draft["source_refs"],
+            )
             self.assertIn("BPS运营后台订单列表新增筛选", gateway.messages[0])
 
     def test_feishu_project_link_without_readable_detail_requires_human(self):

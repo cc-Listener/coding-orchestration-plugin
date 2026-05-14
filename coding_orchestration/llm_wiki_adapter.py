@@ -44,6 +44,18 @@ class LocalLlmWikiAdapter:
         refs.sort(key=lambda ref: str(ref.get("id") or ""))
         return refs
 
+    def find_by_kind(self, kind: str, filters: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        filters = filters or {}
+        refs: list[dict[str, Any]] = []
+        for doc in self._all_docs():
+            if doc.get("kind") != kind:
+                continue
+            if any(doc.get(key) != value for key, value in filters.items()):
+                continue
+            refs.append(self._ref(doc))
+        refs.sort(key=lambda ref: str(ref.get("id") or ""))
+        return refs
+
     def upsert(self, document: dict[str, Any], options: dict[str, Any] | None = None) -> dict[str, Any]:
         options = options or {}
         dedupe_key = options.get("dedupe_key") or document.get("id") or uuid.uuid4().hex

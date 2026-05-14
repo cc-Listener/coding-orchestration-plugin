@@ -42,6 +42,25 @@ class ProjectResolverTest(unittest.TestCase):
         self.assertEqual(result.project_name, "order-system")
         self.assertGreaterEqual(result.confidence, 0.8)
 
+    def test_feishu_markdown_escaped_project_slug_auto_routes(self):
+        resolver = ProjectResolver(
+            ProjectRegistry(
+                [
+                    {
+                        "name": "bps-admin",
+                        "aliases": ["bps-admin"],
+                        "path": "/repo/bps-admin",
+                        "keywords": ["订单列表"],
+                    }
+                ]
+            )
+        )
+
+        result = resolver.resolve(text="这是bps\\-admin的一个前端需求，主要改动订单列表")
+
+        self.assertFalse(result.needs_human)
+        self.assertEqual(result.project_name, "bps-admin")
+
     def test_ambiguous_keyword_match_requires_human(self):
         result = self.resolver.resolve(text="订单状态有问题")
 

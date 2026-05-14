@@ -137,7 +137,7 @@ Hermes 仍是唯一主控，Task Ledger 仍是运行期事实源。
 插件面向三类接入方：Hermes 维护者、项目维护者、LLM Wiki 提供方。
 
 - Hermes 维护者安装插件到 `~/.hermes/plugins/coding_orchestration/`，并在 `~/.hermes/config.yaml` 的 `plugins.enabled` 中启用。
-- 项目维护者只需要给项目补 `WORKFLOW.md`，或在统一的 `project-registry.json` 里登记项目路径、别名、测试命令、允许修改范围。
+- 项目维护者优先在 LLM Wiki 写入 `project_profile`，记录项目路径、别名、模块关键词、测试命令和允许修改范围；`WORKFLOW.md` 用于项目内执行规范，`project-registry.json` 只做首次 bootstrap 和兜底。
 - LLM Wiki 提供方只需要实现 `search/read/upsert` adapter；MVP 可先用本地 Markdown/SQLite，后续换 HTTP 服务不影响 Hermes 主流程。
 - 飞书使用者不需要知道底层 runner 细节，只通过 `/coding-task`、飞书需求链接、bug 链接、确认卡按钮触发。
 
@@ -218,7 +218,25 @@ manual_only
 codex_cli
 ```
 
-如果项目暂时不方便改仓库，可在 `project-registry.json` 登记：
+推荐在 LLM Wiki 写入 `project_profile`，让 Hermes 以知识库方式识别任意项目：
+
+```json
+{
+  "kind": "project_profile",
+  "project": "order-system",
+  "name": "order-system",
+  "aliases": ["订单系统", "OMS"],
+  "local_paths": ["/Users/xiaojing/Desktop/projects/order-system"],
+  "keywords": ["订单", "发货", "库存"],
+  "allowed_paths": ["src", "tests"],
+  "forbidden_paths": [".env", "deploy"],
+  "test_commands": ["rtk pnpm test"],
+  "default_runner": "codex_cli",
+  "status": "verified"
+}
+```
+
+如果项目暂时不方便直接写 Wiki，可在 `project-registry.json` 登记作为 bootstrap/fallback：
 
 ```json
 {

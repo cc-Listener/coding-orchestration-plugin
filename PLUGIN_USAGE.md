@@ -83,7 +83,27 @@ coding_orchestration:
 
 ## 项目接入
 
-项目可以通过 `WORKFLOW.md` 或 `project-registry.json` 接入。见：
+项目识别优先走 LLM Wiki 的 `project_profile`，`project-registry.json` 只作为首次 bootstrap 和兜底。Hermes 启动时会把 registry 中的项目导入 LLM Wiki；后续新增项目、别名、模块关键词、允许修改范围和默认测试命令，推荐直接写入 `project_profile`。
+
+最小 `project_profile`：
+
+```json
+{
+  "kind": "project_profile",
+  "project": "order-system",
+  "name": "order-system",
+  "aliases": ["订单系统", "OMS"],
+  "local_paths": ["/Users/xiaojing/Desktop/projects/order-system"],
+  "keywords": ["订单", "发货", "库存"],
+  "allowed_paths": ["src/", "tests/"],
+  "forbidden_paths": [".env", "deploy/"],
+  "test_commands": ["rtk pnpm test"],
+  "default_runner": "codex_cli",
+  "status": "verified"
+}
+```
+
+`WORKFLOW.md` 仍用于项目内执行规范；当 Wiki profile 和 `WORKFLOW.md` 同时存在时，`WORKFLOW.md` 优先，缺失项由 Wiki profile 补齐。见：
 
 - `examples/WORKFLOW.md`
 - `examples/project-registry.json`

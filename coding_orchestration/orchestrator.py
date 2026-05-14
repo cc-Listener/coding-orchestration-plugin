@@ -17,7 +17,9 @@ from .ledger import TaskLedger
 from .llm_wiki_adapter import LocalLlmWikiAdapter
 from .models import AgentRunStatus, RunManifest, RunMode, RunnerName, TaskStatus
 from .prompt_builder import PromptBuilder
+from .project_knowledge_resolver import ProjectKnowledgeResolver
 from .project_resolver import ProjectRegistry, ProjectResolver
+from .project_resolver import normalize_text as normalize_project_text
 from .run_summary_writer import RunSummaryWriter
 from .runner_router import RunnerRouter
 from .state_machine import TaskStateMachine
@@ -90,10 +92,11 @@ class CodingOrchestrator:
     def from_default_config(cls) -> "CodingOrchestrator":
         root = Path.home() / ".hermes" / "coding-orchestration"
         registry = ProjectRegistry.from_file(root / "project-registry.json")
+        wiki = LocalLlmWikiAdapter(root / "llm-wiki")
         return cls(
             ledger=TaskLedger(root / "ledger.db"),
-            resolver=ProjectResolver(registry),
-            wiki=LocalLlmWikiAdapter(root / "llm-wiki"),
+            resolver=ProjectKnowledgeResolver.from_registry(wiki=wiki, registry=registry),
+            wiki=wiki,
             run_root=root / "runs",
             workspace_root=root / "workspaces",
             runner_router=RunnerRouter.from_config({"default_runner": "codex_cli"}),
@@ -197,6 +200,8 @@ class CodingOrchestrator:
         source_context: dict[str, Any] | None = None,
         event: Any | None = None,
     ) -> CreatedTask:
+        raw_text = text
+        text = normalize_project_text(text)
         explicit_project = self._extract_flag(text, "--project")
         requested_runner = self._extract_flag(text, "--runner")
         related_task_id = self._extract_flag(text, "--bug-of") or self._extract_flag(text, "--parent-task")
@@ -212,8 +217,10 @@ class CodingOrchestrator:
             task_id=task_id,
             source={
                 "type": source_type,
-                "raw_text": text,
+                "raw_text": raw_text,
+                "normalized_text": text,
                 "gateway_source": self._event_source_for_ledger(event),
+                "media": self._event_media_for_ledger(event),
                 "source_context": self._source_context_for_ledger(source_context),
                 "project_name": resolved.project_name,
                 "project_confidence": resolved.confidence,
@@ -230,12 +237,12 @@ class CodingOrchestrator:
             llm_wiki_refs=[],
             human_decisions=[],
         )
-        self.wiki.upsert(
+        draft_ref = self.wiki.upsert(
             {
                 "kind": "draft_knowledge",
                 "title": f"需求草稿 {task_id}",
                 "body": requirement_summary,
-                "source_refs": [{"type": "task", "task_id": task_id}],
+                "source_refs": self._draft_knowledge_source_refs(task_id, source_context, event),
                 "project": resolved.project_name,
                 "module": None,
                 "tags": ["requirement", "draft"],
@@ -244,6 +251,7 @@ class CodingOrchestrator:
             },
             options={"dedupe_key": f"{task_id}:draft_knowledge"},
         )
+        self.ledger.replace_llm_wiki_refs(task_id, [draft_ref])
         if source_needs_human:
             return CreatedTask(
                 task_id=task_id,
@@ -348,6 +356,45 @@ class CodingOrchestrator:
     @staticmethod
     def _plain_source_value(value: Any) -> str:
         return str(getattr(value, "value", value))
+
+    @staticmethod
+    def _event_media_for_ledger(event: Any | None) -> list[dict[str, str]]:
+        if event is None:
+            return []
+        urls = [str(item) for item in getattr(event, "media_urls", None) or []]
+        types = [str(item) for item in getattr(event, "media_types", None) or []]
+        media: list[dict[str, str]] = []
+        for index, url in enumerate(urls):
+            item = {"url": url}
+            if index < len(types):
+                item["type"] = types[index]
+            media.append(item)
+        return media
+
+    def _draft_knowledge_source_refs(
+        self,
+        task_id: str,
+        source_context: dict[str, Any],
+        event: Any | None,
+    ) -> list[dict[str, str]]:
+        refs: list[dict[str, str]] = [{"type": "task", "task_id": task_id}]
+        source_url = str(source_context.get("url") or "")
+        if source_url:
+            source_ref = {
+                "type": str(source_context.get("source_type") or "feishu_source"),
+                "url": source_url,
+            }
+            for key in ("project_key", "work_item_type_key", "work_item_id"):
+                value = source_context.get(key)
+                if value is not None and str(value) != "":
+                    source_ref[key] = str(value)
+            refs.append(source_ref)
+        for item in self._event_media_for_ledger(event):
+            media_ref = {"type": "media", "url": item["url"]}
+            if item.get("type"):
+                media_ref["media_type"] = item["type"]
+            refs.append(media_ref)
+        return refs
 
     def _task_for_implementation_confirmation(self, text: str, event: Any) -> dict[str, Any] | None:
         if not self._looks_like_implementation_confirmation(text):
@@ -566,24 +613,35 @@ class CodingOrchestrator:
 
     @staticmethod
     def _looks_like_task(text: str) -> bool:
-        value = text or ""
+        value = normalize_project_text(text)
         return bool(_TASK_TRIGGER_RE.search(value) or CodingOrchestrator._looks_like_natural_task(value))
 
     @staticmethod
     def _looks_like_natural_task(text: str) -> bool:
-        value = text or ""
+        value = normalize_project_text(text)
         return bool(_NATURAL_TASK_INTENT_RE.search(value) and _PROJECT_HINT_RE.search(value))
 
-    @staticmethod
-    def _should_handle_gateway_text(text: str, event: Any) -> bool:
-        value = text or ""
+    def _should_handle_gateway_text(self, text: str, event: Any) -> bool:
+        value = normalize_project_text(text)
         if _TASK_TRIGGER_RE.search(value):
             return True
         source = getattr(event, "source", None)
         chat_type = str(getattr(source, "chat_type", "") or "").lower()
         if chat_type and chat_type != "dm":
             return False
-        return CodingOrchestrator._looks_like_natural_task(value)
+        return (
+            CodingOrchestrator._looks_like_natural_task(value)
+            or self._looks_like_known_project_task(value)
+        )
+
+    def _looks_like_known_project_task(self, text: str) -> bool:
+        if not _NATURAL_TASK_INTENT_RE.search(text or ""):
+            return False
+        try:
+            resolved = self.resolver.resolve(text)
+        except Exception:
+            return False
+        return bool(resolved.project_path or resolved.candidates)
 
     @staticmethod
     def _gateway_user_is_authorized(gateway: Any, event: Any) -> bool:

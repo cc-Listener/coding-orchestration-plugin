@@ -117,9 +117,45 @@ FEISHU_PROJECT_WORK_ITEM_DETAIL_URL_TEMPLATE=https://project.feishu.cn/open_api/
 
 如果 Hermes 无法读取 Project 描述，插件会创建任务但停在 `needs_human`，并提示补充权限或直接粘贴需求描述；不会把只有链接的任务交给 Codex 自动 plan。
 
-## 项目配置
+## 项目知识接入
 
-项目可以通过 `project-registry.json` 或项目内 `WORKFLOW.md` 接入。
+项目识别和模块归属优先走 LLM Wiki 的 `project_profile`。`project-registry.json` 只用于首次 bootstrap 和兜底，不再作为长期项目知识事实源。
+
+接入优先级：
+
+1. LLM Wiki `project_profile`：项目名、别名、本地路径、模块关键词、允许/禁止修改范围、默认测试命令。
+2. 项目内 `WORKFLOW.md`：执行规范，优先约束当前仓库。
+3. `project-registry.json`：启动时自动导入 LLM Wiki，或在 Wiki 缺失时兜底。
+4. 低置信度时回写飞书让人确认，不交给 runner 猜项目。
+
+`project_profile` 示例：
+
+```json
+{
+  "kind": "project_profile",
+  "title": "BPS Admin 项目画像",
+  "body": "BPS运营后台 bps-admin 订单列表 策略列表",
+  "project": "bps-admin",
+  "project_id": "bps-admin",
+  "name": "bps-admin",
+  "aliases": ["BPS运营后台", "bps-admin"],
+  "local_paths": ["/Users/xiaojing/Desktop/project/bps-admin"],
+  "keywords": ["订单列表", "策略列表"],
+  "modules": [
+    {
+      "name": "订单列表",
+      "keywords": ["订单列表", "订单筛选"],
+      "paths": ["src/pages/order"]
+    }
+  ],
+  "allowed_paths": ["src/", "tests/"],
+  "forbidden_paths": [".env", "deploy/", "scripts/release"],
+  "test_commands": ["rtk pnpm test", "rtk pnpm build"],
+  "default_runner": "codex_cli",
+  "confidence": "high",
+  "status": "verified"
+}
+```
 
 `project-registry.json` 示例：
 
@@ -139,6 +175,8 @@ FEISHU_PROJECT_WORK_ITEM_DETAIL_URL_TEMPLATE=https://project.feishu.cn/open_api/
   ]
 }
 ```
+
+启动时，插件会把 registry 中的项目自动 upsert 为 `project_profile`。后续稳定的项目知识应直接沉淀到 LLM Wiki，而不是继续扩展配置文件。
 
 `WORKFLOW.md` 示例见 [examples/WORKFLOW.md](examples/WORKFLOW.md)。
 
@@ -213,7 +251,10 @@ diff.patch
 
 - `draft_knowledge`：飞书输入和需求草稿。
 - `run_summary`：runner 输出总结、测试结果、风险和下一步。
+- `project_profile`：registry bootstrap；后续人工确认后的稳定项目画像也应以同一结构写入。
 - QA 经验：bug 修复任务可以通过 `--bug-of task_id` 关联原任务，并恢复原 run summary 上下文。
+
+飞书 Project 链接、消息来源和图片等输入会进入 `draft_knowledge.source_refs`；Task Ledger 只保存对应 Wiki ref 和当前任务状态，不把 Wiki 当运行期状态库。
 
 插件不会把 Task Ledger 的运行状态当成 LLM Wiki 事实源。任务状态、run 状态、artifacts 和人工决策仍以 Task Ledger 为准。
 
