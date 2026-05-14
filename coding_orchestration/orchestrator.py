@@ -36,6 +36,11 @@ _STRONG_IMPLEMENTATION_CONFIRM_RE = re.compile(
     r"(去干活|开干|新建分支|建分支|开分支|开始做|开始实现|实现吧|做吧|进入\s*implementation|开始\s*implementation)",
     re.I,
 )
+_PLAN_FEEDBACK_RE = re.compile(
+    r"(根据以上|重新.*计划|重做.*计划|调整.*计划|修改.*计划|更新.*计划|重新.*plan|replan|"
+    r"反馈|补充|目标页面|接口|skill|范围|仅为|只改|不要|改成|应该|不应该)",
+    re.I,
+)
 _TASK_TRIGGER_RE = re.compile(
     r"(^|\s)/(coding-task|codex-task)\b|(^|\s)(coding-task|codex-task)\b|编码任务|project\.feishu\.cn|meego\.feishu\.cn",
     re.I,
@@ -123,6 +128,16 @@ class CodingOrchestrator:
                 "未找到可进入 implementation 的 planned 任务。\n"
                 "请先提交需求并等待 plan-only 完成，或使用 /coding-implement <task_id> 指定任务。",
             )
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        feedback_task = self._task_for_plan_feedback(text, event)
+        if feedback_task is not None:
+            self._record_plan_feedback(feedback_task, text, event)
+            self._reply_if_possible(
+                gateway,
+                event,
+                self._plan_feedback_received_message(feedback_task),
+            )
+            self._start_background_plan_only(feedback_task["task_id"], gateway, event)
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
         if not self._should_handle_gateway_text(text, event):
             return None
@@ -422,6 +437,38 @@ class CodingOrchestrator:
         ]
         return fallback[0] if len(fallback) == 1 else None
 
+    def _task_for_plan_feedback(self, text: str, event: Any) -> dict[str, Any] | None:
+        if not self._looks_like_plan_feedback(text):
+            return None
+        incoming_source = self._event_source_for_ledger(event)
+        matched = self._recent_gateway_tasks(
+            incoming_source,
+            statuses=[
+                TaskStatus.PLANNED.value,
+                TaskStatus.BLOCKED.value,
+            ],
+            require_project=True,
+        )
+        return matched[0] if matched else None
+
+    def _recent_gateway_tasks(
+        self,
+        incoming_source: dict[str, Any],
+        *,
+        statuses: list[str],
+        require_project: bool,
+    ) -> list[dict[str, Any]]:
+        tasks = [
+            task
+            for task in self.ledger.list_recent_tasks(statuses=statuses, limit=20)
+            if not require_project or task.get("project_path")
+        ]
+        return [
+            task
+            for task in tasks
+            if self._task_source_matches_gateway_source(task, incoming_source)
+        ]
+
     @staticmethod
     def _looks_like_implementation_confirmation(text: str) -> bool:
         return bool(_IMPLEMENTATION_CONFIRM_RE.search(text or ""))
@@ -429,6 +476,15 @@ class CodingOrchestrator:
     @staticmethod
     def _looks_like_strong_implementation_confirmation(text: str) -> bool:
         return bool(_STRONG_IMPLEMENTATION_CONFIRM_RE.search(text or ""))
+
+    @staticmethod
+    def _looks_like_plan_feedback(text: str) -> bool:
+        value = normalize_project_text(text)
+        if not value:
+            return False
+        if value.startswith("/") and not _TASK_TRIGGER_RE.search(value):
+            return False
+        return bool(_PLAN_FEEDBACK_RE.search(value))
 
     @staticmethod
     def _task_source_matches_gateway_source(task: dict[str, Any], incoming_source: dict[str, Any]) -> bool:
@@ -465,6 +521,44 @@ class CodingOrchestrator:
             },
         )
 
+    def _record_plan_feedback(self, task: dict[str, Any], text: str, event: Any) -> None:
+        task_id = task["task_id"]
+        feedback = normalize_project_text(text)
+        now = datetime.now(timezone.utc).isoformat()
+        self.ledger.append_human_decision(
+            task_id,
+            {
+                "type": "plan_feedback",
+                "text": feedback,
+                "gateway_source": self._event_source_for_ledger(event),
+                "created_at": now,
+            },
+        )
+        updated_summary = (
+            f"{str(task.get('requirement_summary') or '').rstrip()}\n\n"
+            f"## 人工计划反馈 {now}\n"
+            f"{feedback}"
+        ).strip()
+        self.ledger.update_requirement_summary(task_id, updated_summary)
+        source = task.get("source") or {}
+        feedback_ref = self.wiki.upsert(
+            {
+                "kind": "draft_knowledge",
+                "title": f"计划反馈 {task_id}",
+                "body": feedback,
+                "source_refs": self._draft_knowledge_source_refs(task_id, {}, event),
+                "project": source.get("project_name"),
+                "module": None,
+                "tags": ["requirement", "plan_feedback", "draft"],
+                "confidence": "medium",
+                "status": "draft",
+            },
+            options={"dedupe_key": f"{task_id}:plan_feedback:{len(task.get('human_decisions') or []) + 1}"},
+        )
+        refs = list(task.get("llm_wiki_refs") or [])
+        refs.append(feedback_ref)
+        self.ledger.replace_llm_wiki_refs(task_id, refs)
+
     @staticmethod
     def _implementation_started_message(task: dict[str, Any]) -> str:
         return (
@@ -472,6 +566,14 @@ class CodingOrchestrator:
             f"项目：{task.get('project_path') or '未确定'}\n"
             "说明：将由 coding_orchestration plugin 把已确认 plan 交给 Codex，并要求 Codex 使用 "
             "superpowers/worktree 流程在隔离 workspace 中执行；不会自动合并或发布。"
+        )
+
+    @staticmethod
+    def _plan_feedback_received_message(task: dict[str, Any]) -> str:
+        return (
+            f"[{task['task_id']}] 已收到计划反馈，重新进入 plan-only。\n"
+            f"项目：{task.get('project_path') or '未确定'}\n"
+            "说明：反馈已写入 Task Ledger 和 LLM Wiki draft，并会注入新的计划 run；不会交给 Hermes 主 agent。"
         )
 
     def start_run(

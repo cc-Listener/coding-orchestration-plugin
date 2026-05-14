@@ -103,6 +103,17 @@ class TaskLedger:
                 (status, task_id),
             )
 
+    def update_requirement_summary(self, task_id: str, requirement_summary: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                update tasks
+                set requirement_summary = ?, updated_at = current_timestamp
+                where task_id = ?
+                """,
+                (requirement_summary, task_id),
+            )
+
     def replace_llm_wiki_refs(self, task_id: str, refs: list[dict[str, Any]]) -> None:
         with self._connect() as conn:
             conn.execute(
