@@ -74,6 +74,28 @@ class TaskLedger:
             row = conn.execute("select * from tasks where task_id = ?", (task_id,)).fetchone()
         return self._row_to_task(row) if row else None
 
+    def list_recent_tasks(self, *, statuses: list[str] | set[str] | tuple[str, ...] | None = None, limit: int = 20) -> list[dict[str, Any]]:
+        limit = max(1, int(limit))
+        params: list[Any] = []
+        where = ""
+        if statuses:
+            status_values = [str(status) for status in statuses]
+            placeholders = ", ".join("?" for _ in status_values)
+            where = f"where status in ({placeholders})"
+            params.extend(status_values)
+        params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                select * from tasks
+                {where}
+                order by updated_at desc, created_at desc, task_id desc
+                limit ?
+                """,
+                params,
+            ).fetchall()
+        return [self._row_to_task(row) for row in rows]
+
     def update_status(self, task_id: str, status: str) -> None:
         with self._connect() as conn:
             conn.execute(

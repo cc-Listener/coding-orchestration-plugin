@@ -25,6 +25,15 @@ from .symphony_compat.workflow_loader import WorkflowLoader, WorkflowSpec
 from .symphony_compat.workspace_manager import WorkspaceManager
 
 
+_IMPLEMENTATION_CONFIRM_RE = re.compile(
+    r"(^\s*(确认|可以|可以了|没问题|通过|同意|继续|开始吧)\s*[。.!！]*\s*$)"
+    r"|确认计划|计划确认|确认执行|可以做|继续做|开始做|开始开发|开始实现|去干活|开干|新建分支|建分支|开分支|实现吧|做吧|进入\s*implementation|开始\s*implementation",
+    re.I,
+)
+_STRONG_IMPLEMENTATION_CONFIRM_RE = re.compile(
+    r"(去干活|开干|新建分支|建分支|开分支|开始做|开始实现|实现吧|做吧|进入\s*implementation|开始\s*implementation)",
+    re.I,
+)
 _TASK_TRIGGER_RE = re.compile(
     r"(^|\s)/(coding-task|codex-task)\b|(^|\s)(coding-task|codex-task)\b|编码任务|project\.feishu\.cn|meego\.feishu\.cn",
     re.I,
@@ -94,6 +103,24 @@ class CodingOrchestrator:
         text = str(getattr(event, "text", "") or "")
         if not self._gateway_user_is_authorized(gateway, event):
             return None
+        confirmation_task = self._task_for_implementation_confirmation(text, event)
+        if confirmation_task is not None:
+            self._record_implementation_confirmation(confirmation_task["task_id"], text, event)
+            self._reply_if_possible(
+                gateway,
+                event,
+                self._implementation_started_message(confirmation_task),
+            )
+            self._start_background_implementation(confirmation_task["task_id"], gateway, event)
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        if self._looks_like_strong_implementation_confirmation(text):
+            self._reply_if_possible(
+                gateway,
+                event,
+                "未找到可进入 implementation 的 planned 任务。\n"
+                "请先提交需求并等待 plan-only 完成，或使用 /coding-implement <task_id> 指定任务。",
+            )
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
         if not self._should_handle_gateway_text(text, event):
             return None
         source_context = self._read_source_context(text, gateway)
@@ -101,6 +128,7 @@ class CodingOrchestrator:
             text,
             auto_plan_on_ready=True,
             source_context=source_context,
+            event=event,
         )
         self._reply_if_possible(gateway, event, created.message)
         if created.auto_plan_started:
@@ -141,11 +169,7 @@ class CodingOrchestrator:
         if not task_id:
             return "请提供 task_id。"
         result = self.start_run(task_id, mode=RunMode.IMPLEMENTATION)
-        return (
-            f"[{task_id}] implementation run 已完成：{result['run_id']}\n"
-            f"状态：{result['task_status']}\n"
-            f"artifact：{result['artifacts']['run_dir']}"
-        )
+        return self._format_implementation_completion_message(task_id, result)
 
     def command_prepare_merge_test(self, raw_args: str) -> str:
         task_id = raw_args.strip()
@@ -171,6 +195,7 @@ class CodingOrchestrator:
         *,
         auto_plan_on_ready: bool = False,
         source_context: dict[str, Any] | None = None,
+        event: Any | None = None,
     ) -> CreatedTask:
         explicit_project = self._extract_flag(text, "--project")
         requested_runner = self._extract_flag(text, "--runner")
@@ -188,6 +213,7 @@ class CodingOrchestrator:
             source={
                 "type": source_type,
                 "raw_text": text,
+                "gateway_source": self._event_source_for_ledger(event),
                 "source_context": self._source_context_for_ledger(source_context),
                 "project_name": resolved.project_name,
                 "project_confidence": resolved.confidence,
@@ -303,6 +329,103 @@ class CodingOrchestrator:
             "requires_human_context",
         }
         return {key: source_context[key] for key in allowed_keys if key in source_context}
+
+    @staticmethod
+    def _event_source_for_ledger(event: Any | None) -> dict[str, Any]:
+        source = getattr(event, "source", None)
+        if source is None:
+            return {}
+        metadata: dict[str, Any] = {}
+        for key in ("platform", "chat_id", "user_id", "chat_type"):
+            value = getattr(source, key, None)
+            if value is not None and str(value) != "":
+                metadata[key] = CodingOrchestrator._plain_source_value(value)
+        message_id = getattr(event, "message_id", None)
+        if message_id:
+            metadata["message_id"] = CodingOrchestrator._plain_source_value(message_id)
+        return metadata
+
+    @staticmethod
+    def _plain_source_value(value: Any) -> str:
+        return str(getattr(value, "value", value))
+
+    def _task_for_implementation_confirmation(self, text: str, event: Any) -> dict[str, Any] | None:
+        if not self._looks_like_implementation_confirmation(text):
+            return None
+        incoming_source = self._event_source_for_ledger(event)
+        planned_tasks = [
+            task
+            for task in self.ledger.list_recent_tasks(statuses=[TaskStatus.PLANNED.value], limit=20)
+            if task.get("project_path")
+        ]
+        matched = [
+            task
+            for task in planned_tasks
+            if self._task_source_matches_gateway_source(task, incoming_source)
+        ]
+        if matched:
+            return matched[0]
+
+        # Backward-compatible fallback for tasks created before gateway_source
+        # existed. Only use it when the recent planned Feishu task is unambiguous.
+        fallback = [
+            task
+            for task in planned_tasks
+            if self._looks_like_feishu_task_source(task) and not task["source"].get("gateway_source")
+        ]
+        return fallback[0] if len(fallback) == 1 else None
+
+    @staticmethod
+    def _looks_like_implementation_confirmation(text: str) -> bool:
+        return bool(_IMPLEMENTATION_CONFIRM_RE.search(text or ""))
+
+    @staticmethod
+    def _looks_like_strong_implementation_confirmation(text: str) -> bool:
+        return bool(_STRONG_IMPLEMENTATION_CONFIRM_RE.search(text or ""))
+
+    @staticmethod
+    def _task_source_matches_gateway_source(task: dict[str, Any], incoming_source: dict[str, Any]) -> bool:
+        stored_source = task.get("source", {}).get("gateway_source") or {}
+        if not stored_source or not incoming_source:
+            return False
+        stored_chat = stored_source.get("chat_id")
+        incoming_chat = incoming_source.get("chat_id")
+        if stored_chat and incoming_chat and stored_chat == incoming_chat:
+            stored_user = stored_source.get("user_id")
+            incoming_user = incoming_source.get("user_id")
+            return not stored_user or not incoming_user or stored_user == incoming_user
+        stored_user = stored_source.get("user_id")
+        incoming_user = incoming_source.get("user_id")
+        if stored_user and incoming_user and stored_user == incoming_user:
+            stored_platform = stored_source.get("platform")
+            incoming_platform = incoming_source.get("platform")
+            return not stored_platform or not incoming_platform or stored_platform == incoming_platform
+        return False
+
+    @staticmethod
+    def _looks_like_feishu_task_source(task: dict[str, Any]) -> bool:
+        source_type = str(task.get("source", {}).get("type") or "")
+        return source_type.startswith("feishu")
+
+    def _record_implementation_confirmation(self, task_id: str, text: str, event: Any) -> None:
+        self.ledger.append_human_decision(
+            task_id,
+            {
+                "type": "implementation_confirmed",
+                "text": text,
+                "gateway_source": self._event_source_for_ledger(event),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    @staticmethod
+    def _implementation_started_message(task: dict[str, Any]) -> str:
+        return (
+            f"[{task['task_id']}] 已收到人工确认，进入 implementation。\n"
+            f"项目：{task.get('project_path') or '未确定'}\n"
+            "说明：将由 coding_orchestration plugin 启动受控 run，并在隔离 workspace 中执行；"
+            "不会自动合并或发布。"
+        )
 
     def start_run(
         self,
@@ -691,6 +814,31 @@ class CodingOrchestrator:
             message = f"[{task_id}] plan-only run 启动或执行失败：{exc}\n请人工检查 Hermes 日志和 task ledger。"
         self._reply_if_possible(gateway, event, message, loop=loop)
 
+    def _start_background_implementation(self, task_id: str, gateway: Any, event: Any) -> None:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        worker = threading.Thread(
+            target=self._run_implementation_and_notify,
+            args=(task_id, gateway, event, loop),
+            name=f"coding-implementation-{task_id}",
+            daemon=True,
+        )
+        worker.start()
+
+    def _run_implementation_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
+        try:
+            result = self.start_run(task_id, mode=RunMode.IMPLEMENTATION)
+            message = self._format_implementation_completion_message(task_id, result)
+        except Exception as exc:
+            try:
+                self.ledger.update_status(task_id, TaskStatus.FAILED.value)
+            except Exception:
+                pass
+            message = f"[{task_id}] implementation run 启动或执行失败：{exc}\n请人工检查 Hermes 日志和 task ledger。"
+        self._reply_if_possible(gateway, event, message, loop=loop)
+
     @staticmethod
     def _format_run_completion_message(task_id: str, result: dict[str, Any]) -> str:
         artifacts = result.get("artifacts") or {}
@@ -728,6 +876,41 @@ class CodingOrchestrator:
             if stderr:
                 lines.extend(["", "执行错误摘要：", stderr])
 
+        lines.extend(["", f"artifact：{artifacts.get('run_dir')}"])
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_implementation_completion_message(task_id: str, result: dict[str, Any]) -> str:
+        artifacts = result.get("artifacts") or {}
+        report = {}
+        report_path = Path(str(artifacts.get("report") or ""))
+        if report_path.exists():
+            try:
+                import json
+
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+            except Exception:
+                report = {}
+
+        lines = [
+            f"[{task_id}] implementation run 已完成：{result['run_id']}",
+            f"状态：{result['task_status']}",
+        ]
+        summary = CodingOrchestrator._read_text_excerpt(artifacts.get("summary"), limit=1600)
+        if summary:
+            lines.extend(["", "执行摘要：", summary])
+
+        risks = [str(item) for item in report.get("risks") or [] if str(item).strip()]
+        if risks:
+            lines.extend(["", "风险："])
+            lines.extend(f"- {item}" for item in risks[:5])
+
+        next_actions = [str(item) for item in report.get("next_actions") or [] if str(item).strip()]
+        if next_actions:
+            lines.extend(["", "下一步："])
+            lines.extend(f"- {item}" for item in next_actions[:5])
+
+        lines.extend(["", "提醒：插件不会自动合并或发布；请人工 review 后再 merge test / 发布测试环境。"])
         lines.extend(["", f"artifact：{artifacts.get('run_dir')}"])
         return "\n".join(lines)
 

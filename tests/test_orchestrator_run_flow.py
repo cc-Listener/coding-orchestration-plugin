@@ -208,6 +208,98 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(ledger.get_task(task_id)["status"], "planned")
             self.assertIn("plan-only 已自动启动", gateway.messages[0])
 
+    def test_gateway_confirmation_starts_implementation_for_recent_planned_task(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_plan_started = []
+                self.auto_implementation_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_plan_started.append((task_id, gateway, event))
+
+            def _start_background_implementation(self, task_id, gateway, event):
+                self.auto_implementation_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "bps-admin",
+                            "aliases": ["BPS运营后台"],
+                            "path": str(project),
+                            "keywords": ["策略列表"],
+                        }
+                    ]
+                )
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            created = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("BPS运营后台有个需求，在策略列表上，新增一个状态筛选"),
+                gateway=gateway,
+            )
+            task_id = orchestrator.auto_plan_started[0][0]
+            task = ledger.get_task(task_id)
+
+            confirmed = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("新建分支去干活"),
+                gateway=gateway,
+            )
+
+            self.assertEqual(created["action"], "skip")
+            self.assertEqual(confirmed["action"], "skip")
+            self.assertEqual(task["source"]["gateway_source"]["chat_id"], "chat_1")
+            self.assertEqual(orchestrator.auto_implementation_started[0][0], task_id)
+            self.assertIn("进入 implementation", gateway.messages[-1])
+
+    def test_strong_implementation_confirmation_without_task_is_not_sent_to_main_agent(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_implementation_started = []
+
+            def _start_background_implementation(self, task_id, gateway, event):
+                self.auto_implementation_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("新建分支去干活"),
+                gateway=gateway,
+            )
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(orchestrator.auto_implementation_started, [])
+            self.assertIn("未找到可进入 implementation 的 planned 任务", gateway.messages[0])
+
     def test_feishu_project_link_enriches_requirement_before_plan_only(self):
         class RecordingOrchestrator(CodingOrchestrator):
             def __post_init__(self):
