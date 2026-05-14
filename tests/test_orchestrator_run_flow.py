@@ -5,7 +5,7 @@ from pathlib import Path
 
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
-from coding_orchestration.models import ArtifactSet, RunMode, RunnerCapabilities
+from coding_orchestration.models import ArtifactSet, RunMode, RunnerCapabilities, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_knowledge_resolver import ProjectKnowledgeResolver
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
@@ -517,6 +517,182 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["human_decisions"][-1]["type"], "plan_feedback")
             self.assertIn("重新进入 plan-only", gateway.messages[-1])
 
+    def test_gateway_bugfix_feedback_after_review_starts_implementation(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_plan_started = []
+                self.auto_implementation_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_plan_started.append((task_id, gateway, event))
+
+            def _start_background_implementation(self, task_id, gateway, event):
+                self.auto_implementation_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "bps-admin",
+                            "aliases": ["BPS运营后台"],
+                            "path": str(project),
+                            "keywords": ["订单列表"],
+                        }
+                    ]
+                )
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            orchestrator.handle_gateway_event(
+                FakeGatewayEvent("BPS运营后台有个需求，导出订单增加tag字段"),
+                gateway=FakeGateway(),
+            )
+            task_id = ledger.list_recent_tasks(statuses=[TaskStatus.PLANNED.value], limit=1)[0]["task_id"]
+            orchestrator.start_run(task_id, mode=RunMode.IMPLEMENTATION, timeout_seconds=5)
+            gateway = FakeGateway()
+
+            captured = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("这里有问题要更改下，order_tags后端是string，在源分支，源session上做修改"),
+                gateway=gateway,
+            )
+
+            task = ledger.get_task(task_id)
+            self.assertEqual(captured["action"], "skip")
+            self.assertEqual(orchestrator.auto_implementation_started[0][0], task_id)
+            self.assertIn("order_tags后端是string", task["requirement_summary"])
+            self.assertEqual(task["human_decisions"][-1]["type"], "implementation_feedback")
+            self.assertIn("进入 implementation 修复", gateway.messages[-1])
+
+    def test_gateway_runtime_feedback_is_captured_by_active_coding_lock(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_plan_started = []
+                self.auto_implementation_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_plan_started.append((task_id, gateway, event))
+
+            def _start_background_implementation(self, task_id, gateway, event):
+                self.auto_implementation_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "bps-admin",
+                            "aliases": ["BPS运营后台"],
+                            "path": str(project),
+                            "keywords": ["订单列表"],
+                        }
+                    ]
+                )
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            orchestrator.handle_gateway_event(
+                FakeGatewayEvent("BPS运营后台有个需求，导出订单增加tag字段"),
+                gateway=gateway,
+            )
+            task_id = orchestrator.auto_plan_started[0][0]
+            ledger.update_status(task_id, TaskStatus.RUNNING.value)
+
+            captured = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("order_tags后端是string，在源分支源session上做修改"),
+                gateway=gateway,
+            )
+
+            task = ledger.get_task(task_id)
+            self.assertEqual(captured["action"], "skip")
+            self.assertEqual(task["human_decisions"][-1]["type"], "runtime_feedback")
+            self.assertIn("order_tags后端是string", task["requirement_summary"])
+            self.assertEqual(orchestrator.auto_implementation_started, [])
+            self.assertIn("任务正在运行，已记录本次反馈", gateway.messages[-1])
+
+    def test_gateway_failed_plan_feedback_restarts_plan_only_under_active_lock(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_plan_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_plan_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "order-system",
+                            "aliases": ["订单系统"],
+                            "path": str(project),
+                            "keywords": ["发货"],
+                        }
+                    ]
+                )
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner(status="failed")),
+            )
+            gateway = FakeGateway()
+            orchestrator.handle_gateway_event(
+                FakeGatewayEvent("订单系统有个需求，新增发货状态筛选"),
+                gateway=gateway,
+            )
+            task_id = orchestrator.auto_plan_started[0][0]
+            orchestrator.start_run(task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
+
+            captured = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("补充一下，只处理发货失败状态"),
+                gateway=gateway,
+            )
+
+            task = ledger.get_task(task_id)
+            self.assertEqual(captured["action"], "skip")
+            self.assertEqual(orchestrator.auto_plan_started[-1][0], task_id)
+            self.assertEqual(task["human_decisions"][-1]["type"], "plan_feedback")
+            self.assertIn("重新进入 plan-only", gateway.messages[-1])
+
     def test_strong_implementation_confirmation_without_task_is_not_sent_to_main_agent(self):
         class RecordingOrchestrator(CodingOrchestrator):
             def __post_init__(self):
@@ -969,6 +1145,45 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIn("superpowers", implementation_prompt)
             self.assertIn("using-git-worktrees", implementation_prompt)
             self.assertIn("Hermes-controlled worktree", implementation_prompt)
+
+    def test_followup_implementation_reuses_previous_workspace(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "order-system",
+                            "aliases": ["订单系统"],
+                            "path": str(project),
+                            "keywords": ["发货"],
+                        }
+                    ]
+                )
+            )
+            fake_runner = FakeRunner()
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+            task_id = _task_id_from_message(
+                orchestrator.command_coding_task("--project 订单系统 修复发货失败")
+            )
+
+            orchestrator.start_run(task_id, mode=RunMode.IMPLEMENTATION, timeout_seconds=5)
+            first_workspace = fake_runner.calls[-1]["workspace_path"]
+            orchestrator.start_run(task_id, mode=RunMode.IMPLEMENTATION, timeout_seconds=5)
+
+            self.assertEqual(fake_runner.calls[-1]["workspace_path"], first_workspace)
 
     def test_bug_task_links_parent_task_and_recovers_parent_run_context(self):
         with tempfile.TemporaryDirectory() as tmp:

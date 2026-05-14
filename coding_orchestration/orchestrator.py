@@ -45,6 +45,10 @@ _TASK_TRIGGER_RE = re.compile(
     r"(^|\s)/(coding-task|codex-task)\b|(^|\s)(coding-task|codex-task)\b|编码任务|project\.feishu\.cn|meego\.feishu\.cn",
     re.I,
 )
+_EXPLICIT_TASK_COMMAND_RE = re.compile(
+    r"(^|\s)/(coding-task|codex-task)\b|(^|\s)(coding-task|codex-task)\b",
+    re.I,
+)
 _NATURAL_TASK_INTENT_RE = re.compile(
     r"(需求|bug|缺陷|修复|新增|增加|添加|实现|开发|优化|改造|改一下|筛选)",
     re.I,
@@ -121,6 +125,12 @@ class CodingOrchestrator:
             )
             self._start_background_implementation(confirmation_task["task_id"], gateway, event)
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        active_tasks = self._active_coding_context_tasks(text, event)
+        if active_tasks:
+            if len(active_tasks) > 1:
+                self._reply_if_possible(gateway, event, self._active_lock_ambiguous_message(active_tasks))
+                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+            return self._handle_active_coding_context_message(active_tasks[0], text, event, gateway)
         if self._looks_like_strong_implementation_confirmation(text):
             self._reply_if_possible(
                 gateway,
@@ -128,16 +138,6 @@ class CodingOrchestrator:
                 "未找到可进入 implementation 的 planned 任务。\n"
                 "请先提交需求并等待 plan-only 完成，或使用 /coding-implement <task_id> 指定任务。",
             )
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        feedback_task = self._task_for_plan_feedback(text, event)
-        if feedback_task is not None:
-            self._record_plan_feedback(feedback_task, text, event)
-            self._reply_if_possible(
-                gateway,
-                event,
-                self._plan_feedback_received_message(feedback_task),
-            )
-            self._start_background_plan_only(feedback_task["task_id"], gateway, event)
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
         if not self._should_handle_gateway_text(text, event):
             return None
@@ -437,24 +437,62 @@ class CodingOrchestrator:
         ]
         return fallback[0] if len(fallback) == 1 else None
 
-    def _task_for_plan_feedback(self, text: str, event: Any) -> dict[str, Any] | None:
+    def _active_coding_context_tasks(self, text: str, event: Any) -> list[dict[str, Any]]:
         value = normalize_project_text(text)
         if not self._can_be_active_task_context_reply(value):
-            return None
+            return []
+        if self._looks_like_explicit_task_command(value):
+            return []
         incoming_source = self._event_source_for_ledger(event)
-        matched = self._recent_gateway_tasks(
+        return self._recent_gateway_tasks(
             incoming_source,
-            statuses=[
-                TaskStatus.PLANNED.value,
-                TaskStatus.BLOCKED.value,
-            ],
-            require_project=True,
+            statuses=self._active_coding_statuses(),
+            require_project=False,
         )
-        if not matched:
-            return None
-        if self._looks_like_plan_feedback(value):
-            return matched[0]
-        return matched[0] if len(matched) == 1 and self._looks_like_plain_plan_context_note(value) else None
+
+    def _handle_active_coding_context_message(
+        self,
+        task: dict[str, Any],
+        text: str,
+        event: Any,
+        gateway: Any,
+    ) -> dict[str, str]:
+        value = normalize_project_text(text)
+        status = str(task.get("status") or "")
+        contentful_feedback = self._looks_like_task_feedback(value)
+
+        if status in {TaskStatus.QUEUED.value, TaskStatus.RUNNING.value}:
+            if contentful_feedback:
+                self._record_runtime_feedback(task, value, event)
+                message = self._runtime_feedback_received_message(task)
+            else:
+                message = self._active_lock_status_message(task)
+            self._reply_if_possible(gateway, event, message)
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+
+        if status == TaskStatus.NEEDS_HUMAN.value:
+            if contentful_feedback:
+                self._record_human_clarification(task, value, event)
+                message = self._human_clarification_received_message(task)
+            else:
+                message = self._active_lock_status_message(task)
+            self._reply_if_possible(gateway, event, message)
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+
+        if not contentful_feedback:
+            self._reply_if_possible(gateway, event, self._active_lock_status_message(task))
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+
+        if self._should_route_feedback_to_implementation(task):
+            self._record_implementation_feedback(task, value, event)
+            self._reply_if_possible(gateway, event, self._implementation_feedback_received_message(task))
+            self._start_background_implementation(task["task_id"], gateway, event)
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+
+        self._record_plan_feedback(task, value, event)
+        self._reply_if_possible(gateway, event, self._plan_feedback_received_message(task))
+        self._start_background_plan_only(task["task_id"], gateway, event)
+        return {"action": "skip", "reason": "handled_by_coding_orchestration"}
 
     def _recent_gateway_tasks(
         self,
@@ -475,12 +513,28 @@ class CodingOrchestrator:
         ]
 
     @staticmethod
+    def _active_coding_statuses() -> list[str]:
+        return [
+            TaskStatus.NEEDS_HUMAN.value,
+            TaskStatus.PLANNED.value,
+            TaskStatus.QUEUED.value,
+            TaskStatus.RUNNING.value,
+            TaskStatus.BLOCKED.value,
+            TaskStatus.READY_FOR_REVIEW.value,
+            TaskStatus.FAILED.value,
+        ]
+
+    @staticmethod
     def _looks_like_implementation_confirmation(text: str) -> bool:
         return bool(_IMPLEMENTATION_CONFIRM_RE.search(text or ""))
 
     @staticmethod
     def _looks_like_strong_implementation_confirmation(text: str) -> bool:
         return bool(_STRONG_IMPLEMENTATION_CONFIRM_RE.search(text or ""))
+
+    @staticmethod
+    def _looks_like_explicit_task_command(text: str) -> bool:
+        return bool(_EXPLICIT_TASK_COMMAND_RE.search(text or ""))
 
     @staticmethod
     def _looks_like_plan_feedback(text: str) -> bool:
@@ -510,6 +564,20 @@ class CodingOrchestrator:
         return bool(re.search(r"[\u4e00-\u9fff]{4,}", value))
 
     @staticmethod
+    def _looks_like_task_feedback(text: str) -> bool:
+        return (
+            CodingOrchestrator._looks_like_plan_feedback(text)
+            or CodingOrchestrator._looks_like_plain_plan_context_note(text)
+        )
+
+    @staticmethod
+    def _should_route_feedback_to_implementation(task: dict[str, Any]) -> bool:
+        return (
+            str(task.get("status") or "") == TaskStatus.READY_FOR_REVIEW.value
+            or CodingOrchestrator._last_agent_run_mode(task) == RunMode.IMPLEMENTATION.value
+        )
+
+    @staticmethod
     def _task_source_matches_gateway_source(task: dict[str, Any], incoming_source: dict[str, Any]) -> bool:
         stored_source = task.get("source", {}).get("gateway_source") or {}
         if not stored_source or not incoming_source:
@@ -533,6 +601,13 @@ class CodingOrchestrator:
         source_type = str(task.get("source", {}).get("type") or "")
         return source_type.startswith("feishu")
 
+    @staticmethod
+    def _last_agent_run_mode(task: dict[str, Any]) -> str:
+        runs = task.get("agent_runs") or []
+        if not runs:
+            return ""
+        return str((runs[-1] or {}).get("mode") or "")
+
     def _record_implementation_confirmation(self, task_id: str, text: str, event: Any) -> None:
         self.ledger.append_human_decision(
             task_id,
@@ -545,13 +620,67 @@ class CodingOrchestrator:
         )
 
     def _record_plan_feedback(self, task: dict[str, Any], text: str, event: Any) -> None:
+        self._record_task_feedback(
+            task,
+            text,
+            event,
+            decision_type="plan_feedback",
+            title_prefix="计划反馈",
+            summary_heading="人工计划反馈",
+            tags=["requirement", "plan_feedback", "draft"],
+        )
+
+    def _record_implementation_feedback(self, task: dict[str, Any], text: str, event: Any) -> None:
+        self._record_task_feedback(
+            task,
+            text,
+            event,
+            decision_type="implementation_feedback",
+            title_prefix="实现反馈",
+            summary_heading="人工实现反馈",
+            tags=["requirement", "implementation_feedback", "bugfix", "draft"],
+        )
+
+    def _record_runtime_feedback(self, task: dict[str, Any], text: str, event: Any) -> None:
+        self._record_task_feedback(
+            task,
+            text,
+            event,
+            decision_type="runtime_feedback",
+            title_prefix="运行中反馈",
+            summary_heading="运行中反馈",
+            tags=["requirement", "runtime_feedback", "draft"],
+        )
+
+    def _record_human_clarification(self, task: dict[str, Any], text: str, event: Any) -> None:
+        self._record_task_feedback(
+            task,
+            text,
+            event,
+            decision_type="human_clarification",
+            title_prefix="人工补充",
+            summary_heading="人工补充",
+            tags=["requirement", "human_clarification", "draft"],
+        )
+
+    def _record_task_feedback(
+        self,
+        task: dict[str, Any],
+        text: str,
+        event: Any,
+        *,
+        decision_type: str,
+        title_prefix: str,
+        summary_heading: str,
+        tags: list[str],
+    ) -> None:
         task_id = task["task_id"]
         feedback = normalize_project_text(text)
         now = datetime.now(timezone.utc).isoformat()
         self.ledger.append_human_decision(
             task_id,
             {
-                "type": "plan_feedback",
+                "type": decision_type,
                 "text": feedback,
                 "gateway_source": self._event_source_for_ledger(event),
                 "created_at": now,
@@ -559,7 +688,7 @@ class CodingOrchestrator:
         )
         updated_summary = (
             f"{str(task.get('requirement_summary') or '').rstrip()}\n\n"
-            f"## 人工计划反馈 {now}\n"
+            f"## {summary_heading} {now}\n"
             f"{feedback}"
         ).strip()
         self.ledger.update_requirement_summary(task_id, updated_summary)
@@ -567,16 +696,16 @@ class CodingOrchestrator:
         feedback_ref = self.wiki.upsert(
             {
                 "kind": "draft_knowledge",
-                "title": f"计划反馈 {task_id}",
+                "title": f"{title_prefix} {task_id}",
                 "body": feedback,
                 "source_refs": self._draft_knowledge_source_refs(task_id, {}, event),
                 "project": source.get("project_name"),
                 "module": None,
-                "tags": ["requirement", "plan_feedback", "draft"],
+                "tags": tags,
                 "confidence": "medium",
                 "status": "draft",
             },
-            options={"dedupe_key": f"{task_id}:plan_feedback:{len(task.get('human_decisions') or []) + 1}"},
+            options={"dedupe_key": f"{task_id}:{decision_type}:{len(task.get('human_decisions') or []) + 1}"},
         )
         refs = list(task.get("llm_wiki_refs") or [])
         refs.append(feedback_ref)
@@ -598,6 +727,50 @@ class CodingOrchestrator:
             f"项目：{task.get('project_path') or '未确定'}\n"
             "说明：反馈已写入 Task Ledger 和 LLM Wiki draft，并会注入新的计划 run；不会交给 Hermes 主 agent。"
         )
+
+    @staticmethod
+    def _implementation_feedback_received_message(task: dict[str, Any]) -> str:
+        return (
+            f"[{task['task_id']}] 已收到 bugfix 反馈，进入 implementation 修复。\n"
+            f"项目：{task.get('project_path') or '未确定'}\n"
+            "说明：反馈已写入 Task Ledger 和 LLM Wiki draft；将复用该任务最近一次 implementation workspace，"
+            "不会交给 Hermes 主 agent。"
+        )
+
+    @staticmethod
+    def _runtime_feedback_received_message(task: dict[str, Any]) -> str:
+        return (
+            f"[{task['task_id']}] 任务正在运行，已记录本次反馈。\n"
+            f"项目：{task.get('project_path') or '未确定'}\n"
+            "说明：反馈已写入 Task Ledger 和 LLM Wiki draft；当前 run 不会并发重启，后续重新 plan 或修复时会注入上下文。"
+        )
+
+    @staticmethod
+    def _human_clarification_received_message(task: dict[str, Any]) -> str:
+        return (
+            f"[{task['task_id']}] 已收到补充信息，仍处于 needs_human。\n"
+            f"项目：{task.get('project_path') or '未确定'}\n"
+            "说明：补充已写入 Task Ledger 和 LLM Wiki draft；请在项目或来源信息明确后重新触发 plan-only。"
+        )
+
+    @staticmethod
+    def _active_lock_status_message(task: dict[str, Any]) -> str:
+        return (
+            f"[{task['task_id']}] 当前飞书会话已由 coding_orchestration plugin 接管。\n"
+            f"状态：{task.get('status')}\n"
+            f"项目：{task.get('project_path') or '未确定'}\n"
+            "说明：普通回复不会进入 Hermes 主 agent；如需开始独立新任务，请使用 /coding-task。"
+        )
+
+    @staticmethod
+    def _active_lock_ambiguous_message(tasks: list[dict[str, Any]]) -> str:
+        lines = ["当前飞书会话存在多个未结束 coding task，plugin 已拦截本条消息，未交给 Hermes 主 agent。", "请先指定任务或关闭无关任务："]
+        for task in tasks[:5]:
+            lines.append(
+                f"- {task['task_id']} | {task.get('status')} | {task.get('project_path') or '未确定'}"
+            )
+        lines.append("可使用 /coding-status <task_id>、/coding-cancel <task_id> 或 /coding-task 创建独立新任务。")
+        return "\n".join(lines)
 
     def start_run(
         self,
@@ -626,11 +799,7 @@ class CodingOrchestrator:
         runner = self.runner_router.select_runner(mode=mode, requested=runner_name or source.get("requested_runner"))
         workspace_path = None
         if mode == RunMode.IMPLEMENTATION:
-            workspace_path = self.workspace_manager.create_workspace(
-                project_path=project_path,
-                task_id=task_id,
-                run_id=run_id,
-            )
+            workspace_path = self._implementation_workspace(task, project_path, run_id)
         execution_root = workspace_path or project_path
 
         wiki_docs = self._wiki_docs_for_task(task, project_name)
@@ -829,6 +998,29 @@ class CodingOrchestrator:
             recommended_runner=loaded.recommended_runner or project.default_runner,
             notes=loaded.notes,
         )
+
+    def _implementation_workspace(self, task: dict[str, Any], project_path: Path, run_id: str) -> Path:
+        reusable = self._latest_existing_implementation_workspace(task)
+        if reusable is not None:
+            return reusable
+        return self.workspace_manager.create_workspace(
+            project_path=project_path,
+            task_id=task["task_id"],
+            run_id=run_id,
+        )
+
+    @staticmethod
+    def _latest_existing_implementation_workspace(task: dict[str, Any]) -> Path | None:
+        for run in reversed(task.get("agent_runs") or []):
+            if run.get("mode") != RunMode.IMPLEMENTATION.value:
+                continue
+            workspace_path = run.get("workspace_path")
+            if not workspace_path:
+                continue
+            path = Path(str(workspace_path))
+            if path.exists():
+                return path
+        return None
 
     def _wiki_docs_for_task(self, task: dict[str, Any], project_name: str) -> list[dict[str, Any]]:
         refs = self.wiki.search(task["requirement_summary"], {"project": project_name})

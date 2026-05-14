@@ -58,6 +58,18 @@ coding_orchestration:
 - Codex CLI、Claude Code、Gemini 都只是 Runner，不能直接操作飞书，不能自己决定项目，不能自动发布。
 - Task Ledger 是运行期事实源。
 - LLM Wiki 只保存 verified knowledge、draft knowledge、run summary、QA 经验，不保存任务状态事实。
+- 同一飞书来源存在未结束 coding task 时，普通回复会被 plugin 会话级接管并返回 `skip`，不会再落到 Hermes 主 agent。
+
+## 会话级接管
+
+进入 coding 模式后，插件会用 Task Ledger 中的 `gateway_source` 建立 active task lock：
+
+- plan 阶段补充：记录为 `plan_feedback`，自动重新进入 plan-only。
+- implementation 后 bugfix：记录为 `implementation_feedback`，复用最近一次 implementation workspace 继续修复。
+- run 正在 `queued` / `running`：记录为 `runtime_feedback`，不并发启动新的 runner。
+- 项目或来源不明确：记录为 `human_clarification`，不让 runner 猜项目。
+
+需要新开独立任务时，显式发送 `/coding-task ...`。需要释放当前接管时，使用 `/coding-cancel <task_id>` 关闭无关任务。
 
 ## 常用命令
 

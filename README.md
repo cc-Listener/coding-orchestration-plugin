@@ -117,6 +117,17 @@ FEISHU_PROJECT_WORK_ITEM_DETAIL_URL_TEMPLATE=https://project.feishu.cn/open_api/
 
 如果 Hermes 无法读取 Project 描述，插件会创建任务但停在 `needs_human`，并提示补充权限或直接粘贴需求描述；不会把只有链接的任务交给 Codex 自动 plan。
 
+## 会话级接管规则
+
+一旦某个飞书来源创建了未结束 coding task，后续普通回复会优先被 `coding_orchestration` 接管，不再进入 Hermes 主 agent。插件会按当前 task 状态处理：
+
+- `planned` / plan-only `blocked` / plan-only `failed`：把回复写入 Task Ledger 和 LLM Wiki draft，并重新进入 plan-only。
+- `ready_for_review` / implementation `blocked` / implementation `failed`：把回复作为 bugfix 或实现反馈写入，并复用最近一次 implementation workspace 继续修复。
+- `queued` / `running`：只记录运行中反馈，不并发重启 Codex；后续重新 plan 或修复时注入上下文。
+- `needs_human`：记录人工补充，不交给 runner 猜项目或猜需求来源。
+
+如果需要在同一个飞书会话里创建独立新任务，请显式使用 `/coding-task ...`。如果需要释放当前接管，可使用 `/coding-cancel <task_id>` 关闭无关任务。
+
 ## 项目知识接入
 
 项目识别和模块归属优先走 LLM Wiki 的 `project_profile`。`project-registry.json` 只用于首次 bootstrap 和兜底，不再作为长期项目知识事实源。

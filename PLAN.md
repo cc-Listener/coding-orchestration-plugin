@@ -108,6 +108,7 @@ coding_orchestration
 - 新增用户插件 `coding_orchestration`，通过 Hermes 插件系统加载，不直接改 `gateway/run.py`。
 - 插件注册 `pre_gateway_dispatch`，在普通 Hermes Agent 接手前识别编码任务。
 - 命中编码任务时，插件创建 Task Ledger、查询 LLM Wiki、识别项目、启动 agent run，并返回 `{"action": "skip"}`，避免消息进入普通聊天 session。
+- 某个飞书来源进入 coding 模式后，插件基于 Task Ledger 的 `gateway_source` 建立 active task lock；未结束 task 的后续普通回复全部由插件接管，按状态记录为 plan feedback、implementation feedback、runtime feedback 或 human clarification。
 - 未命中编码任务时放行，保持 Hermes 原有聊天能力不变。
 - Codex、Claude Code、Gemini 都只是 Runner 实现，不直接调用飞书、不写 Hermes `state.db`、不决定项目。
 
