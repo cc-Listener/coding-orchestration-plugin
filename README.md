@@ -168,6 +168,10 @@ FEISHU_PROJECT_WORK_ITEM_DETAIL_URL_TEMPLATE=https://project.feishu.cn/open_api/
 /coding-implement task_xxx
 ```
 
+飞书里 plan-only 回写计划后，也可以直接回复 `确认`、`开始做`、`新建分支去干活` 等确认语句。插件会根据同一飞书会话最近的 `planned` task 接管消息，不让普通 Hermes agent 直接编码，并启动 implementation run。
+
+implementation run 会把最近一次 plan-only 的 `summary.md` 作为已确认计划注入 `input-prompt.md`，再交给 Codex。Codex prompt 会明确要求使用 superpowers 流程，包括 `using-git-worktrees`、`test-driven-development` 和 `verification-before-completion`；Hermes 会先提供 task-scoped 隔离 worktree/workspace，Codex 在其中执行，不直接修改原项目目录。
+
 查看状态：
 
 ```text
@@ -215,7 +219,7 @@ diff.patch
 
 ## Diff Guard
 
-implementation 模式会在隔离 workspace 中执行，并根据 `WORKFLOW.md` 或 `project-registry.json` 里的路径策略检查变更：
+implementation 模式会在隔离 worktree/workspace 中执行，并根据 `WORKFLOW.md` 或 `project-registry.json` 里的路径策略检查变更：
 
 - `allowed_paths` 之外的修改会被阻断。
 - `forbidden_paths` 命中的修改会被阻断。

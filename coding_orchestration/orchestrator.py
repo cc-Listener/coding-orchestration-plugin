@@ -423,8 +423,8 @@ class CodingOrchestrator:
         return (
             f"[{task['task_id']}] 已收到人工确认，进入 implementation。\n"
             f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：将由 coding_orchestration plugin 启动受控 run，并在隔离 workspace 中执行；"
-            "不会自动合并或发布。"
+            "说明：将由 coding_orchestration plugin 把已确认 plan 交给 Codex，并要求 Codex 使用 "
+            "superpowers/worktree 流程在隔离 workspace 中执行；不会自动合并或发布。"
         )
 
     def start_run(
@@ -470,10 +470,12 @@ class CodingOrchestrator:
             requirement_summary=task["requirement_summary"],
             source=source,
             project_path=str(project_path),
+            workspace_path=str(workspace_path) if workspace_path else None,
             workflow=workflow,
             wiki_refs=wiki_docs,
             mode=mode,
             runner_name=runner.name,
+            confirmed_plan=self._confirmed_plan_for_task(task) if mode == RunMode.IMPLEMENTATION else "",
         )
         (run_dir / "input-prompt.md").write_text(prompt, encoding="utf-8")
         manifest = self._build_manifest(
@@ -665,6 +667,46 @@ class CodingOrchestrator:
     @staticmethod
     def _is_source_doc_for_task(doc: dict[str, Any], task_id: str) -> bool:
         return any(source.get("task_id") == task_id for source in doc.get("source_refs", []))
+
+    @staticmethod
+    def _confirmed_plan_for_task(task: dict[str, Any]) -> str:
+        for run in reversed(task.get("agent_runs") or []):
+            if run.get("mode") != RunMode.PLAN_ONLY.value:
+                continue
+            artifact = run.get("artifact") or {}
+            summary = CodingOrchestrator._read_text_excerpt(artifact.get("summary"), limit=5000)
+            if summary:
+                return (
+                    f"Plan run: {run.get('run_id')}\n"
+                    f"Plan status: {run.get('status')}\n\n"
+                    f"{summary}"
+                ).strip()
+            report_summary = CodingOrchestrator._report_summary_markdown(artifact.get("report"))
+            if report_summary:
+                return (
+                    f"Plan run: {run.get('run_id')}\n"
+                    f"Plan status: {run.get('status')}\n\n"
+                    f"{report_summary}"
+                ).strip()
+        return ""
+
+    @staticmethod
+    def _report_summary_markdown(path_value: Any) -> str:
+        if not path_value:
+            return ""
+        path = Path(str(path_value))
+        if not path.exists():
+            return ""
+        try:
+            import json
+
+            report = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+        except Exception:
+            return ""
+        summary = str(report.get("summary_markdown") or "").strip()
+        if len(summary) > 5000:
+            return summary[:5000].rstrip() + "\n...（已截断，完整内容见 artifact）"
+        return summary
 
     @staticmethod
     def _wiki_ref(doc: dict[str, Any]) -> dict[str, Any]:

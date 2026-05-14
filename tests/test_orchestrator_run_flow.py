@@ -662,6 +662,54 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(report["status"], "blocked")
             self.assertIn("deploy/release.sh", "\n".join(report["risks"]))
 
+    def test_implementation_prompt_hands_confirmed_plan_to_codex_superpowers_worktree_flow(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "order-system",
+                            "aliases": ["订单系统"],
+                            "path": str(project),
+                            "keywords": ["发货"],
+                        }
+                    ]
+                )
+            )
+            fake_runner = FakeRunner()
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+            task_id = _task_id_from_message(
+                orchestrator.command_coding_task("--project 订单系统 修复发货失败")
+            )
+            plan_result = orchestrator.start_run(task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
+            Path(plan_result["artifacts"]["summary"]).write_text(
+                "## 已确认计划\n- 修改 src/app.ts\n- 运行 rtk pnpm test",
+                encoding="utf-8",
+            )
+
+            orchestrator.start_run(task_id, mode=RunMode.IMPLEMENTATION, timeout_seconds=5)
+
+            task = ledger.get_task(task_id)
+            implementation_prompt = Path(task["artifacts"][1]["input_prompt"]).read_text(encoding="utf-8")
+            self.assertIn("Confirmed Plan From Plan-only Run", implementation_prompt)
+            self.assertIn("修改 src/app.ts", implementation_prompt)
+            self.assertIn("superpowers", implementation_prompt)
+            self.assertIn("using-git-worktrees", implementation_prompt)
+            self.assertIn("Hermes-controlled worktree", implementation_prompt)
+
     def test_bug_task_links_parent_task_and_recovers_parent_run_context(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

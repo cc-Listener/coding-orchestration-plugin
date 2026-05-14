@@ -13,15 +13,23 @@ class PromptBuilder:
         requirement_summary: str,
         source: dict[str, Any],
         project_path: str,
+        workspace_path: str | None = None,
         workflow: WorkflowSpec,
         wiki_refs: list[dict[str, Any]],
         mode: RunMode,
         runner_name: str,
+        confirmed_plan: str = "",
     ) -> str:
         wiki_block = "\n".join(
             f"- {ref.get('id')}: {ref.get('title')}\n  {ref.get('body', '')}"
             for ref in wiki_refs
         ) or "- none"
+        confirmed_plan_block = self._confirmed_plan_block(mode, confirmed_plan)
+        execution_contract = self._execution_contract(
+            mode=mode,
+            project_path=project_path,
+            workspace_path=workspace_path,
+        )
         return f"""# Coding Task
 
 ## Requirement
@@ -55,6 +63,10 @@ Publish Policy: {workflow.publish_policy}
 ## LLM Wiki References
 {wiki_block}
 
+{confirmed_plan_block}
+
+{execution_contract}
+
 ## Required Outputs
 - Return a final JSON object matching the runner schema.
 - Put the human-readable plan or implementation summary in `summary_markdown`; Hermes will persist it to `summary.md` and show it in Feishu for human confirmation.
@@ -67,3 +79,27 @@ Publish Policy: {workflow.publish_policy}
     @staticmethod
     def _bullets(values: list[str]) -> str:
         return "\n".join(f"- {value}" for value in values) or "- none"
+
+    @staticmethod
+    def _confirmed_plan_block(mode: RunMode, confirmed_plan: str) -> str:
+        if mode != RunMode.IMPLEMENTATION:
+            return ""
+        plan = confirmed_plan.strip() or (
+            "- No prior plan-only summary was found. If the implementation cannot proceed safely, "
+            "return `status=blocked` and explain what human confirmation is missing."
+        )
+        return f"""## Confirmed Plan From Plan-only Run
+{plan}"""
+
+    @staticmethod
+    def _execution_contract(mode: RunMode, project_path: str, workspace_path: str | None) -> str:
+        if mode != RunMode.IMPLEMENTATION:
+            return ""
+        workspace = workspace_path or "(not provided)"
+        return f"""## Codex Superpowers Execution Contract
+- This is the post-plan implementation handoff. Follow the confirmed plan above unless it is unsafe or incomplete.
+- Use the Codex superpowers workflow before editing: `using-superpowers`, `using-git-worktrees`, `test-driven-development`, and `verification-before-completion` when available.
+- Hermes has already launched you inside a task-scoped Hermes-controlled worktree/workspace: `{workspace}`.
+- Treat the current working directory as the implementation worktree. Do not modify the original project directory directly: `{project_path}`.
+- If the current working directory is not an isolated worktree/workspace, stop and return `status=blocked` with the isolation issue.
+- Do not create a nested worktree unless the superpowers workflow explicitly requires it after detecting that Hermes did not provide a valid isolated workspace."""
