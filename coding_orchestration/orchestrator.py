@@ -438,7 +438,8 @@ class CodingOrchestrator:
         return fallback[0] if len(fallback) == 1 else None
 
     def _task_for_plan_feedback(self, text: str, event: Any) -> dict[str, Any] | None:
-        if not self._looks_like_plan_feedback(text):
+        value = normalize_project_text(text)
+        if not self._can_be_active_task_context_reply(value):
             return None
         incoming_source = self._event_source_for_ledger(event)
         matched = self._recent_gateway_tasks(
@@ -449,7 +450,11 @@ class CodingOrchestrator:
             ],
             require_project=True,
         )
-        return matched[0] if matched else None
+        if not matched:
+            return None
+        if self._looks_like_plan_feedback(value):
+            return matched[0]
+        return matched[0] if len(matched) == 1 and self._looks_like_plain_plan_context_note(value) else None
 
     def _recent_gateway_tasks(
         self,
@@ -485,6 +490,24 @@ class CodingOrchestrator:
         if value.startswith("/") and not _TASK_TRIGGER_RE.search(value):
             return False
         return bool(_PLAN_FEEDBACK_RE.search(value))
+
+    @staticmethod
+    def _can_be_active_task_context_reply(text: str) -> bool:
+        value = normalize_project_text(text)
+        if not value:
+            return False
+        if value.startswith("/") and not _TASK_TRIGGER_RE.search(value):
+            return False
+        return True
+
+    @staticmethod
+    def _looks_like_plain_plan_context_note(text: str) -> bool:
+        value = normalize_project_text(text)
+        if len(value) < 6:
+            return False
+        if re.search(r"[A-Za-z0-9_./\[\]`=,:：]", value):
+            return True
+        return bool(re.search(r"[\u4e00-\u9fff]{4,}", value))
 
     @staticmethod
     def _task_source_matches_gateway_source(task: dict[str, Any], incoming_source: dict[str, Any]) -> bool:

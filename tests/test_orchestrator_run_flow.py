@@ -461,6 +461,62 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["human_decisions"][-1]["type"], "plan_feedback")
             self.assertIn("重新进入 plan-only", gateway.messages[-1])
 
+    def test_gateway_plain_plan_context_note_is_captured_by_active_task_lock(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_plan_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_plan_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "bps-admin",
+                            "aliases": ["BPS运营后台"],
+                            "path": str(project),
+                            "keywords": ["订单列表"],
+                        }
+                    ]
+                )
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            orchestrator.handle_gateway_event(
+                FakeGatewayEvent("BPS运营后台有个需求，订单列表新增状态筛选"),
+                gateway=gateway,
+            )
+            task_id = orchestrator.auto_plan_started[0][0]
+
+            captured = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("列名为tag,order_tags为string[]"),
+                gateway=gateway,
+            )
+
+            task = ledger.get_task(task_id)
+            self.assertEqual(captured["action"], "skip")
+            self.assertEqual(orchestrator.auto_plan_started[-1][0], task_id)
+            self.assertIn("order_tags", task["requirement_summary"])
+            self.assertEqual(task["human_decisions"][-1]["type"], "plan_feedback")
+            self.assertIn("重新进入 plan-only", gateway.messages[-1])
+
     def test_strong_implementation_confirmation_without_task_is_not_sent_to_main_agent(self):
         class RecordingOrchestrator(CodingOrchestrator):
             def __post_init__(self):
