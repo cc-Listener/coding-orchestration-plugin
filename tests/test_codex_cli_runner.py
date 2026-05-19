@@ -44,6 +44,29 @@ class CodexCliRunnerTest(unittest.TestCase):
         self.assertIn("/tmp/workspace", command)
         self.assertNotIn("/repo/project", command[command.index("-C") + 1])
 
+    def test_merge_test_command_resumes_session_with_bypass(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "run-manifest.json").write_text(
+                json.dumps({"resume_session_id": "019e-test-thread"}),
+                encoding="utf-8",
+            )
+            runner = CodexCliRunner(command="codex")
+
+            command = runner.build_command(
+                run_dir=run_dir,
+                project_path=Path("/repo/project"),
+                workspace_path=Path("/tmp/workspace"),
+                mode=RunMode.MERGE_TEST,
+            )
+
+            self.assertEqual(command[:3], ["codex", "exec", "resume"])
+            self.assertIn("--dangerously-bypass-approvals-and-sandbox", command)
+            self.assertIn("--json", command)
+            self.assertIn("019e-test-thread", command)
+            self.assertIn("--output-last-message", command)
+            self.assertEqual(command[-1], "-")
+
     def test_fallback_report_is_completed_unstructured(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)

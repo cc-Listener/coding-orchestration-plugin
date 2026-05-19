@@ -48,6 +48,44 @@ class RouterPromptSummaryTest(unittest.TestCase):
         self.assertIn("wiki_1", prompt)
         self.assertIn("summary_markdown", prompt)
 
+    def test_prompt_builder_makes_plan_only_and_gitops_contracts_explicit(self):
+        plan_prompt = PromptBuilder().build(
+            requirement_summary="订单列表新增状态筛选",
+            source={"type": "feishu_chat"},
+            project_path="/repo/bps-admin",
+            workflow=WorkflowSpec(
+                project_path="/repo/bps-admin",
+                allowed_paths=["src/"],
+                forbidden_paths=[".codex/skills/"],
+                default_test_commands=["rtk pnpm test"],
+            ),
+            wiki_refs=[],
+            mode=RunMode.PLAN_ONLY,
+            runner_name="codex_cli",
+        )
+        impl_prompt = PromptBuilder().build(
+            requirement_summary="订单列表新增状态筛选",
+            source={"type": "feishu_chat"},
+            project_path="/repo/bps-admin",
+            workspace_path="/tmp/worktree",
+            workflow=WorkflowSpec(
+                project_path="/repo/bps-admin",
+                allowed_paths=["src/"],
+                forbidden_paths=[".codex/skills/"],
+                default_test_commands=["rtk pnpm test"],
+            ),
+            wiki_refs=[],
+            mode=RunMode.IMPLEMENTATION,
+            runner_name="codex_cli",
+            confirmed_plan="已确认计划",
+        )
+
+        self.assertIn("Plan-only Contract", plan_prompt)
+        self.assertIn("只允许输出计划", plan_prompt)
+        self.assertIn("GitOps Implementation Contract", impl_prompt)
+        self.assertIn("Watchdog", impl_prompt)
+        self.assertIn("using-git-worktrees", impl_prompt)
+
     def test_run_summary_writer_upserts_to_wiki(self):
         with tempfile.TemporaryDirectory() as tmp:
             wiki = LocalLlmWikiAdapter(Path(tmp))

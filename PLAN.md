@@ -106,10 +106,10 @@ coding_orchestration
 
 - Hermes Gateway 继续作为入口和控制面，飞书消息仍由现有 `gateway/platforms/feishu.py` 接收。
 - 新增用户插件 `coding_orchestration`，通过 Hermes 插件系统加载，不直接改 `gateway/run.py`。
-- 插件注册 `pre_gateway_dispatch`，在普通 Hermes Agent 接手前识别编码任务。
-- 命中编码任务时，插件创建 Task Ledger、查询 LLM Wiki、识别项目、启动 agent run，并返回 `{"action": "skip"}`，避免消息进入普通聊天 session。
-- 某个飞书来源进入 coding 模式后，插件基于 Task Ledger 的 `gateway_source` 建立 active task lock；未结束 task 的后续普通回复全部由插件接管，按状态记录为 plan feedback、implementation feedback、runtime feedback 或 human clarification。
-- 未命中编码任务时放行，保持 Hermes 原有聊天能力不变。
+- 插件注册 `pre_gateway_dispatch`，在普通 Hermes Agent 接手前识别显式 `/coding` slash 命令。
+- 命中 `/coding <action>` 时，插件创建 Task Ledger、查询 LLM Wiki、识别项目、启动 agent run，并返回 `{"action": "skip"}`，避免同一条命令进入普通聊天 session。
+- 普通自然语言不进入 plugin；active task binding 只为 `/coding continue`、`/coding bugfix`、`/coding implement` 等显式命令提供默认 task 上下文。多个任务并存时通过 `/coding list` 和 `/coding use <task_id>` 显式切换。
+- 未命中 `/coding` 前缀时放行，保持 Hermes 原有聊天能力不变。
 - Codex、Claude Code、Gemini 都只是 Runner 实现，不直接调用飞书、不写 Hermes `state.db`、不决定项目。
 
 ## 5. Symphony 协议与架构思想的集成
@@ -140,7 +140,7 @@ Hermes 仍是唯一主控，Task Ledger 仍是运行期事实源。
 - Hermes 维护者安装插件到 `~/.hermes/plugins/coding_orchestration/`，并在 `~/.hermes/config.yaml` 的 `plugins.enabled` 中启用。
 - 项目维护者优先在 LLM Wiki 写入 `project_profile`，记录项目路径、别名、模块关键词、测试命令和允许修改范围；`WORKFLOW.md` 用于项目内执行规范，`project-registry.json` 只做首次 bootstrap 和兜底。
 - LLM Wiki 提供方只需要实现 `search/read/upsert` adapter；MVP 可先用本地 Markdown/SQLite，后续换 HTTP 服务不影响 Hermes 主流程。
-- 飞书使用者不需要知道底层 runner 细节，只通过 `/coding-task`、飞书需求链接、bug 链接、确认卡按钮触发。
+- 飞书使用者不需要知道底层 runner 细节，只通过 `/coding task`、`/coding continue`、`/coding bugfix`、`/coding implement` 等显式命令触发；普通自然语言不会进入 plugin。
 
 最小配置：
 
@@ -273,7 +273,7 @@ Project Resolver 必须输出结构化结果，不能只返回路径：
 
 匹配优先级：
 
-1. `/coding-task --project <name>` 显式指定。
+1. `/coding task --project <name>` 显式指定。
 2. `aliases` 精确匹配。
 3. `name` 精确匹配。
 4. `keywords` 命中并按命中数、标题权重、正文权重打分。
@@ -407,7 +407,7 @@ codex exec \
 
 选择优先级：
 
-1. 飞书任务显式指定 runner，例如 `/coding-task --runner codex_cli ...`
+1. 飞书任务显式指定 runner，例如 `/coding task --runner codex_cli ...`
 2. 项目 `WORKFLOW.md` 指定推荐 runner。
 3. `project-registry.json` 指定项目默认 runner。
 4. Hermes 插件全局 `default_runner`。
@@ -545,6 +545,47 @@ upsert(document, options) -> WikiRef
 }
 ```
 
+本地实现遵循 LLM Wiki 推荐目录，不再把新知识集中写入单个 `index.jsonl`：
+
+```text
+llm-wiki/
+  purpose.md
+  schema.md
+  raw/
+    sources/
+    assets/
+  wiki/
+    index.md
+    log.md
+    overview.md
+    entities/
+    concepts/
+    sources/
+    queries/
+    synthesis/
+    comparisons/
+  .llm-wiki/
+  .obsidian/
+```
+
+目录映射：
+
+- `raw/sources/`：不可变来源快照，保存飞书原文、runner summary、registry bootstrap 等 source material。
+- `wiki/entities/`：项目画像等实体知识，例如 `project_profile`。
+- `wiki/sources/`：需求草稿、飞书输入摘要等 source-derived 页面。
+- `wiki/synthesis/`：`run_summary`、`qa_experience` 等综合知识。
+- `wiki/index.md`：自动生成的知识索引。
+- `wiki/overview.md`：自动生成的项目、状态、最近更新概览。
+- `wiki/log.md`：自动追加的写入/删除日志。
+
+更新规则：
+
+- `upsert` 先写 raw source 快照；已存在的 raw source 不覆盖。
+- 同一 `dedupe_key/id` 的 wiki 页面原地更新 `updated_at`，保留 `created_at`。
+- 每次 upsert/delete 自动刷新 `index.md` 和 `overview.md`，追加 `log.md`。
+- `search/read` 只按需读取相关 wiki 页面；raw source 通过 `source_refs` 保持可追溯。
+- 旧 `index.jsonl` 只读兼容，不作为新写入格式。
+
 ## 16. LLM Wiki 自动写入流水线
 
 插件内新增 `Knowledge Sync Pipeline`，只从已落盘 artifact 和 Task Ledger 生成知识，不让 runner 直接写 Wiki。
@@ -663,27 +704,37 @@ done -> planned
 ## 19. 飞书交互流程
 
 - 飞书消息进入 Hermes。
-- 插件 hook 判断是否是 coding task。
+- 插件 hook 判断是否是显式 `/coding` 命令。
 - 低置信度项目或需求不清时，回写确认卡。
 - 信息足够时，创建 Task Ledger，加载 workflow，查询 LLM Wiki，选择 runner，启动 plan-only。
 - plan 完成后回写计划摘要和风险。
-- 人工确认后进入 implementation。
+- task phase 到达 `plan_ready` 后，人工通过 `/coding implement <task_id>` 才进入 GitOps implementation；普通确认语不会进入 plugin。
 - implementation 完成后回写测试结果、diff 路径、待人工合并/发布提醒。
 - runner 超时、崩溃、orphan、report fallback、项目路由不确定时，统一回写异常模板和下一步人工动作。
 - 所有飞书原文和结果摘要进入 Knowledge Sync Pipeline。
 
 建议命令：
 
-- `/coding-task <需求>`
-- `/coding-status <task_id>`
-- `/coding-cancel <task_id|run_id>`
-- `/coding-confirm ...`
+- `/coding task <需求>`
+- `/coding list`
+- `/coding use <task_id>`
+- `/coding exit`
+- `/coding continue <反馈>`
+- `/coding bugfix <反馈>`
+- `/coding status <task_id>`
+- `/coding cancel <task_id|run_id>`
+- `/coding delete <task_id> [--keep-artifacts] [--keep-wiki] [--force]`
+- `/coding implement <task_id>`
+- `/coding merge-test <task_id>`
 
 兼容别名：
 
-- `/codex-task` -> `/coding-task --runner codex_cli`
-- `/codex-status` -> `/coding-status`
-- `/codex-cancel` -> `/coding-cancel`
+- `/codex-task` -> `/coding task --runner codex_cli`
+- `/codex-status` -> `/coding status`
+- `/codex-list` -> `/coding list`
+- `/codex-use` -> `/coding use`
+- `/codex-cancel` -> `/coding cancel`
+- `/codex-delete` -> `/coding delete`
 
 ## 20. Runner 安全边界
 
@@ -729,6 +780,6 @@ done -> planned
 - LLM Wiki 本地 adapter 和外部 adapter 可替换。
 - 每次 run 都能自动生成 draft/run summary/QA experience。
 - Task Ledger 与 LLM Wiki 不混淆事实边界。
-- `/codex-task` 兼容旧入口，内部归一成 `/coding-task --runner codex_cli`。
+- `/codex-task` 兼容旧入口，内部归一成 `/coding task --runner codex_cli`。
 - 普通 Hermes 飞书聊天不受影响。
 - 任一 runner 越权修改都会被统一 diff guard 拦截。

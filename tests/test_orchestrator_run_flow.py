@@ -5,7 +5,7 @@ from pathlib import Path
 
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
-from coding_orchestration.models import ArtifactSet, RunMode, RunnerCapabilities, TaskStatus
+from coding_orchestration.models import ArtifactSet, RunMode, RunnerCapabilities, TaskPhase, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_knowledge_resolver import ProjectKnowledgeResolver
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
@@ -34,7 +34,7 @@ class FakeRunner:
         )
 
     def run(self, *, run_id, run_dir, project_path, workspace_path, mode, timeout_seconds):
-        cwd = workspace_path if mode == RunMode.IMPLEMENTATION else project_path
+        cwd = workspace_path if mode in {RunMode.IMPLEMENTATION, RunMode.MERGE_TEST} else project_path
         self.calls.append(
             {
                 "run_id": run_id,
@@ -160,7 +160,7 @@ manual_only
 
 
 class OrchestratorRunFlowTest(unittest.TestCase):
-    def test_gateway_event_auto_schedules_plan_only_for_resolved_project(self):
+    def test_gateway_natural_language_does_not_enter_plugin(self):
         class RecordingOrchestrator(CodingOrchestrator):
             def __post_init__(self):
                 super().__post_init__()
@@ -203,13 +203,200 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 gateway=gateway,
             )
 
+            self.assertIsNone(result)
+            self.assertEqual(orchestrator.auto_started, [])
+            self.assertEqual(ledger.list_recent_tasks(limit=5), [])
+            self.assertEqual(gateway.messages, [])
+
+    def test_gateway_coding_help_lists_commands_and_usage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            result = orchestrator.handle_gateway_event(FakeGatewayEvent("/coding -help"), gateway=gateway)
+
+            self.assertEqual(result["action"], "skip")
+            self.assertIn("Coding Orchestration 命令帮助", gateway.messages[0])
+            self.assertIn("/coding task <需求>", gateway.messages[0])
+            self.assertIn("/coding status <task_id>", gateway.messages[0])
+            self.assertIn("/coding merge-test <task_id>", gateway.messages[0])
+            self.assertIn("兼容别名", gateway.messages[0])
+
+    def test_commands_listing_includes_coding_plugin_commands(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            text = orchestrator.command_commands_listing("")
+
+            self.assertIn("Coding Orchestration Plugin Commands", text)
+            self.assertIn("/coding task <需求>", text)
+            self.assertIn("/coding status <task_id>", text)
+            self.assertIn("/coding delete <task_id>", text)
+            self.assertIn("普通自然语言不会进入 plugin", text)
+
+    def test_gateway_commands_is_intercepted_before_hermes_builtin_listing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            result = orchestrator.handle_gateway_event(FakeGatewayEvent("/commands"), gateway=gateway)
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(result["reason"], "handled_by_coding_orchestration_commands")
+            self.assertIn("Coding Orchestration Plugin Commands", gateway.messages[0])
+            self.assertIn("/coding task <需求>", gateway.messages[0])
+            self.assertIn("/coding status <task_id>", gateway.messages[0])
+
+    def test_gateway_coding_group_task_command_creates_task(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(
+                    ProjectRegistry(
+                        [
+                            {
+                                "name": "order-system",
+                                "aliases": ["订单系统"],
+                                "path": str(project),
+                                "keywords": ["发货"],
+                            }
+                        ]
+                    )
+                ),
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("/coding task 订单系统有个需求，新增发货状态筛选"),
+                gateway=gateway,
+            )
+
             self.assertEqual(result["action"], "skip")
             self.assertEqual(len(orchestrator.auto_started), 1)
-            task_id, scheduled_gateway, scheduled_event = orchestrator.auto_started[0]
-            self.assertEqual(scheduled_gateway, gateway)
-            self.assertEqual(scheduled_event.text, "订单系统有个需求，新增发货状态筛选")
+            task_id = orchestrator.auto_started[0][0]
             self.assertEqual(ledger.get_task(task_id)["status"], "planned")
-            self.assertIn("plan-only 已自动启动", gateway.messages[0])
+            self.assertIn(f"任务ID： {task_id}", gateway.messages[0])
+            self.assertIn("需求小结：订单系统有个需求，新增发货状态筛选", gateway.messages[0])
+
+    def test_command_coding_group_dispatches_task_command(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(
+                    ProjectRegistry(
+                        [
+                            {
+                                "name": "order-system",
+                                "aliases": ["订单系统"],
+                                "path": str(project),
+                                "keywords": ["发货"],
+                            }
+                        ]
+                    )
+                ),
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            response = orchestrator.command_coding("task 订单系统有个需求，新增发货状态筛选")
+
+            self.assertIn("已创建编码任务", response)
+            self.assertIn("需求小结：订单系统有个需求，新增发货状态筛选", response)
+            self.assertEqual(len(ledger.list_recent_tasks(limit=5)), 1)
+
+    def test_gateway_coding_group_status_command_dispatches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            task_id = "task_status"
+            ledger.create_task(
+                task_id=task_id,
+                source={"type": "feishu_chat", "raw_text": "需求", "normalized_text": "需求"},
+                requirement_summary="需求",
+                project_path=str(project),
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.PLAN_READY.value,
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(f"/coding status {task_id}"),
+                gateway=gateway,
+            )
+
+            self.assertEqual(result["action"], "skip")
+            self.assertIn(f"[{task_id}] 状态：planned", gateway.messages[0])
+            self.assertIn("phase：plan_ready", gateway.messages[0])
 
     def test_gateway_event_handles_feishu_escaped_project_slug_and_media(self):
         class RecordingOrchestrator(CodingOrchestrator):
@@ -251,7 +438,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             result = orchestrator.handle_gateway_event(
                 FakeGatewayEvent(
-                    "这是bps\\-admin的一个前端需求，主要改动订单列表\n[Image]",
+                    "/coding task 这是bps\\-admin的一个前端需求，主要改动订单列表\n[Image]",
                     media_urls=["/Users/xiaojing/.hermes/image_cache/img_a.jpg"],
                     media_types=["image/jpeg"],
                 ),
@@ -330,7 +517,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             gateway = FakeGateway()
 
             result = orchestrator.handle_gateway_event(
-                FakeGatewayEvent("CRM后台有个需求，客户列表新增状态筛选"),
+                FakeGatewayEvent("/coding task CRM后台有个需求，客户列表新增状态筛选"),
                 gateway=gateway,
             )
 
@@ -341,7 +528,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["project_path"], str(project))
             self.assertEqual(task["source"]["match_evidence"][0]["source"], "llm_wiki")
 
-    def test_gateway_confirmation_starts_implementation_for_recent_planned_task(self):
+    def test_gateway_confirmation_starts_implementation_after_plan_ready_task(self):
         class RecordingOrchestrator(CodingOrchestrator):
             def __post_init__(self):
                 super().__post_init__()
@@ -384,24 +571,215 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             gateway = FakeGateway()
 
             created = orchestrator.handle_gateway_event(
-                FakeGatewayEvent("BPS运营后台有个需求，在策略列表上，新增一个状态筛选"),
+                FakeGatewayEvent("/coding task BPS运营后台有个需求，在策略列表上，新增一个状态筛选"),
                 gateway=gateway,
             )
             task_id = orchestrator.auto_plan_started[0][0]
+            orchestrator.start_run(task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
             task = ledger.get_task(task_id)
 
             confirmed = orchestrator.handle_gateway_event(
-                FakeGatewayEvent("新建分支去干活"),
+                FakeGatewayEvent(f"/coding implement {task_id}"),
                 gateway=gateway,
             )
 
             self.assertEqual(created["action"], "skip")
             self.assertEqual(confirmed["action"], "skip")
             self.assertEqual(task["source"]["gateway_source"]["chat_id"], "chat_1")
+            self.assertEqual(task["phase"], "plan_ready")
             self.assertEqual(orchestrator.auto_implementation_started[0][0], task_id)
             self.assertIn("进入 implementation", gateway.messages[-1])
 
-    def test_gateway_plan_feedback_for_recent_planned_task_is_captured_and_replans(self):
+    def test_gateway_confirmation_before_plan_ready_is_captured_but_does_not_implement(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_plan_started = []
+                self.auto_implementation_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_plan_started.append((task_id, gateway, event))
+
+            def _start_background_implementation(self, task_id, gateway, event):
+                self.auto_implementation_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "bps-admin",
+                            "aliases": ["BPS运营后台"],
+                            "path": str(project),
+                            "keywords": ["策略列表"],
+                        }
+                    ]
+                )
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            orchestrator.handle_gateway_event(
+                FakeGatewayEvent("/coding task BPS运营后台有个需求，在策略列表上，新增一个状态筛选"),
+                gateway=gateway,
+            )
+            task_id = orchestrator.auto_plan_started[0][0]
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(f"/coding implement {task_id}"),
+                gateway=gateway,
+            )
+
+            task = ledger.get_task(task_id)
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(orchestrator.auto_implementation_started, [])
+            self.assertEqual(
+                task["human_decisions"][-1]["type"],
+                "implementation_confirmation_before_plan_ready",
+            )
+            self.assertIn("必须先完成 Codex plan-only", gateway.messages[-1])
+
+    def test_gateway_use_command_selects_active_task_when_multiple_tasks_share_chat(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_plan_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_plan_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "bps-admin",
+                            "aliases": ["BPS运营后台"],
+                            "path": str(project),
+                            "keywords": ["订单列表", "策略列表"],
+                        }
+                    ]
+                )
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            orchestrator.handle_gateway_event(
+                FakeGatewayEvent("/coding task BPS运营后台有个需求，订单列表新增状态筛选"),
+                gateway=gateway,
+            )
+            task_a = orchestrator.auto_plan_started[-1][0]
+            orchestrator.handle_gateway_event(
+                FakeGatewayEvent("/coding task BPS运营后台有个需求，策略列表新增状态筛选"),
+                gateway=gateway,
+            )
+            task_b = orchestrator.auto_plan_started[-1][0]
+
+            selected = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(f"/coding use {task_a}"),
+                gateway=gateway,
+            )
+            captured = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("/coding continue 列名为tag,order_tags为string[]"),
+                gateway=gateway,
+            )
+
+            task_a_loaded = ledger.get_task(task_a)
+            task_b_loaded = ledger.get_task(task_b)
+            self.assertEqual(selected["action"], "skip")
+            self.assertEqual(captured["action"], "skip")
+            self.assertIn("已切换当前 coding task", gateway.messages[-2])
+            self.assertIn("order_tags", task_a_loaded["requirement_summary"])
+            self.assertNotIn("order_tags", task_b_loaded["requirement_summary"])
+
+    def test_gateway_delete_command_removes_task_binding_and_artifacts(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_plan_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_plan_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "bps-admin",
+                            "aliases": ["BPS运营后台"],
+                            "path": str(project),
+                            "keywords": ["订单列表"],
+                        }
+                    ]
+                )
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+            orchestrator.handle_gateway_event(
+                FakeGatewayEvent("/coding task BPS运营后台有个需求，订单列表新增状态筛选"),
+                gateway=gateway,
+            )
+            task_id = orchestrator.auto_plan_started[0][0]
+            self.assertTrue(wiki.find_by_source_task(task_id))
+            run_dir = root / "runs" / task_id / "run_1"
+            workspace_dir = root / "workspaces" / task_id / "run_1"
+            run_dir.mkdir(parents=True)
+            workspace_dir.mkdir(parents=True)
+
+            deleted = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(f"/coding delete {task_id}"),
+                gateway=gateway,
+            )
+
+            self.assertEqual(deleted["action"], "skip")
+            self.assertIsNone(ledger.get_task(task_id))
+            self.assertIsNone(ledger.get_active_binding("feishu:chat:chat_1"))
+            self.assertEqual(wiki.find_by_source_task(task_id), [])
+            self.assertFalse((root / "runs" / task_id).exists())
+            self.assertFalse((root / "workspaces" / task_id).exists())
+            self.assertIn("已删除 coding task", gateway.messages[-1])
+
+    def test_gateway_continue_command_for_recent_planned_task_replans(self):
         class RecordingOrchestrator(CodingOrchestrator):
             def __post_init__(self):
                 super().__post_init__()
@@ -440,7 +818,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             gateway = FakeGateway()
 
             created = orchestrator.handle_gateway_event(
-                FakeGatewayEvent("BPS运营后台有个需求，订单列表新增状态筛选"),
+                FakeGatewayEvent("/coding task BPS运营后台有个需求，订单列表新增状态筛选"),
                 gateway=gateway,
             )
             task_id = orchestrator.auto_plan_started[0][0]
@@ -450,7 +828,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 "2、接口的改动，项目内的skill `bps-admin-api-docs`可以去查找\n\n"
                 "根据以上反馈再重新去制定计划"
             )
-            captured = orchestrator.handle_gateway_event(FakeGatewayEvent(feedback), gateway=gateway)
+            captured = orchestrator.handle_gateway_event(FakeGatewayEvent(f"/coding continue {feedback}"), gateway=gateway)
 
             task = ledger.get_task(task_id)
             self.assertEqual(created["action"], "skip")
@@ -461,7 +839,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["human_decisions"][-1]["type"], "plan_feedback")
             self.assertIn("重新进入 plan-only", gateway.messages[-1])
 
-    def test_gateway_plain_plan_context_note_is_captured_by_active_task_lock(self):
+    def test_gateway_continue_command_accepts_plain_plan_context_note(self):
         class RecordingOrchestrator(CodingOrchestrator):
             def __post_init__(self):
                 super().__post_init__()
@@ -500,13 +878,13 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             gateway = FakeGateway()
 
             orchestrator.handle_gateway_event(
-                FakeGatewayEvent("BPS运营后台有个需求，订单列表新增状态筛选"),
+                FakeGatewayEvent("/coding task BPS运营后台有个需求，订单列表新增状态筛选"),
                 gateway=gateway,
             )
             task_id = orchestrator.auto_plan_started[0][0]
 
             captured = orchestrator.handle_gateway_event(
-                FakeGatewayEvent("列名为tag,order_tags为string[]"),
+                FakeGatewayEvent("/coding continue 列名为tag,order_tags为string[]"),
                 gateway=gateway,
             )
 
@@ -558,7 +936,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 runner_router=FakeRouter(FakeRunner()),
             )
             orchestrator.handle_gateway_event(
-                FakeGatewayEvent("BPS运营后台有个需求，导出订单增加tag字段"),
+                FakeGatewayEvent("/coding task BPS运营后台有个需求，导出订单增加tag字段"),
                 gateway=FakeGateway(),
             )
             task_id = ledger.list_recent_tasks(statuses=[TaskStatus.PLANNED.value], limit=1)[0]["task_id"]
@@ -566,7 +944,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             gateway = FakeGateway()
 
             captured = orchestrator.handle_gateway_event(
-                FakeGatewayEvent("这里有问题要更改下，order_tags后端是string，在源分支，源session上做修改"),
+                FakeGatewayEvent("/coding bugfix 这里有问题要更改下，order_tags后端是string，在源分支，源session上做修改"),
                 gateway=gateway,
             )
 
@@ -577,7 +955,136 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["human_decisions"][-1]["type"], "implementation_feedback")
             self.assertIn("进入 implementation 修复", gateway.messages[-1])
 
-    def test_gateway_runtime_feedback_is_captured_by_active_coding_lock(self):
+    def test_gateway_ignores_plugin_generated_task_messages(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_implementation_started = []
+
+            def _start_background_implementation(self, task_id, gateway, event):
+                self.auto_implementation_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(ProjectRegistry([]))
+            task_id = "task_echo"
+            source = {
+                "type": "feishu_chat",
+                "raw_text": "订单流筛选需求",
+                "normalized_text": "订单流筛选需求",
+                "gateway_source": {
+                    "platform": "feishu",
+                    "chat_id": "chat_1",
+                    "user_id": "user_1",
+                    "chat_type": "dm",
+                },
+                "project_name": "bps-admin",
+            }
+            ledger.create_task(
+                task_id=task_id,
+                source=source,
+                requirement_summary="订单流筛选需求",
+                project_path=str(project),
+                status=TaskStatus.READY_FOR_REVIEW.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.HUMAN_REVIEW.value,
+            )
+            ledger.bind_active_task(
+                binding_key="feishu:chat:chat_1",
+                task_id=task_id,
+                scope=source["gateway_source"],
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            captured = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(f"[{task_id}] 已准备人工 merge-to-test。\n项目目录：{project}"),
+                gateway=FakeGateway(),
+            )
+
+            task = ledger.get_task(task_id)
+            self.assertEqual(captured, {"action": "skip", "reason": "ignored_coding_orchestration_echo"})
+            self.assertEqual(task["status"], TaskStatus.READY_FOR_REVIEW.value)
+            self.assertEqual(task["phase"], TaskPhase.HUMAN_REVIEW.value)
+            self.assertEqual(task["human_decisions"], [])
+            self.assertEqual(orchestrator.auto_implementation_started, [])
+
+    def test_stale_run_completion_does_not_overwrite_newer_task_state(self):
+        class StaleRunner(FakeRunner):
+            def __init__(self, ledger, task_id):
+                super().__init__()
+                self.ledger = ledger
+                self.task_id = task_id
+
+            def run(self, *, run_id, run_dir, project_path, workspace_path, mode, timeout_seconds):
+                self.ledger.update_task_session(
+                    self.task_id,
+                    {"runner": {"active_run_id": "run_newer", "active_mode": "merge-test"}},
+                )
+                self.ledger.update_status(self.task_id, TaskStatus.DONE.value)
+                self.ledger.update_phase(self.task_id, TaskPhase.MERGED_TEST.value)
+                return super().run(
+                    run_id=run_id,
+                    run_dir=run_dir,
+                    project_path=project_path,
+                    workspace_path=workspace_path,
+                    mode=mode,
+                    timeout_seconds=timeout_seconds,
+                )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            task_id = "task_stale"
+            ledger.create_task(
+                task_id=task_id,
+                source={
+                    "type": "feishu_chat",
+                    "raw_text": "订单流筛选需求",
+                    "normalized_text": "订单流筛选需求",
+                    "project_name": "bps-admin",
+                },
+                requirement_summary="订单流筛选需求",
+                project_path=str(project),
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.PLAN_READY.value,
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(StaleRunner(ledger, task_id)),
+            )
+
+            result = orchestrator.start_run(task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
+
+            task = ledger.get_task(task_id)
+            self.assertTrue(result["stale_completion"])
+            self.assertEqual(task["status"], TaskStatus.DONE.value)
+            self.assertEqual(task["phase"], TaskPhase.MERGED_TEST.value)
+            self.assertEqual(task["agent_runs"][-1]["stale_completion"], True)
+
+    def test_gateway_continue_command_records_runtime_feedback(self):
         class RecordingOrchestrator(CodingOrchestrator):
             def __post_init__(self):
                 super().__post_init__()
@@ -620,14 +1127,14 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             gateway = FakeGateway()
 
             orchestrator.handle_gateway_event(
-                FakeGatewayEvent("BPS运营后台有个需求，导出订单增加tag字段"),
+                FakeGatewayEvent("/coding task BPS运营后台有个需求，导出订单增加tag字段"),
                 gateway=gateway,
             )
             task_id = orchestrator.auto_plan_started[0][0]
             ledger.update_status(task_id, TaskStatus.RUNNING.value)
 
             captured = orchestrator.handle_gateway_event(
-                FakeGatewayEvent("order_tags后端是string，在源分支源session上做修改"),
+                FakeGatewayEvent("/coding continue order_tags后端是string，在源分支源session上做修改"),
                 gateway=gateway,
             )
 
@@ -638,7 +1145,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(orchestrator.auto_implementation_started, [])
             self.assertIn("任务正在运行，已记录本次反馈", gateway.messages[-1])
 
-    def test_gateway_failed_plan_feedback_restarts_plan_only_under_active_lock(self):
+    def test_gateway_continue_command_restarts_failed_plan_only(self):
         class RecordingOrchestrator(CodingOrchestrator):
             def __post_init__(self):
                 super().__post_init__()
@@ -676,14 +1183,14 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             )
             gateway = FakeGateway()
             orchestrator.handle_gateway_event(
-                FakeGatewayEvent("订单系统有个需求，新增发货状态筛选"),
+                FakeGatewayEvent("/coding task 订单系统有个需求，新增发货状态筛选"),
                 gateway=gateway,
             )
             task_id = orchestrator.auto_plan_started[0][0]
             orchestrator.start_run(task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
 
             captured = orchestrator.handle_gateway_event(
-                FakeGatewayEvent("补充一下，只处理发货失败状态"),
+                FakeGatewayEvent("/coding continue 补充一下，只处理发货失败状态"),
                 gateway=gateway,
             )
 
@@ -721,9 +1228,9 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 gateway=gateway,
             )
 
-            self.assertEqual(result["action"], "skip")
+            self.assertIsNone(result)
             self.assertEqual(orchestrator.auto_implementation_started, [])
-            self.assertIn("未找到可进入 implementation 的 planned 任务", gateway.messages[0])
+            self.assertEqual(gateway.messages, [])
 
     def test_feishu_project_link_enriches_requirement_before_plan_only(self):
         class RecordingOrchestrator(CodingOrchestrator):
@@ -777,7 +1284,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             gateway = FakeGateway()
 
             result = orchestrator.handle_gateway_event(
-                FakeGatewayEvent("https://project.feishu.cn/z9b9t3/story/detail/6983769492"),
+                FakeGatewayEvent("/coding task https://project.feishu.cn/z9b9t3/story/detail/6983769492"),
                 gateway=gateway,
             )
 
@@ -851,7 +1358,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             result = orchestrator.handle_gateway_event(
                 FakeGatewayEvent(
-                    "BPS运营后台 https://project.feishu.cn/z9b9t3/story/detail/6983769492"
+                    "/coding task BPS运营后台 https://project.feishu.cn/z9b9t3/story/detail/6983769492"
                 ),
                 gateway=gateway,
             )
@@ -1046,6 +1553,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             manifest = json.loads(Path(task["artifacts"][0]["manifest"]).read_text(encoding="utf-8"))
             self.assertEqual(manifest["task_id"], task_id)
             self.assertEqual(manifest["mode"], "plan-only")
+            self.assertEqual(manifest["task_phase"], "draft")
+            self.assertIsNone(manifest["source_branch"])
             summaries = wiki.search("计划完成", {"project": "order-system"})
             self.assertEqual(summaries[0]["kind"], "run_summary")
 
@@ -1091,9 +1600,13 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             task = ledger.get_task(task_id)
             report = json.loads(Path(task["artifacts"][0]["report"]).read_text(encoding="utf-8"))
+            manifest = json.loads(Path(task["artifacts"][0]["manifest"]).read_text(encoding="utf-8"))
             self.assertEqual(result["status"], "blocked")
             self.assertEqual(task["status"], "blocked")
             self.assertTrue(fake_runner.calls[0]["workspace_path"].is_dir())
+            self.assertEqual(task["task_session"]["source_branch"], f"codex/order-system-{task_id}")
+            self.assertEqual(task["task_session"]["worktree_path"], str(fake_runner.calls[0]["workspace_path"]))
+            self.assertEqual(manifest["source_branch"], f"codex/order-system-{task_id}")
             self.assertFalse((project / "deploy" / "release.sh").exists())
             self.assertEqual(report["status"], "blocked")
             self.assertIn("deploy/release.sh", "\n".join(report["risks"]))
@@ -1145,6 +1658,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIn("superpowers", implementation_prompt)
             self.assertIn("using-git-worktrees", implementation_prompt)
             self.assertIn("Hermes-controlled worktree", implementation_prompt)
+            self.assertIn("GitOps Implementation Contract", implementation_prompt)
+            self.assertIn("GitOps Watchdog Checklist", implementation_prompt)
 
     def test_followup_implementation_reuses_previous_workspace(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1263,9 +1778,83 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             message = orchestrator.command_prepare_merge_test("task_1")
 
-            self.assertIn("人工执行", message)
+            self.assertIn("续接 Codex session", message)
             self.assertIn("merge-to-test", message)
             self.assertEqual(ledger.get_task("task_1")["status"], "ready_for_review")
+            self.assertEqual(ledger.get_task("task_1")["phase"], "ready_to_merge_test")
+
+    def test_coding_merge_test_resumes_codex_session_and_marks_done(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            workspace = root / "workspaces" / "task_1" / "run_impl"
+            workspace.mkdir(parents=True)
+            (workspace / "src").mkdir()
+            (workspace / "src" / "app.ts").write_text("export const ok = true\n", encoding="utf-8")
+            impl_run = root / "runs" / "task_1" / "run_impl"
+            impl_run.mkdir(parents=True)
+            (impl_run / "stdout.log").write_text(
+                '{"type":"thread.started","thread_id":"019e-test-thread"}\n',
+                encoding="utf-8",
+            )
+
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_1",
+                source={"type": "manual", "project_name": "order"},
+                requirement_summary="done",
+                project_path=str(project),
+                status="ready_for_review",
+                llm_wiki_refs=[],
+                human_decisions=[],
+                task_session={
+                    "source_branch": "codex/order-task_1",
+                    "worktree_path": str(workspace),
+                },
+            )
+            ledger.append_agent_run(
+                "task_1",
+                {
+                    "run_id": "run_impl",
+                    "runner": "codex_cli",
+                    "mode": "implementation",
+                    "status": "success",
+                    "artifact": {"stdout": str(impl_run / "stdout.log")},
+                    "workspace_path": str(workspace),
+                    "source_branch": "codex/order-task_1",
+                },
+            )
+            fake_runner = FakeRunner()
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+
+            message = orchestrator.command_coding_merge_test("task_1")
+            task = ledger.get_task("task_1")
+
+            self.assertIn("merge-test run 已完成", message)
+            self.assertEqual(fake_runner.calls[-1]["mode"], RunMode.MERGE_TEST)
+            self.assertEqual(fake_runner.calls[-1]["workspace_path"], workspace)
+            self.assertEqual(task["status"], "done")
+            self.assertEqual(task["phase"], "merged_test")
+            self.assertEqual(task["merge_records"][-1]["type"], "merge_test_run")
+            self.assertEqual(task["merge_records"][-1]["target_branch"], "test")
+            run_dir = fake_runner.calls[-1]["run_dir"]
+            prompt = Path(run_dir / "input-prompt.md").read_text(encoding="utf-8")
+            manifest = json.loads(Path(run_dir / "run-manifest.json").read_text(encoding="utf-8"))
+            self.assertIn("merge-to-test", prompt)
+            self.assertIn("codex/order-task_1", prompt)
+            self.assertEqual(manifest["mode"], "merge-test")
+            self.assertEqual(manifest["resume_session_id"], "019e-test-thread")
+            self.assertEqual(manifest["target_branch"], "test")
+            self.assertTrue(manifest["dangerous_bypass"])
 
     def test_command_coding_run_starts_plan_only_for_existing_task(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1307,7 +1896,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIn("请人工确认计划完整度和正确性", message)
             self.assertEqual(fake_runner.calls[0]["mode"], RunMode.PLAN_ONLY)
 
-    def test_command_coding_implement_starts_implementation_for_existing_task(self):
+    def test_command_coding_implement_requires_plan_ready_then_starts_implementation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "order"
@@ -1340,11 +1929,15 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 orchestrator.command_coding_task("--project 订单系统 修复发货失败")
             )
 
+            blocked = orchestrator.command_coding_implement(task_id)
+            orchestrator.start_run(task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
             message = orchestrator.command_coding_implement(task_id)
 
+            self.assertIn("必须先完成 Codex plan-only", blocked)
             self.assertIn("implementation run 已完成", message)
             self.assertIn("ready_for_review", message)
-            self.assertEqual(fake_runner.calls[0]["mode"], RunMode.IMPLEMENTATION)
+            self.assertEqual(fake_runner.calls[0]["mode"], RunMode.PLAN_ONLY)
+            self.assertEqual(fake_runner.calls[1]["mode"], RunMode.IMPLEMENTATION)
 
 
 if __name__ == "__main__":

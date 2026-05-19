@@ -1,4 +1,5 @@
 import tempfile
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -59,6 +60,32 @@ codex_cli
 
             self.assertTrue((workspace / "file.txt").exists())
             self.assertEqual((workspace / "file.txt").read_text(encoding="utf-8"), "hello")
+
+    def test_workspace_manager_creates_git_worktree_on_named_branch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "project"
+            project.mkdir()
+            subprocess.run(["git", "init"], cwd=project, check=True, stdout=subprocess.PIPE)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=project, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=project, check=True)
+            (project / "file.txt").write_text("hello", encoding="utf-8")
+            subprocess.run(["git", "add", "file.txt"], cwd=project, check=True)
+            subprocess.run(["git", "commit", "-m", "init"], cwd=project, check=True, stdout=subprocess.PIPE)
+
+            workspace = WorkspaceManager(root / "workspaces").create_workspace(
+                project_path=project,
+                task_id="task_1",
+                run_id="run_1",
+                branch_name="codex/task_1",
+            )
+
+            branch = subprocess.check_output(
+                ["git", "branch", "--show-current"],
+                cwd=workspace,
+                text=True,
+            ).strip()
+            self.assertEqual(branch, "codex/task_1")
 
 
 if __name__ == "__main__":

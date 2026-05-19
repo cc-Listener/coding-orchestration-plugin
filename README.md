@@ -4,6 +4,14 @@ Hermes Coding Orchestration Plugin 是一个 Hermes 用户插件，用 Hermes Ga
 
 这个项目的目标不是自动发布代码，而是把“手动切项目目录、手动开 Codex session、手动补上下文、手动整理结果”的流程，收敛成一个可审计、可回放、可沉淀知识的最小闭环。
 
+## 版本定位
+
+当前仓库实现的是 **MVP 版本**。
+
+MVP 的目标是先跑通最小闭环：飞书显式 `/coding` 输入、Hermes 主控、Task Ledger 追踪状态、LLM Wiki 沉淀知识、Codex CLI 受控执行 plan-only / implementation、人工确认 plan、人工测试和人工发布。
+
+MVP 不追求大平台化，也不让普通自然语言自动进入 plugin。所有 coding 流程必须显式使用 `/coding <action>`。
+
 ## 解决的问题
 
 - 飞书 Wiki、飞书文档、飞书 Project bug、群聊口头需求入口分散。
@@ -55,7 +63,27 @@ hermes plugins install cc-Listener/coding-orchestration-plugin --enable
 hermes plugins install git@github.com:cc-Listener/coding-orchestration-plugin.git --enable
 ```
 
-插件启用后需要重启或开启新的 Hermes session 才会生效。
+插件启用后需要重启 Gateway 或开启新的 Hermes session 才会生效：
+
+```bash
+rtk hermes gateway restart
+```
+
+安装后验证：
+
+```bash
+hermes plugins list
+hermes gateway status
+```
+
+在飞书或 Hermes Gateway 对话里验证：
+
+```text
+/commands
+/coding help
+```
+
+预期结果是 `/commands` 第一页能看到 `/coding help`、`/coding task`、`/coding status`、`/coding delete`，并且 `/coding help` 能输出完整命令说明。
 
 ### 本地调试安装
 
@@ -78,6 +106,18 @@ hermes plugins enable coding_orchestration
 ```
 
 生产环境不要依赖软链接安装；软链接会把运行中的 Hermes 绑定到本地工作区，适合开发调试，不适合作为稳定部署方式。
+
+## 1.0 TODO
+
+MVP 跑通后，1.0 版本重点补齐团队化能力：
+
+- Hermes plugin 安装产品化：按 tag 发布、标准 `hermes plugins install ... --enable` 安装、安装后自检、升级和回滚说明。
+- Ledger migration：Task Ledger schema 可升级，已有任务不被破坏。
+- LLM Wiki 团队化：从本地 adapter 扩展到团队共享知识层，并支持 verified / draft / run_summary 的审核晋升。
+- Runner 扩展：补齐 Claude Code、Gemini runner，统一 capability 和 `report.json` schema。
+- 飞书交互增强：确认卡、权限诊断、bug 单关联原 task、操作审计。
+- 可观测性：`/coding doctor`、`/coding metrics`、stale workspace 清理和 blocked 原因统计。
+- 新项目接入模板：`project_profile`、`WORKFLOW.md`、allowed / forbidden paths、测试命令和 merge-to-test 约束。
 
 ## Hermes 配置示例
 
@@ -117,16 +157,55 @@ FEISHU_PROJECT_WORK_ITEM_DETAIL_URL_TEMPLATE=https://project.feishu.cn/open_api/
 
 如果 Hermes 无法读取 Project 描述，插件会创建任务但停在 `needs_human`，并提示补充权限或直接粘贴需求描述；不会把只有链接的任务交给 Codex 自动 plan。
 
-## 会话级接管规则
+## Coding 命令入口规则
 
-一旦某个飞书来源创建了未结束 coding task，后续普通回复会优先被 `coding_orchestration` 接管，不再进入 Hermes 主 agent。插件会按当前 task 状态处理：
+插件只处理显式 `/coding` 前缀消息。普通自然语言不会进入 `coding_orchestration`，也不会被 active task binding 自动吞掉；这可以避免 Hermes 主 agent 和 plugin 抢上下文。
 
-- `planned` / plan-only `blocked` / plan-only `failed`：把回复写入 Task Ledger 和 LLM Wiki draft，并重新进入 plan-only。
-- `ready_for_review` / implementation `blocked` / implementation `failed`：把回复作为 bugfix 或实现反馈写入，并复用最近一次 implementation workspace 继续修复。
-- `queued` / `running`：只记录运行中反馈，不并发重启 Codex；后续重新 plan 或修复时注入上下文。
-- `needs_human`：记录人工补充，不交给 runner 猜项目或猜需求来源。
+所有动作都必须写成 `/coding <action>`：
 
-如果需要在同一个飞书会话里创建独立新任务，请显式使用 `/coding-task ...`。如果需要释放当前接管，可使用 `/coding-cancel <task_id>` 关闭无关任务。
+- 创建任务：`/coding task <需求>`
+- 补充计划反馈：`/coding continue <反馈>`
+- 提交 QA/bugfix 反馈：`/coding bugfix <反馈>`
+- 人工确认后进入实现：`/coding implement <task_id>`
+- 查看、切换、退出：`/coding status|list|use|exit ...`
+
+active task binding 只用于 `/coding continue`、`/coding bugfix`、`/coding implement` 这类显式命令在缺省 `task_id` 时找到当前任务，不用于接管普通自然语言。旧的 `/coding-*` 和 `/codex-*` slash 命令仍兼容，但文档、团队使用和后续集成都统一使用 `/coding <action>`。
+
+implementation 有硬门禁：必须先由 Codex 完成 plan-only，Hermes 将 phase 标为 `plan_ready` 后，再通过 `/coding implement <task_id>` 进入 GitOps implementation。`新建分支去干活`、`确认` 这类自然语言不会触发 plugin；请显式发送 `/coding implement <task_id>`。
+
+## Plugin 任务处理流程
+
+插件处理一个 task 时，主链路如下：
+
+```text
+/coding <action>
+  -> pre_gateway_dispatch 拦截
+  -> Command Router 归一化 action
+  -> Hermes 读取飞书来源正文和字段
+  -> Project Resolver 读取 LLM Wiki project_profile 识别项目
+  -> Task Ledger 创建或更新 task 运行事实
+  -> LLM Wiki 写入 draft_knowledge 或读取历史知识
+  -> Prompt Builder 生成 input-prompt.md 和 run-manifest.json
+  -> Runner Router 选择 Codex CLI
+  -> Codex 执行 plan-only / implementation / merge-test
+  -> 收集 stdout、stderr、report.json、summary.md、diff.patch
+  -> 校验 report schema、diff guard、测试结果
+  -> 更新 Task Ledger
+  -> 回写飞书状态
+  -> 写入 LLM Wiki run_summary / QA 经验
+```
+
+状态推进规则：
+
+- `/coding task`：创建 task，自动进入 plan-only，成功后进入 `plan_ready`。
+- `/coding continue`：追加人工反馈，重新进入 plan-only。
+- `/coding implement`：仅在 `plan_ready` 后允许，进入隔离 workspace 开发。
+- `/coding bugfix`：复用原 implementation workspace、source branch 和上下文继续修复。
+- `/coding merge-test`：续接 Codex session 执行 merge-to-test，发布测试环境仍人工。
+- `/coding cancel`：取消任务或 run，保留排查材料。
+- `/coding delete`：删除 task、active binding，并按参数清理 artifacts / LLM Wiki。
+
+运行期事实只写 Task Ledger；长期知识只写 LLM Wiki；可审计材料写 run artifacts。
 
 ## 项目知识接入
 
@@ -196,48 +275,80 @@ FEISHU_PROJECT_WORK_ITEM_DETAIL_URL_TEMPLATE=https://project.feishu.cn/open_api/
 创建任务：
 
 ```text
-/coding-task --project 订单系统 修复发货失败
+/coding task --project 订单系统 修复发货失败
 ```
 
 创建 Codex runner 任务：
 
 ```text
-/codex-task --project 订单系统 生成实现计划
+/coding task --runner codex_cli --project 订单系统 生成实现计划
 ```
 
-飞书 Gateway 中项目识别成功的自然语言需求会自动启动 plan-only run，并在完成后回写结果。手动创建任务或补跑已有任务时，可以执行 plan-only run：
+飞书 Gateway 只有显式 `/coding task ...` 会创建任务并自动启动 plan-only run。补跑已有任务时，可以执行：
 
 ```text
-/coding-run task_xxx
+/coding run task_xxx
 ```
 
 执行 implementation run：
 
 ```text
-/coding-implement task_xxx
+/coding implement task_xxx
 ```
 
-飞书里 plan-only 回写计划后，也可以直接回复 `确认`、`开始做`、`新建分支去干活` 等确认语句。插件会根据同一飞书会话最近的 `planned` task 接管消息，不让普通 Hermes agent 直接编码，并启动 implementation run。
+飞书里 plan-only 回写计划后，需要显式发送 `/coding implement task_xxx`。普通确认语不会进入 plugin，也不会启动 implementation。
 
-implementation run 会把最近一次 plan-only 的 `summary.md` 作为已确认计划注入 `input-prompt.md`，再交给 Codex。Codex prompt 会明确要求使用 superpowers 流程，包括 `using-git-worktrees`、`test-driven-development` 和 `verification-before-completion`；Hermes 会先提供 task-scoped 隔离 worktree/workspace，Codex 在其中执行，不直接修改原项目目录。
+implementation run 会把最近一次 plan-only 的 `summary.md` 作为已确认计划注入 `input-prompt.md`，再交给 Codex。Codex prompt 会明确进入 `GitOps Implementation Contract`，要求使用 superpowers 流程，包括 `using-git-worktrees`、`test-driven-development` 和 `verification-before-completion`；Hermes 会先提供 task-scoped 隔离 worktree/workspace 和稳定 source branch，Codex 在其中执行，不直接修改原项目目录。
+
+任务切换：
+
+```text
+/coding list
+/coding use task_xxx
+/coding exit
+/coding continue 这里补充计划上下文
+/coding bugfix 这里有问题要在源分支修复
+```
 
 查看状态：
 
 ```text
-/coding-status task_xxx
+/coding status task_xxx
 ```
 
 取消任务：
 
 ```text
-/coding-cancel task_xxx
+/coding cancel task_xxx
 ```
 
-准备人工合并 test：
+删除任务：
 
 ```text
-/coding-prepare-merge-test task_xxx
+/coding delete task_xxx
 ```
+
+`/coding delete` 会删除 Task Ledger 记录、清理当前 active binding、删除该 task 生成的 LLM Wiki draft/run_summary，并清理插件 run/workspace 目录。运行中的 task 默认不能删除，需要先 `/coding cancel task_xxx`；确实要强制删除时使用：
+
+```text
+/coding delete task_xxx --force
+```
+
+保留本地 artifacts 或 Wiki 记录：
+
+```text
+/coding delete task_xxx --keep-artifacts
+/coding delete task_xxx --keep-wiki
+```
+
+准备并执行 merge-to-test：
+
+```text
+/coding prepare-merge-test task_xxx
+/coding merge-test task_xxx
+```
+
+`/coding prepare-merge-test` 只把 task 标记为 ready-to-merge-test 并回写操作提示。人工测试通过后，执行 `/coding merge-test <task_id>` 会让 Hermes 续接上一次 implementation 的 Codex session，要求 Codex 使用 `merge-to-test` skill：提交 source branch 上的已跟踪改动、push source branch、merge 到 `test` 并 push `origin/test`。成功后 Task Ledger 会更新为 `done / merged_test`，并写入 `merge_records`。测试环境发布仍然人工。
 
 ## 运行产物
 
@@ -264,6 +375,37 @@ diff.patch
 - `run_summary`：runner 输出总结、测试结果、风险和下一步。
 - `project_profile`：registry bootstrap；后续人工确认后的稳定项目画像也应以同一结构写入。
 - QA 经验：bug 修复任务可以通过 `--bug-of task_id` 关联原任务，并恢复原 run summary 上下文。
+
+本地 LLM Wiki 使用推荐目录结构，不再把新知识写成单个 `index.jsonl`：
+
+```text
+llm-wiki/
+  purpose.md
+  schema.md
+  raw/
+    sources/
+    assets/
+  wiki/
+    index.md
+    log.md
+    overview.md
+    entities/
+    concepts/
+    sources/
+    queries/
+    synthesis/
+    comparisons/
+  .llm-wiki/
+  .obsidian/
+```
+
+写入规则：
+
+- 每次 `upsert` 都写一份 `raw/sources/*.md` 原始来源快照，默认不覆盖，保证来源可追溯。
+- 结构化知识写入 `wiki/*/*.md`，使用 YAML frontmatter 保存 `id`、`kind`、`project`、`status`、`source_refs`、时间戳和扩展字段。
+- `project_profile` 写入 `wiki/entities/`，`draft_knowledge` 写入 `wiki/sources/`，`run_summary` / `qa_experience` 写入 `wiki/synthesis/`。
+- 每次写入或删除都会自动刷新 `wiki/index.md`、`wiki/overview.md`，并追加 `wiki/log.md`。
+- 旧版 `index.jsonl` 只做读取兼容，不再作为新知识写入格式。
 
 飞书 Project 链接、消息来源和图片等输入会进入 `draft_knowledge.source_refs`；Task Ledger 只保存对应 Wiki ref 和当前任务状态，不把 Wiki 当运行期状态库。
 

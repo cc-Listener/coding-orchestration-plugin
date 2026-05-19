@@ -10,7 +10,14 @@ class WorkspaceManager:
         self.workspace_root = workspace_root
         self.workspace_root.mkdir(parents=True, exist_ok=True)
 
-    def create_workspace(self, project_path: Path, task_id: str, run_id: str, base_branch: str | None = None) -> Path:
+    def create_workspace(
+        self,
+        project_path: Path,
+        task_id: str,
+        run_id: str,
+        base_branch: str | None = None,
+        branch_name: str | None = None,
+    ) -> Path:
         target = self.workspace_root / task_id / run_id
         target.parent.mkdir(parents=True, exist_ok=True)
         if target.exists():
@@ -18,7 +25,12 @@ class WorkspaceManager:
 
         if self._is_git_repo(project_path):
             try:
-                self._create_git_worktree(project_path, target, base_branch=base_branch)
+                self._create_git_worktree(
+                    project_path,
+                    target,
+                    base_branch=base_branch,
+                    branch_name=branch_name,
+                )
                 return target
             except Exception:
                 if target.exists():
@@ -33,11 +45,33 @@ class WorkspaceManager:
         return (path / ".git").exists()
 
     @staticmethod
-    def _create_git_worktree(project_path: Path, target: Path, base_branch: str | None = None) -> None:
-        command = ["git", "worktree", "add", str(target)]
-        if base_branch:
+    def _create_git_worktree(
+        project_path: Path,
+        target: Path,
+        base_branch: str | None = None,
+        branch_name: str | None = None,
+    ) -> None:
+        command = ["git", "worktree", "add"]
+        branch_exists = bool(branch_name) and WorkspaceManager._git_ref_exists(project_path, str(branch_name))
+        if branch_name and not branch_exists:
+            command.extend(["-b", branch_name])
+        command.append(str(target))
+        if branch_exists:
+            command.append(str(branch_name))
+        elif base_branch:
             command.append(base_branch)
         subprocess.run(command, cwd=project_path, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+
+    @staticmethod
+    def _git_ref_exists(project_path: Path, ref_name: str) -> bool:
+        result = subprocess.run(
+            ["git", "rev-parse", "--verify", "--quiet", ref_name],
+            cwd=project_path,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        return result.returncode == 0
 
     def cleanup_workspace(self, workspace_path: Path) -> None:
         if workspace_path.exists():

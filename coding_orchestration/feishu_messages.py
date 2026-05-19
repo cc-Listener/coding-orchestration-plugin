@@ -9,13 +9,18 @@ def render_task_created(
     project_name: str,
     project_path: str,
     *,
+    status: str = "planned",
+    phase: str = "draft",
     auto_plan_started: bool = False,
 ) -> str:
     next_step = "plan-only 已自动启动，完成后会回写结果。" if auto_plan_started else "进入 plan-only。"
     return (
-        f"已创建编码任务： {task_id}\n"
+        "已创建编码任务\n"
+        f"任务ID： {task_id}\n"
+        f"需求小结：{summary}\n"
+        f"当前状态：{status}\n"
+        f"当前阶段：{phase}\n"
         f"项目：{project_name} ({project_path})\n"
-        f"需求：{summary}\n"
         f"下一步：{next_step}"
     )
 
@@ -30,7 +35,7 @@ def render_task_needs_human(task_id: str, summary: str, candidates: list[Project
         lines.append("候选项目：")
         for candidate in candidates:
             lines.append(f"- {candidate.project_name}: {candidate.project_path} ({candidate.confidence:.2f})")
-    lines.append("请使用 /coding-confirm 补充项目后继续。")
+    lines.append("请使用 /coding task --project <项目名> <完整需求> 重新提交，或先把项目画像写入 LLM Wiki 后再重试。")
     return "\n".join(lines)
 
 

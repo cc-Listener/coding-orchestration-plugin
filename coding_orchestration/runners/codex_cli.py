@@ -25,7 +25,7 @@ class CodexCliRunner(CodingAgentRunner):
             supports_implementation=True,
             supports_streaming_events=True,
             supports_cancel=True,
-            supports_resume=False,
+            supports_resume=True,
             supports_app_server=False,
             supports_structured_output=True,
             output_format="json_events",
@@ -39,6 +39,33 @@ class CodexCliRunner(CodingAgentRunner):
         workspace_path: Path | None,
         mode: RunMode,
     ) -> list[str]:
+        if mode == RunMode.MERGE_TEST:
+            session_id = self._resume_session_id(run_dir)
+            if session_id:
+                return [
+                    self.command,
+                    "exec",
+                    "resume",
+                    "--json",
+                    "--dangerously-bypass-approvals-and-sandbox",
+                    "--output-last-message",
+                    str(run_dir / "report.json"),
+                    session_id,
+                    "-",
+                ]
+            cwd = workspace_path or project_path
+            return [
+                self.command,
+                "exec",
+                "--json",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "--output-last-message",
+                str(run_dir / "report.json"),
+                "-C",
+                str(cwd),
+                "-",
+            ]
+
         cwd = workspace_path if mode == RunMode.IMPLEMENTATION else project_path
         sandbox = "workspace-write" if mode == RunMode.IMPLEMENTATION else "read-only"
         return [
@@ -327,3 +354,26 @@ class CodexCliRunner(CodingAgentRunner):
             "next_actions",
         }
         return required.issubset(report.keys())
+
+    @staticmethod
+    def thread_id_from_stdout(path: Path) -> str:
+        if not path.exists():
+            return ""
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            parsed = CodexCliRunner._try_parse_json(line.strip())
+            if not isinstance(parsed, dict):
+                continue
+            if parsed.get("type") == "thread.started" and parsed.get("thread_id"):
+                return str(parsed["thread_id"])
+        return ""
+
+    @staticmethod
+    def _resume_session_id(run_dir: Path) -> str:
+        manifest_path = run_dir / "run-manifest.json"
+        if not manifest_path.exists():
+            return ""
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            return ""
+        return str(manifest.get("resume_session_id") or "").strip()

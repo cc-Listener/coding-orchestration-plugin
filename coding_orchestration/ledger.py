@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 
 class TaskLedger:
@@ -12,10 +13,18 @@ class TaskLedger:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._init_db()
 
-    def _connect(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        return conn
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
     def _init_db(self) -> None:
         with self._connect() as conn:
@@ -36,6 +45,27 @@ class TaskLedger:
                 )
                 """
             )
+            self._ensure_column(conn, "tasks", "phase", "text not null default 'draft'")
+            self._ensure_column(conn, "tasks", "task_session_json", "text not null default '{}'")
+            self._ensure_column(conn, "tasks", "merge_records_json", "text not null default '[]'")
+            conn.execute(
+                """
+                create table if not exists active_task_bindings (
+                    binding_key text primary key,
+                    task_id text not null,
+                    scope_json text not null,
+                    created_at text not null default current_timestamp,
+                    updated_at text not null default current_timestamp
+                )
+                """
+            )
+
+    @staticmethod
+    def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        rows = conn.execute(f"pragma table_info({table})").fetchall()
+        if any(row["name"] == column for row in rows):
+            return
+        conn.execute(f"alter table {table} add column {column} {definition}")
 
     def create_task(
         self,
@@ -47,14 +77,18 @@ class TaskLedger:
         status: str,
         llm_wiki_refs: list[dict[str, Any]],
         human_decisions: list[dict[str, Any]],
+        phase: str = "draft",
+        task_session: dict[str, Any] | None = None,
+        merge_records: list[dict[str, Any]] | None = None,
     ) -> None:
         with self._connect() as conn:
             conn.execute(
                 """
                 insert into tasks (
                     task_id, source_json, requirement_summary, project_path, status,
-                    llm_wiki_refs_json, agent_runs_json, artifacts_json, human_decisions_json
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    llm_wiki_refs_json, agent_runs_json, artifacts_json, human_decisions_json,
+                    phase, task_session_json, merge_records_json
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
@@ -66,6 +100,9 @@ class TaskLedger:
                     json.dumps([], ensure_ascii=False),
                     json.dumps([], ensure_ascii=False),
                     json.dumps(human_decisions, ensure_ascii=False),
+                    phase,
+                    json.dumps(task_session or {}, ensure_ascii=False),
+                    json.dumps(merge_records or [], ensure_ascii=False),
                 ),
             )
 
@@ -101,6 +138,45 @@ class TaskLedger:
             conn.execute(
                 "update tasks set status = ?, updated_at = current_timestamp where task_id = ?",
                 (status, task_id),
+            )
+
+    def update_phase(self, task_id: str, phase: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "update tasks set phase = ?, updated_at = current_timestamp where task_id = ?",
+                (phase, task_id),
+            )
+
+    def update_task_session(self, task_id: str, updates: dict[str, Any]) -> None:
+        task = self.get_task(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        session = dict(task.get("task_session") or {})
+        self._deep_merge(session, updates)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                update tasks
+                set task_session_json = ?, updated_at = current_timestamp
+                where task_id = ?
+                """,
+                (json.dumps(session, ensure_ascii=False), task_id),
+            )
+
+    def append_merge_record(self, task_id: str, record: dict[str, Any]) -> None:
+        task = self.get_task(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        records = list(task.get("merge_records") or [])
+        records.append(record)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                update tasks
+                set merge_records_json = ?, updated_at = current_timestamp
+                where task_id = ?
+                """,
+                (json.dumps(records, ensure_ascii=False), task_id),
             )
 
     def update_requirement_summary(self, task_id: str, requirement_summary: str) -> None:
@@ -179,10 +255,66 @@ class TaskLedger:
             return False
         with self._connect() as conn:
             conn.execute(
-                "update tasks set status = 'cancelled', updated_at = current_timestamp where task_id = ?",
+                """
+                update tasks
+                set status = 'cancelled', phase = 'cancelled', updated_at = current_timestamp
+                where task_id = ?
+                """,
                 (task_or_run_id,),
             )
         return True
+
+    def delete_task(self, task_id: str) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute("delete from tasks where task_id = ?", (task_id,))
+            conn.execute("delete from active_task_bindings where task_id = ?", (task_id,))
+        return cursor.rowcount > 0
+
+    def bind_active_task(self, *, binding_key: str, task_id: str, scope: dict[str, Any]) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                insert into active_task_bindings (binding_key, task_id, scope_json)
+                values (?, ?, ?)
+                on conflict(binding_key) do update set
+                    task_id = excluded.task_id,
+                    scope_json = excluded.scope_json,
+                    updated_at = current_timestamp
+                """,
+                (binding_key, task_id, json.dumps(scope, ensure_ascii=False)),
+            )
+
+    def get_active_binding(self, binding_key: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "select * from active_task_bindings where binding_key = ?",
+                (binding_key,),
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "binding_key": row["binding_key"],
+            "task_id": row["task_id"],
+            "scope": json.loads(row["scope_json"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def clear_active_binding(self, binding_key: str) -> bool:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "delete from active_task_bindings where binding_key = ?",
+                (binding_key,),
+            )
+        return cursor.rowcount > 0
+
+    @staticmethod
+    def _deep_merge(target: dict[str, Any], updates: dict[str, Any]) -> None:
+        for key, value in updates.items():
+            if isinstance(value, dict) and isinstance(target.get(key), dict):
+                TaskLedger._deep_merge(target[key], value)
+            else:
+                target[key] = value
 
     @staticmethod
     def _row_to_task(row: sqlite3.Row) -> dict[str, Any]:
@@ -196,6 +328,9 @@ class TaskLedger:
             "agent_runs": json.loads(row["agent_runs_json"]),
             "artifacts": json.loads(row["artifacts_json"]),
             "human_decisions": json.loads(row["human_decisions_json"]),
+            "phase": row["phase"],
+            "task_session": json.loads(row["task_session_json"]),
+            "merge_records": json.loads(row["merge_records_json"]),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }

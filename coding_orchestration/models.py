@@ -19,6 +19,25 @@ class TaskStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
+class TaskPhase(str, Enum):
+    DRAFT = "draft"
+    PLANNING = "planning"
+    PLAN_READY = "plan_ready"
+    PLAN_REVISION = "plan_revision"
+    PLAN_APPROVED = "plan_approved"
+    GITOPS_PREPARING = "gitops_preparing"
+    IMPLEMENTING = "implementing"
+    IMPLEMENTATION_DONE = "implementation_done"
+    HUMAN_REVIEW = "human_review"
+    BUGFIXING = "bugfixing"
+    READY_TO_MERGE_TEST = "ready_to_merge_test"
+    MERGED_TEST = "merged_test"
+    DONE = "done"
+    CANCELLED = "cancelled"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+
+
 class AgentRunStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
@@ -34,6 +53,7 @@ class AgentRunStatus(str, Enum):
 class RunMode(str, Enum):
     PLAN_ONLY = "plan-only"
     IMPLEMENTATION = "implementation"
+    MERGE_TEST = "merge-test"
 
 
 class RunnerName(str, Enum):
@@ -80,6 +100,8 @@ class RunManifest:
     llm_wiki_refs: list[str]
     allowed_paths: list[str]
     forbidden_paths: list[str]
+    task_phase: str
+    source_branch: str | None
     timeout_seconds: int
     deadline_at: str
     heartbeat_interval_seconds: int
@@ -87,6 +109,9 @@ class RunManifest:
     created_at: str
     pid: int | None = None
     process_group_id: int | None = None
+    resume_session_id: str | None = None
+    target_branch: str | None = None
+    dangerous_bypass: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
