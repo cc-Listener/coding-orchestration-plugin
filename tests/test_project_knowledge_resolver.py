@@ -71,6 +71,100 @@ class ProjectKnowledgeResolverTest(unittest.TestCase):
             self.assertEqual(loaded["local_paths"], ["/repo/order"])
             self.assertEqual(loaded["status"], "verified")
 
+    def test_bootstrap_initializes_generic_project_knowledge_from_repo_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "admin-app"
+            (project / "contracts").mkdir(parents=True)
+            (project / "docs" / "plans").mkdir(parents=True)
+            (project / ".codex" / "skills" / "admin-api-docs").mkdir(parents=True)
+            (project / ".codex" / "agents").mkdir(parents=True)
+            (project / "src" / "services").mkdir(parents=True)
+
+            (project / "AGENTS.md").write_text(
+                "# AGENTS.md\n\n"
+                "## Hard Stops\n"
+                "- Do not edit `src/services/**` without review.\n"
+                "- Do not read `.env*` values.\n",
+                encoding="utf-8",
+            )
+            (project / "contracts" / "project-context.yaml").write_text(
+                "project_map:\n"
+                "  guarded_paths:\n"
+                "    - path: src/config/routes.tsx\n"
+                "      reason: route registry\n",
+                encoding="utf-8",
+            )
+            (project / "docs" / "project-map.md").write_text(
+                "# 项目地图\n\n## 应用主干\n- `src/App.tsx`\n",
+                encoding="utf-8",
+            )
+            (project / "docs" / "conventions.md").write_text(
+                "# 开发约定\n\n## 验证 Gate\n- `pnpm lint`\n- `pnpm build`\n",
+                encoding="utf-8",
+            )
+            (project / "docs" / "plans" / "2026-05-01-order-list.md").write_text(
+                "# 订单列表计划\n\n## 目标\n优化筛选。\n",
+                encoding="utf-8",
+            )
+            (project / ".codex" / "skills" / "admin-api-docs" / "SKILL.md").write_text(
+                "---\nname: admin-api-docs\n---\n# API Docs\nUse before backend changes.\n",
+                encoding="utf-8",
+            )
+            (project / ".codex" / "agents" / "implementer.toml").write_text(
+                "role = \"coder\"\n",
+                encoding="utf-8",
+            )
+            (project / "package.json").write_text(
+                '{"dependencies":{"react":"^18.0.0"},"devDependencies":{"vite":"^5.0.0","typescript":"^5.0.0"},"scripts":{"lint":"eslint .","build":"vite build","test:unit":"vitest"}}',
+                encoding="utf-8",
+            )
+            (project / ".api-spec.json").write_text(
+                '{"paths":{"/v1/orders":{"get":{"summary":"must not be copied"}}}}',
+                encoding="utf-8",
+            )
+            (project / ".env.local").write_text("TOKEN=secret\n", encoding="utf-8")
+
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            registry = ProjectRegistry(
+                [
+                    {
+                        "name": "admin-app",
+                        "aliases": ["后台"],
+                        "path": str(project),
+                        "keywords": ["订单"],
+                    }
+                ]
+            )
+
+            ProjectKnowledgeResolver.bootstrap_registry(wiki, registry)
+
+            profile = wiki.read(wiki.find_by_kind("project_profile")[0]["id"])
+            self.assertEqual(profile["project_id"], "admin-app")
+            self.assertIn("React", profile["tech_stack"])
+            self.assertIn("AGENTS.md", profile["documentation_index"])
+            self.assertIn(".codex/skills/admin-api-docs/SKILL.md", profile["codex_skills"])
+            self.assertIn(".codex/agents/implementer.toml", profile["codex_agents"])
+            self.assertIn(".api-spec.json", profile["external_sources"])
+            self.assertIn(".env*", profile["guarded_paths"])
+            self.assertIn("src/config/routes.tsx", profile["guarded_paths"])
+            self.assertIn("rtk npm run test:unit", profile["test_commands"])
+            self.assertEqual(profile["source_refs"][0]["path"], "project-registry.json")
+            self.assertTrue(any(ref.get("sha256") for ref in profile["source_refs"]))
+
+            self.assertEqual(len(wiki.find_by_kind("project_guidance_contract")), 1)
+            self.assertEqual(len(wiki.find_by_kind("project_architecture_map")), 1)
+            self.assertEqual(len(wiki.find_by_kind("project_conventions")), 1)
+            self.assertEqual(len(wiki.find_by_kind("verification_profile")), 1)
+            self.assertEqual(len(wiki.find_by_kind("agent_tooling_profile")), 1)
+            self.assertEqual(len(wiki.find_by_kind("historical_plan_index")), 1)
+
+            external = wiki.read(wiki.find_by_kind("external_source_index")[0]["id"])
+            self.assertEqual(external["status"], "candidate")
+            self.assertEqual(external["freshness"]["mode"], "read_before_use")
+            self.assertIn(".api-spec.json", external["body"])
+            self.assertNotIn("/v1/orders", external["body"])
+
     def test_wiki_project_profile_supplies_workflow_constraints_without_registry_entry(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

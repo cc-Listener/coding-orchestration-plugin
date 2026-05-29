@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import os
 import re
 import shutil
 import subprocess
@@ -31,8 +32,9 @@ from .models import (
     task_status_display,
 )
 from .prompt_builder import PromptBuilder
+from .project_knowledge_initializer import ProjectKnowledgeInitializer
 from .project_knowledge_resolver import ProjectKnowledgeResolver
-from .project_resolver import ProjectRegistry, ProjectResolver
+from .project_resolver import Project, ProjectRegistry, ProjectResolver
 from .project_resolver import normalize_text as normalize_project_text
 from .run_summary_writer import RunSummaryWriter
 from .runner_router import RunnerRouter
@@ -80,7 +82,7 @@ class CodingOrchestrator:
     heartbeat_interval_seconds: int = 30
 
     def __post_init__(self) -> None:
-        root = Path.home() / ".hermes" / "coding-orchestration"
+        root = self._default_runtime_root()
         if self.run_root is None:
             self.run_root = root / "runs"
         if self.workspace_root is None:
@@ -96,7 +98,7 @@ class CodingOrchestrator:
 
     @classmethod
     def from_default_config(cls) -> "CodingOrchestrator":
-        root = Path.home() / ".hermes" / "coding-orchestration"
+        root = cls._default_runtime_root()
         registry = ProjectRegistry.from_file(root / "project-registry.json")
         wiki = LocalLlmWikiAdapter(root / "llm-wiki")
         return cls(
@@ -108,6 +110,13 @@ class CodingOrchestrator:
             runner_router=RunnerRouter.from_config({"default_runner": "codex_cli"}),
             command_rewriter=HermesCommandRewriter(),
         )
+
+    @staticmethod
+    def _default_runtime_root() -> Path:
+        configured = os.environ.get("CODING_ORCHESTRATION_ROOT")
+        if configured:
+            return Path(configured).expanduser()
+        return Path.home() / ".hermes" / "coding-orchestration"
 
     def handle_gateway_event(self, event: Any, gateway: Any = None, session_store: Any = None) -> dict | None:
         text = str(getattr(event, "text", "") or "")
@@ -2152,23 +2161,35 @@ class CodingOrchestrator:
         aliases: list[str],
         body: str,
     ) -> None:
-        self.wiki.upsert(
-            {
-                "kind": "project_profile",
-                "title": f"{project_name} 项目画像",
-                "body": body,
-                "project": project_name,
-                "project_id": project_name,
-                "name": project_name,
-                "aliases": aliases,
-                "local_paths": [str(project_path)],
-                "keywords": aliases,
-                "source_refs": [{"type": "human_clarification", "project_path": str(project_path)}],
-                "confidence": "high",
-                "status": "verified",
-            },
-            options={"dedupe_key": f"project:{project_name}"},
-        )
+        try:
+            ProjectKnowledgeInitializer().bootstrap_project(
+                self.wiki,
+                Project(
+                    name=project_name,
+                    path=str(project_path),
+                    aliases=tuple(aliases),
+                    keywords=tuple(aliases),
+                ),
+            )
+            return
+        except Exception:
+            self.wiki.upsert(
+                {
+                    "kind": "project_profile",
+                    "title": f"{project_name} 项目画像",
+                    "body": body,
+                    "project": project_name,
+                    "project_id": project_name,
+                    "name": project_name,
+                    "aliases": aliases,
+                    "local_paths": [str(project_path)],
+                    "keywords": aliases,
+                    "source_refs": [{"type": "human_clarification", "project_path": str(project_path)}],
+                    "confidence": "high",
+                    "status": "verified",
+                },
+                options={"dedupe_key": f"project:{project_name}"},
+            )
 
     def _record_task_feedback(
         self,

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from .llm_wiki_adapter import LocalLlmWikiAdapter
 from .models import MatchEvidence, ProjectResolveResult
+from .project_knowledge_initializer import ProjectKnowledgeInitializer
 from .project_resolver import Project, ProjectRegistry, ProjectResolver
 
 
@@ -44,7 +46,15 @@ class ProjectKnowledgeResolver:
 
     @staticmethod
     def bootstrap_registry(wiki: LocalLlmWikiAdapter, registry: ProjectRegistry) -> None:
+        initializer = ProjectKnowledgeInitializer()
         for project in registry.projects:
+            if project.path and Path(project.path).expanduser().is_dir():
+                try:
+                    initializer.bootstrap_project(wiki, project)
+                    continue
+                except Exception:
+                    # Registry bootstrap must remain a best-effort cache warmup.
+                    pass
             wiki.upsert(
                 ProjectKnowledgeResolver._project_profile_doc(project),
                 options={"dedupe_key": f"project:{project.name}"},

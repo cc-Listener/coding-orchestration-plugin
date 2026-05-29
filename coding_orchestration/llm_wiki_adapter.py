@@ -19,6 +19,16 @@ class LocalLlmWikiAdapter:
     WIKI_PAGE_NAMES = {"index.md", "log.md", "overview.md"}
     PAGE_DIR_BY_KIND = {
         "project_profile": "entities",
+        "project_guidance_contract": "concepts",
+        "project_architecture_map": "concepts",
+        "project_conventions": "concepts",
+        "verification_profile": "concepts",
+        "tooling_profile": "concepts",
+        "agent_tooling_profile": "concepts",
+        "risk_profile": "concepts",
+        "domain_glossary": "concepts",
+        "external_source_index": "sources",
+        "historical_plan_index": "sources",
         "verified_knowledge": "concepts",
         "draft_knowledge": "sources",
         "run_summary": "synthesis",
@@ -199,7 +209,10 @@ class LocalLlmWikiAdapter:
             "Markdown pages use YAML frontmatter with JSON-compatible values.\n\n"
             "Required fields: id, kind, title, status, source_refs, created_at, updated_at.\n\n"
             "Known kinds: project_profile, draft_knowledge, run_summary, "
-            "verified_knowledge, qa_experience, raw_source.\n",
+            "verified_knowledge, qa_experience, project_guidance_contract, "
+            "project_architecture_map, project_conventions, verification_profile, "
+            "tooling_profile, agent_tooling_profile, risk_profile, "
+            "external_source_index, historical_plan_index, raw_source.\n",
         )
         self._write_seed_file(self.wiki_root / "index.md", "# Wiki Index\n\n_No pages yet._\n")
         self._write_seed_file(self.wiki_root / "overview.md", "# Overview\n\n_No pages yet._\n")

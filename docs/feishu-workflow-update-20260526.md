@@ -181,6 +181,25 @@ __IMG_KNOWLEDGE_LOOP__
 
 边界同样清楚：任务状态只写 Task Ledger，执行过程只进 Run Artifacts，长期经验才进 LLM Wiki。
 
+LLM Wiki 初始化后默认放在 `~/.hermes/coding-orchestration/llm-wiki`。目录设计也围绕这条边界展开：
+
+| 目录或文件 | 用途 |
+| --- | --- |
+| `purpose.md` | 说明 Wiki 边界：运行状态归 Task Ledger，可复用知识才进 LLM Wiki |
+| `schema.md` | 说明页面 frontmatter，例如 `id`、`kind`、`project`、`status`、`source_refs` |
+| `raw/sources/` | 保存原始来源快照，用来追溯知识从哪里来 |
+| `raw/assets/` | 预留图片、附件等资产位置 |
+| `wiki/entities/` | 项目画像等实体知识，例如 `project_profile` |
+| `wiki/concepts/` | 稳定概念知识，例如 `verified_knowledge` |
+| `wiki/sources/` | 需求草稿、人工计划反馈等来源型知识 |
+| `wiki/synthesis/` | 综合沉淀，例如 `run_summary` 和 `qa_experience` |
+| `wiki/comparisons/` / `wiki/queries/` | 对比类和查询类文档 |
+| `wiki/index.md` / `wiki/overview.md` / `wiki/log.md` | 自动索引、概览统计和写入日志 |
+| `.llm-wiki/config.json` | 本地配置，记录 layout、version、storage |
+| `.obsidian/` | 给 Obsidian 这类 Markdown 知识库工具预留 |
+
+兼容旧数据时还会读取 `index.jsonl`。新知识不会再写进去，只把它当旧版只读输入，避免历史 debug 数据在迁移时丢失。
+
 ## 9. 当前版本边界
 
 当前版本先追求稳定闭环：
@@ -195,7 +214,23 @@ __IMG_KNOWLEDGE_LOOP__
 
 当前不追求复杂多 agent 平台，也不自动发布环境。先把一条需求从进入到交付的链路跑稳，比堆更多能力更重要。
 
-## 10. 图片使用原则
+## 10. 未来展望：让真实需求自然进入工作流
+
+未来成熟形态不是替换现有协作方式，而是让真实需求继续自然落在飞书空间里，由 Hermes 在背后识别并开启 plan。
+
+```mermaid
+flowchart LR
+  A[飞书空间\n真实需求材料] --> B[Hermes\n识别可执行需求]
+  B --> C[自动开启 Plan\n补齐上下文和历史经验]
+  C --> D[Human 闸门\n确认计划、风险和测试]
+  D --> E[Runner 执行\n实现、QA、修复]
+  E --> F[证据沉淀\nTask Ledger、Artifacts、LLM Wiki]
+  F --> B
+```
+
+业务、产品、设计、研发继续使用原来的飞书协作模式。本次建设是在提前打稳入口、状态、Runner、证据和 Wiki 边界，为后续真实需求自动进入工作流做准备。
+
+## 11. 图片使用原则
 
 这一节只保留在本地稿中，飞书宣讲存档不展示。
 

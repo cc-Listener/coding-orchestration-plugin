@@ -6,14 +6,20 @@
 
 ## 生产安装
 
+生产环境统一使用 SSH Git URL 安装。安装前先判断 SSH 仓库访问是否符合：
+
 ```bash
-hermes plugins install cc-Listener/coding-orchestration-plugin --enable
+rtk git ls-remote git@github.com:cc-Listener/coding-orchestration-plugin.git HEAD
 ```
 
-如果需要使用 SSH Git URL：
+符合判定：返回 commit hash 和 `HEAD` 才继续安装；如果出现 `Permission denied (publickey)` 或 `Repository not found`，先修复 SSH key 或仓库权限。
+
+测试部署和生产部署必须使用不同运行根目录。测试 Gateway 设置 `CODING_ORCHESTRATION_ROOT=~/.hermes/coding-orchestration-test`，生产 Gateway 设置 `CODING_ORCHESTRATION_ROOT=~/.hermes/coding-orchestration-prod`；修改后必须重启对应 Gateway。
+
+安装命令：
 
 ```bash
-hermes plugins install git@github.com:cc-Listener/coding-orchestration-plugin.git --enable
+rtk hermes plugins install git@github.com:cc-Listener/coding-orchestration-plugin.git --enable
 ```
 
 插件启用后需要重启 Gateway 或开启新的 Hermes session 才会生效：
@@ -25,8 +31,8 @@ rtk hermes gateway restart
 安装后检查：
 
 ```bash
-hermes plugins list
-hermes gateway status
+rtk hermes plugins list
+rtk hermes gateway status
 ```
 
 在飞书或 Hermes Gateway 对话里检查：
@@ -86,13 +92,12 @@ coding_orchestration:
     hermes_autonomous_codex:
       command: codex
       skill_path: ~/.hermes/hermes-agent/skills/autonomous-ai-agents/codex/SKILL.md
-  ledger_db: ~/.hermes/coding-orchestration/ledger.db
-  run_root: ~/.hermes/coding-orchestration/runs
-  workspace_root: ~/.hermes/coding-orchestration/workspaces
-  project_registry: ~/.hermes/coding-orchestration/project-registry.json
+  ledger_db: ~/.hermes/coding-orchestration-prod/ledger.db
+  run_root: ~/.hermes/coding-orchestration-prod/runs
+  workspace_root: ~/.hermes/coding-orchestration-prod/workspaces
   llm_wiki:
     adapter: local
-    root: ~/.hermes/coding-orchestration/llm-wiki
+    root: ~/.hermes/coding-orchestration-prod/llm-wiki
 ```
 
 ## Hermes 集成原则
@@ -333,7 +338,7 @@ llm-wiki/
 
 ## 项目接入
 
-项目识别优先走 LLM Wiki 的 `project_profile`，`project-registry.json` 只作为首次 bootstrap 和兜底。Hermes 启动时会把 registry 中的项目导入 LLM Wiki；后续新增项目、别名、模块关键词、允许修改范围和默认测试命令，推荐直接写入 `project_profile`。
+项目识别优先走 LLM Wiki 的 `project_profile`。初始化时不需要带入 `project-registry.json`；它只作为可选 bootstrap 和兜底。Hermes 启动时会把存在的 registry 导入 LLM Wiki；文件不存在时使用空 registry。后续新增项目、别名、模块关键词、允许修改范围和默认测试命令，推荐直接写入 `project_profile`。
 
 最小 `project_profile`：
 
