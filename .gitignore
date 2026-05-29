@@ -20,5 +20,5 @@ llm-wiki/
 
 # Generated documentation/demo artifacts.
 .omm/
-docs/generated-*/
-images/generated-*/
+docs/
+images/
