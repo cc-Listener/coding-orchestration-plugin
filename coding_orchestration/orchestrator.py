@@ -7,6 +7,7 @@ import re
 import shutil
 import subprocess
 import threading
+import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -80,6 +81,7 @@ class CodingOrchestrator:
     qa_timeout_seconds: int = 10800
     merge_test_timeout_seconds: int = 5400
     heartbeat_interval_seconds: int = 30
+    _recent_gateway_event_ids: dict[str, float] = field(default_factory=dict, init=False)
 
     def __post_init__(self) -> None:
         root = self._default_runtime_root()
@@ -120,6 +122,9 @@ class CodingOrchestrator:
 
     def handle_gateway_event(self, event: Any, gateway: Any = None, session_store: Any = None) -> dict | None:
         text = str(getattr(event, "text", "") or "")
+        duplicate = self._dedupe_gateway_event(event)
+        if duplicate is not None:
+            return duplicate
         if not self._gateway_user_is_authorized(gateway, event):
             return None
         commands_command = self._handle_commands_gateway_command(text, event, gateway)
@@ -1029,16 +1034,28 @@ class CodingOrchestrator:
     def _handle_coding_mode_gateway_message(self, text: str, event: Any, gateway: Any) -> dict[str, str] | None:
         normalized = normalize_project_text(text)
         if _CODING_MODE_ENTER_RE.match(normalized):
+            already_enabled = self._coding_mode_enabled_for_event(event)
             self._enable_coding_mode_for_event(event)
             self._clear_pending_rewrite_for_event(event)
             self._clear_pending_action_for_event(event)
-            self._reply_if_possible(gateway, event, "已进入 coding mode。本会话后续自然语言会按 coding 指令处理；发送“退出coding”关闭。")
+            message = (
+                "当前已在 coding mode。本会话自然语言会按 coding 指令处理；发送“退出coding”关闭。"
+                if already_enabled
+                else "已进入 coding mode。本会话后续自然语言会按 coding 指令处理；发送“退出coding”关闭。"
+            )
+            self._reply_if_possible(gateway, event, message)
             return {"action": "skip", "reason": "coding_mode_entered"}
         if _CODING_MODE_EXIT_RE.match(normalized):
+            was_enabled = self._coding_mode_enabled_for_event(event)
             self._disable_coding_mode_for_event(event)
             self._clear_pending_rewrite_for_event(event)
             self._clear_pending_action_for_event(event)
-            self._reply_if_possible(gateway, event, "已退出 coding mode。本会话后续自然语言不会再进入 coding plugin。")
+            message = (
+                "已退出 coding mode。本会话后续自然语言不会再进入 coding plugin。"
+                if was_enabled
+                else "当前未开启 coding mode。本会话自然语言不会进入 coding plugin。"
+            )
+            self._reply_if_possible(gateway, event, message)
             return {"action": "skip", "reason": "coding_mode_exited"}
         if not self._coding_mode_enabled_for_event(event):
             return None
@@ -2762,6 +2779,38 @@ class CodingOrchestrator:
             or _CODING_MODE_ENTER_RE.match(value)
             or _CODING_MODE_EXIT_RE.match(value)
         )
+
+    def _dedupe_gateway_event(self, event: Any) -> dict[str, str] | None:
+        key = self._gateway_event_dedupe_key(event)
+        if not key:
+            return None
+        now = time.monotonic()
+        cutoff = now - 300
+        self._recent_gateway_event_ids = {
+            item: seen_at
+            for item, seen_at in self._recent_gateway_event_ids.items()
+            if seen_at >= cutoff
+        }
+        if key in self._recent_gateway_event_ids:
+            return {"action": "skip", "reason": "duplicate_gateway_event"}
+        self._recent_gateway_event_ids[key] = now
+        return None
+
+    @staticmethod
+    def _gateway_event_dedupe_key(event: Any) -> str | None:
+        message_id = str(
+            getattr(event, "message_id", None)
+            or getattr(getattr(event, "source", None), "message_id", None)
+            or ""
+        ).strip()
+        if not message_id:
+            return None
+        source = getattr(event, "source", None)
+        platform = getattr(source, "platform", "") if source is not None else ""
+        platform_value = getattr(platform, "value", platform)
+        chat_id = getattr(source, "chat_id", "") if source is not None else ""
+        user_id = getattr(source, "user_id", "") if source is not None else ""
+        return f"{platform_value}:{chat_id}:{user_id}:{message_id}"
 
     @staticmethod
     def _gateway_user_is_authorized(gateway: Any, event: Any) -> bool:

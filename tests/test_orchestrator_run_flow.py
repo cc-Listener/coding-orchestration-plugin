@@ -110,11 +110,12 @@ class FakeSource:
 
 
 class FakeGatewayEvent:
-    def __init__(self, text: str, media_urls=None, media_types=None):
+    def __init__(self, text: str, media_urls=None, media_types=None, message_id=None):
         self.text = text
         self.source = FakeSource()
         self.media_urls = list(media_urls or [])
         self.media_types = list(media_types or [])
+        self.message_id = message_id
 
 
 class FakeGateway:
@@ -1209,6 +1210,43 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIsNone(ignored)
             self.assertEqual(orchestrator.auto_started, [])
             self.assertEqual(ledger.list_recent_tasks(limit=5), [])
+
+    def test_gateway_coding_mode_enter_exit_are_idempotent_and_deduped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            enter_event = FakeGatewayEvent("进入coding", message_id="msg-enter")
+            entered = orchestrator.handle_gateway_event(enter_event, gateway=gateway)
+            duplicated_enter = orchestrator.handle_gateway_event(enter_event, gateway=gateway)
+            entered_again = orchestrator.handle_gateway_event(FakeGatewayEvent("进入coding", message_id="msg-enter-2"), gateway=gateway)
+            exit_event = FakeGatewayEvent("退出coding", message_id="msg-exit")
+            exited = orchestrator.handle_gateway_event(exit_event, gateway=gateway)
+            duplicated_exit = orchestrator.handle_gateway_event(exit_event, gateway=gateway)
+            exited_again = orchestrator.handle_gateway_event(FakeGatewayEvent("退出coding", message_id="msg-exit-2"), gateway=gateway)
+
+            self.assertEqual(entered["reason"], "coding_mode_entered")
+            self.assertEqual(duplicated_enter["reason"], "duplicate_gateway_event")
+            self.assertEqual(entered_again["reason"], "coding_mode_entered")
+            self.assertEqual(exited["reason"], "coding_mode_exited")
+            self.assertEqual(duplicated_exit["reason"], "duplicate_gateway_event")
+            self.assertEqual(exited_again["reason"], "coding_mode_exited")
+            self.assertEqual(len(gateway.messages), 4)
+            self.assertIn("已进入 coding mode", gateway.messages[0])
+            self.assertIn("当前已在 coding mode", gateway.messages[1])
+            self.assertIn("已退出 coding mode", gateway.messages[2])
+            self.assertIn("当前未开启 coding mode", gateway.messages[3])
+            self.assertNotIn("已退出 coding mode", gateway.messages[3])
 
     def test_gateway_coding_help_lists_commands_and_usage(self):
         with tempfile.TemporaryDirectory() as tmp:

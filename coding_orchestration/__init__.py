@@ -6,13 +6,30 @@ Source is intended to live in a normal project checkout and be symlinked into
 
 from __future__ import annotations
 
+import builtins
 from typing import Any
 
 from .orchestrator import CodingOrchestrator
 
 
+_REGISTRY_FLAG = "_hermes_coding_orchestration_registered"
+
+
 def register(ctx: Any) -> None:
     """Hermes plugin entry point."""
+    if getattr(builtins, _REGISTRY_FLAG, False):
+        return
+    setattr(builtins, _REGISTRY_FLAG, True)
+
+    try:
+        _register_once(ctx)
+    except Exception:
+        if getattr(builtins, _REGISTRY_FLAG, False):
+            delattr(builtins, _REGISTRY_FLAG)
+        raise
+
+
+def _register_once(ctx: Any) -> None:
     orchestrator = CodingOrchestrator.from_default_config()
 
     def pre_gateway_dispatch(event: Any, gateway: Any = None, session_store: Any = None) -> dict | None:
