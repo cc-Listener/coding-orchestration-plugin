@@ -3153,6 +3153,48 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             summaries = wiki.search("计划完成", {"project": "order-system"})
             self.assertEqual(summaries[0]["kind"], "run_summary")
 
+    def test_plan_only_runner_task_status_is_normalized_before_state_machine(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "order-system",
+                            "aliases": ["订单系统"],
+                            "path": str(project),
+                            "keywords": ["发货"],
+                        }
+                    ]
+                )
+            )
+            fake_runner = FakeRunner(status=TaskStatus.PLANNED.value)
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+
+            message = orchestrator.command_coding_task("--project 订单系统 修复发货失败")
+            task_id = _task_id_from_message(message)
+            result = orchestrator.start_run(task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
+
+            task = ledger.get_task(task_id)
+            report = json.loads(Path(result["artifacts"]["report"]).read_text(encoding="utf-8"))
+            self.assertEqual(result["status"], AgentRunStatus.SUCCESS.value)
+            self.assertEqual(report["status"], AgentRunStatus.SUCCESS.value)
+            self.assertEqual(task["status"], TaskStatus.PLANNED.value)
+            self.assertEqual(task["phase"], TaskPhase.PLAN_READY.value)
+            self.assertEqual(task["agent_runs"][0]["status"], AgentRunStatus.SUCCESS.value)
+
     def test_plan_only_blocks_if_runner_modifies_project_files(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

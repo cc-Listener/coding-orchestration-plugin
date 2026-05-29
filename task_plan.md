@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 65：blocked 风险接受快速放宽（complete）
+阶段 71：runner status / task status 边界统一归一化（complete）
 
 ## 各阶段
 
@@ -450,6 +450,48 @@
 - [x] 修复：runner failed / checkpoint failed 兜底 report 补齐 `qa_artifacts` 和 `tested_commit`。
 - [x] 文档：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION、findings、progress 同步修正权限口径。
 - [x] 验证：focused/相关/full unittest、`git diff --check`、尾随空白检查。
+- **状态：** complete
+
+### 阶段 67：通用 LLM Wiki 项目知识初始化
+- [x] 测试：registry bootstrap 对存在的项目路径不只写极简 `project_profile`，还会沉淀项目指导合同、架构地图、开发约定、验证画像、工程工具画像、agent tooling、动态来源索引、历史计划索引和风险画像。
+- [x] 测试：API/OpenAPI/Swagger 等动态来源只写 `external_source_index`，状态为 `candidate`，并标记 `read_before_use`，不把 endpoint/schema 正文沉淀为长期 verified 知识。
+- [x] 测试：`.env*` 只记录为敏感入口/guarded path，不读取内容、不写入 source ref。
+- [x] 测试：所有项目文件来源写入 `source_refs.path/sha256/mtime/size`，支持后续增量刷新和可追溯。
+- [x] 实现：新增 `ProjectKnowledgeInitializer`，通用扫描 Markdown、contracts、工程配置、验证入口、`.codex/.agents/skills`、历史 plans 和动态外部来源。
+- [x] 实现：`ProjectKnowledgeResolver.bootstrap_registry()` 对真实本地项目自动走增强初始化；路径不存在或初始化失败时保留原极简 profile 兜底。
+- [x] 实现：人工补充项目文件夹时同样触发增强初始化，避免新项目只沉淀一个空 profile。
+- [x] 验证：focused/相关/full unittest、真实 bps-admin 临时初始化、py_compile、尾随空白检查。
+- **状态：** complete
+
+### 阶段 68：Coding Mode enter/exit 重复回复防抖
+- [x] 排查：日志显示 `进入coding` 实际命中 `coding_mode_entered`，不是正则误判；重复/串线风险来自 Gateway hook 内主动发送消息和平台事件重复分发。
+- [x] 测试：相同 Gateway `message_id` 的 `进入coding` / `退出coding` 只处理一次，不重复发送回复。
+- [x] 测试：重复发送新的 `进入coding` / `退出coding` 是幂等文案，已开启时提示“当前已在”，未开启时提示“当前未开启”，避免重复“已退出”。
+- [x] 实现：在 `handle_gateway_event` 开头增加 5 分钟 message_id 防抖；enter/exit 文案按当前 mode 状态幂等输出。
+- [x] 验证：focused/full unittest、py_compile、`git diff --check`、尾随空白检查，并重启 Hermes Gateway。
+- **状态：** complete
+
+### 阶段 69：Coding 插件重复加载根因修复
+- [x] 排查：Hermes discovery 同时加载 canonical package 和历史 symlink，导致两个 `pre_gateway_dispatch` hook 同时主动回复。
+- [x] 测试：重复调用 plugin `register()` 只注册一次 hook/command。
+- [x] 实现：插件入口增加进程级注册 guard，注册失败时清理 guard 允许重试。
+- [x] 验证：Hermes discovery 从 2 个 hook 收敛为 1 个 hook，并重启 Gateway。
+- **状态：** complete
+
+### 阶段 70：plan-only 非标准 runner status 归一化
+- [x] 排查：Codex plan-only report 返回 `ready_for_implementation`，这是 task 语义，不是 `AgentRunStatus`，导致收尾状态映射抛 `ValueError`。
+- [x] 测试：plan-only report 中 `ready_for_implementation` / `plan_ready` / `planned` 被归一为 `success`。
+- [x] 实现：runner 边界在读取、修复和写回 `report.json` 前统一归一化 plan-only 状态。
+- [x] 验证：真实 `task_d7bd20850ef5` 被恢复为 `planned/plan_ready`，相关 focused/full unittest 通过。
+- **状态：** complete
+
+### 阶段 71：runner status / task status 边界统一归一化
+- [x] 排查：除 runner 边界外，orchestrator 收尾、report schema、partial structured recovery 和公共状态机 helper 都可能接触 Codex 返回的外部语义状态。
+- [x] 测试：plan-only 的 `ready_for_implementation`、`ready_to_implement`、`plan_ready`、`planned` 统一归一为 `success`；merge-test 的 `merged_test`、`merge_test_complete`、`merge_test_completed` 统一归一为 `success`。
+- [x] 测试：implementation 中出现 `planned` 等 task 语义状态时不会误判成功，而是归一为 `completed_unstructured`；公共状态机 helper 遇到未知 runner status 不再崩溃。
+- [x] 实现：新增 `normalize_agent_run_status()`，在 runner、orchestrator 收尾、report 写回、schema enum 和状态机 helper 中统一使用。
+- [x] 实现：prompt contract 明确 plan-only 成功必须返回 `status=success`，不要返回 Hermes 内部 task 状态。
+- [x] 验证：状态扫描只剩合法 TaskStatus/TaskPhase 文档、测试断言和 prompt 禁止项；focused/full unittest、py_compile、`git diff --check` 通过。
 - **状态：** complete
 
 ## 关键问题

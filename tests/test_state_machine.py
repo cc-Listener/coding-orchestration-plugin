@@ -1,6 +1,13 @@
 import unittest
 
-from coding_orchestration.models import AgentRunStatus, TaskStatus, task_status_display, task_status_label_zh
+from coding_orchestration.models import (
+    AgentRunStatus,
+    RunMode,
+    TaskStatus,
+    normalize_agent_run_status,
+    task_status_display,
+    task_status_label_zh,
+)
 from coding_orchestration.state_machine import InvalidTransition, TaskStateMachine
 
 
@@ -86,6 +93,29 @@ class TaskStateMachineTest(unittest.TestCase):
         task_status = TaskStateMachine.task_status_for_run_status("ready_for_merge_test")
 
         self.assertEqual(task_status, TaskStatus.READY_FOR_MERGE_TEST)
+
+    def test_unknown_runner_status_does_not_crash_task_mapping(self):
+        task_status = TaskStateMachine.task_status_for_run_status("ready_for_implementation")
+
+        self.assertEqual(task_status, TaskStatus.BLOCKED)
+
+    def test_normalizes_external_task_like_statuses_by_mode(self):
+        self.assertEqual(
+            normalize_agent_run_status("ready_for_implementation", RunMode.PLAN_ONLY),
+            AgentRunStatus.SUCCESS.value,
+        )
+        self.assertEqual(
+            normalize_agent_run_status("plan_ready", RunMode.PLAN_ONLY),
+            AgentRunStatus.SUCCESS.value,
+        )
+        self.assertEqual(
+            normalize_agent_run_status("merged_test", RunMode.MERGE_TEST),
+            AgentRunStatus.SUCCESS.value,
+        )
+        self.assertEqual(
+            normalize_agent_run_status("planned", RunMode.IMPLEMENTATION),
+            AgentRunStatus.COMPLETED_UNSTRUCTURED.value,
+        )
 
     def test_task_status_has_chinese_display_label(self):
         self.assertEqual(task_status_label_zh(TaskStatus.BLOCKED), "受阻")

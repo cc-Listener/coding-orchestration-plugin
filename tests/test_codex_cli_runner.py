@@ -369,6 +369,64 @@ class CodexCliRunnerTest(unittest.TestCase):
             self.assertEqual(report["status"], "success")
             self.assertEqual((run_dir / "summary.md").read_text(encoding="utf-8"), "## Plan\n- Add status filter")
 
+    def test_plan_only_ready_for_implementation_status_is_normalized_to_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "report.json").write_text(
+                json.dumps(
+                    {
+                        "runner": "codex",
+                        "status": "ready_for_implementation",
+                        "mode": "plan-only",
+                        "summary_markdown": "计划已更新，可以实施。",
+                        "modified_files": [],
+                        "test_commands": [],
+                        "test_results": [],
+                        "risks": [],
+                        "verification_limitations": [],
+                        "human_required": False,
+                        "next_actions": ["发送 /coding implement task_1"],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            report = CodexCliRunner(command="codex").load_or_build_report(run_dir, RunMode.PLAN_ONLY)
+
+            self.assertEqual(report["status"], AgentRunStatus.SUCCESS.value)
+            saved = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["status"], AgentRunStatus.SUCCESS.value)
+
+    def test_merge_test_task_status_is_normalized_to_success(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "report.json").write_text(
+                json.dumps(
+                    {
+                        "runner": "codex",
+                        "status": "merged_test",
+                        "mode": "merge-test",
+                        "summary_markdown": "已合入 test。",
+                        "modified_files": [],
+                        "test_commands": [],
+                        "test_results": [],
+                        "risks": [],
+                        "verification_limitations": [],
+                        "human_required": False,
+                        "next_actions": ["发送 /coding complete task_1"],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            report = CodexCliRunner(command="codex").load_or_build_report(run_dir, RunMode.MERGE_TEST)
+
+            self.assertEqual(report["status"], AgentRunStatus.SUCCESS.value)
+            saved = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+            self.assertEqual(saved["status"], AgentRunStatus.SUCCESS.value)
+
     def test_invalid_report_recovers_plan_from_json_stdout(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)

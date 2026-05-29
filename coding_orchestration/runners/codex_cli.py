@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .base import CodingAgentRunner, RunResult
-from ..models import AgentRunStatus, ArtifactSet, RunMode, RunnerCapabilities
+from ..models import AgentRunStatus, ArtifactSet, RunMode, RunnerCapabilities, normalize_agent_run_status
 
 
 class CodexCliRunner(CodingAgentRunner):
@@ -198,7 +198,8 @@ class CodexCliRunner(CodingAgentRunner):
             return RunResult(AgentRunStatus.RUNNER_FAILED.value, None, self.collect_artifacts(run_dir), report)
 
         report = self.load_or_build_report(run_dir=run_dir, mode=mode)
-        return RunResult(str(report.get("status", AgentRunStatus.FAILED.value)), exit_code, self.collect_artifacts(run_dir), report)
+        status = self._normalize_report_status(report.get("status", AgentRunStatus.FAILED.value), mode)
+        return RunResult(status, exit_code, self.collect_artifacts(run_dir), report)
 
     def cancel(self, run_id: str) -> bool:
         proc = self._processes.get(run_id)
@@ -396,11 +397,10 @@ class CodexCliRunner(CodingAgentRunner):
             )
         ):
             return {}
-        status = str(candidate.get("status") or AgentRunStatus.COMPLETED_UNSTRUCTURED.value)
-        try:
-            AgentRunStatus(status)
-        except ValueError:
-            status = AgentRunStatus.COMPLETED_UNSTRUCTURED.value
+        status = self._normalize_report_status(
+            candidate.get("status") or AgentRunStatus.COMPLETED_UNSTRUCTURED.value,
+            mode,
+        )
         modified_files = candidate.get("modified_files", candidate.get("changed_files", []))
         test_results = candidate.get("test_results") if isinstance(candidate.get("test_results"), list) else []
         test_commands = candidate.get("test_commands") if isinstance(candidate.get("test_commands"), list) else []
@@ -486,6 +486,10 @@ class CodexCliRunner(CodingAgentRunner):
     def ensure_report_contract(self, run_dir: Path, mode: RunMode, report: dict[str, Any]) -> dict[str, Any]:
         report = dict(report)
         report.setdefault("mode", mode.value)
+        report["status"] = self._normalize_report_status(
+            report.get("status") or AgentRunStatus.COMPLETED_UNSTRUCTURED.value,
+            mode,
+        )
         report.setdefault("summary_markdown", "")
         report.setdefault("verification_limitations", [])
         report.setdefault("qa_artifacts", {"report": "", "baseline": "", "screenshots_dir": ""})
@@ -501,6 +505,10 @@ class CodexCliRunner(CodingAgentRunner):
             ]
         (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return report
+
+    @staticmethod
+    def _normalize_report_status(status: Any, mode: RunMode) -> str:
+        return normalize_agent_run_status(status, mode)
 
     @staticmethod
     def _status_requires_limitation(status: str) -> bool:

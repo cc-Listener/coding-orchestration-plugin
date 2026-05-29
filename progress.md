@@ -1393,5 +1393,154 @@
   - 尾随空白检查：`rtk rg -n '[ \\t]+$' coding_orchestration/orchestrator.py coding_orchestration/runners/codex_cli.py coding_orchestration/command_rewriter.py coding_orchestration/runners/hermes_autonomous_codex.py tests/test_codex_cli_runner.py tests/test_orchestrator_run_flow.py README.md PLUGIN_USAGE.md PLUGIN_TECHNICAL_SOLUTION.md task_plan.md progress.md findings.md`：passed，未发现匹配。
   - base diff 可见新增文件：`rtk git diff --name-status b29e6b281cecc6a480ee54978409d8b6efe53e20 -- coding_orchestration/command_rewriter.py coding_orchestration/runners/hermes_autonomous_codex.py` 显示两个文件均为 `A`。
 
+### 阶段 67：通用 LLM Wiki 项目知识初始化
+- **状态：** complete
+- 问题：
+  - 之前 `ProjectKnowledgeResolver.bootstrap_registry()` 只把 registry 项目写成极简 `project_profile`，无法把项目内 `AGENTS.md`、contracts、docs、`.codex` agent/skill、验证脚本和历史计划沉淀为可检索 Wiki 知识。
+  - API 契约类信息动态变化，不能把 endpoint/schema 长期写成 verified 知识。
+- 已完成：
+  - 新增 `coding_orchestration/project_knowledge_initializer.py`，通用扫描项目知识源并生成分层 Wiki 文档。
+  - `project_profile` 增加 `tech_stack`、`package_manager`、`documentation_index`、`codex_skills`、`codex_agents`、`external_sources`、`guarded_paths`、`test_commands` 和 source metadata。
+  - 新增 Wiki kinds：`project_guidance_contract`、`project_architecture_map`、`project_conventions`、`verification_profile`、`tooling_profile`、`agent_tooling_profile`、`risk_profile`、`external_source_index`、`historical_plan_index`。
+  - `external_source_index` 只记录动态来源路径和 read-before-use 规则，不复制 API endpoint/schema 正文。
+  - `.env*` 只记录为敏感入口，不读取内容、不写入 hash/source ref。
+  - `ProjectKnowledgeResolver.bootstrap_registry()` 对存在的本地项目自动走增强初始化，失败时回退原极简 profile。
+  - 人工补充项目文件夹时也触发增强初始化，避免新识别项目只有空 profile。
+- 创建/修改的文件：
+  - `coding_orchestration/project_knowledge_initializer.py`
+  - `coding_orchestration/project_knowledge_resolver.py`
+  - `coding_orchestration/llm_wiki_adapter.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_project_knowledge_resolver.py`
+  - `task_plan.md`
+  - `progress.md`
+  - `findings.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_project_knowledge_resolver.ProjectKnowledgeResolverTest.test_bootstrap_initializes_generic_project_knowledge_from_repo_files`：passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_project_knowledge_resolver`：4 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_ledger_wiki_orchestrator`：6 tests passed。
+  - 人工补充项目回归：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_human_clarification_with_project_folder_updates_task_and_starts_plan`：passed。
+  - 真实 bps-admin 临时初始化：产出 10 个 Wiki 文档；动态来源收敛为 `.api-spec.json`、`api-spec.md`；项目 skill 为 `.codex/skills/bps-admin-api-docs/SKILL.md`。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：180 tests passed。
+  - py_compile：`rtk python3 -m py_compile coding_orchestration/project_knowledge_initializer.py coding_orchestration/project_knowledge_resolver.py coding_orchestration/orchestrator.py coding_orchestration/llm_wiki_adapter.py`：passed。
+  - 尾随空白检查：`rtk rg -n '[ \\t]+$' coding_orchestration/project_knowledge_initializer.py coding_orchestration/project_knowledge_resolver.py coding_orchestration/orchestrator.py coding_orchestration/llm_wiki_adapter.py tests/test_project_knowledge_resolver.py`：passed，未发现匹配。
+
+### 阶段 68：Coding Mode enter/exit 重复回复防抖
+- **状态：** complete
+- 问题：
+  - 用户在飞书发送 `进入coding` 后观察到重复出现 `已退出 coding mode...` 文案。
+  - 本地日志显示 `进入coding` 真实分支为 `coding_mode_entered`，`退出coding` 真实分支为 `coding_mode_exited`；正则没有把进入误判为退出。
+  - 风险点在于 hook 内主动 `send_message` 加平台事件重复/延迟时，同一 message_id 或重复 exit 会造成重复回复体感。
+- 已完成：
+  - `handle_gateway_event` 开头增加 Gateway `message_id` 防抖，5 分钟内同一 platform/chat/user/message_id 只处理一次。
+  - `进入coding` 幂等：已开启时回复“当前已在 coding mode...”。
+  - `退出coding` 幂等：未开启时回复“当前未开启 coding mode...”，避免第二次仍显示“已退出”。
+  - 新增回归测试覆盖 enter/exit 同 message_id 重复事件和重复新事件。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `progress.md`
+  - `findings.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_exit_disables_natural_language tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_enter_exit_are_idempotent_and_deduped`：2 tests passed。
+  - py_compile：`rtk python3 -m py_compile coding_orchestration/orchestrator.py`：passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：182 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 尾随空白检查：`rtk rg -n '[ \\t]+$' coding_orchestration/orchestrator.py tests/test_orchestrator_run_flow.py`：passed，未发现匹配。
+  - Hermes 加载：`rtk hermes gateway restart` 首次因 sandbox 无权访问 `/Users/xiaojing/.hermes/gateway.lock` 失败；按权限策略使用提升权限重跑成功，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 69：Coding 插件重复加载根因修复
+- **状态：** complete
+- 问题：
+  - 用户再次验证 `进入coding` 仍出现两次回复，说明阶段 68 的 message_id 防抖只解决同一 orchestrator 实例内的重复事件。
+  - Hermes 运行时实际注册了 2 个 `pre_gateway_dispatch` hook：
+    - `hermes_plugins.coding_orchestration_plugin__coding_orchestration`
+    - `hermes_plugins.coding_orchestration`
+  - 根因是 `~/.hermes/plugins/coding-orchestration-plugin/coding_orchestration` 和 `~/.hermes/plugins/coding_orchestration` symlink 被 discovery 当成两个插件入口加载；两个独立 orchestrator 实例各自主动 `send_message`，所以重复回复。
+- 已完成：
+  - `coding_orchestration/__init__.py` 增加进程级注册保护 `_hermes_coding_orchestration_registered`，同一 Python 进程内只允许第一次 `register()` 注册 hook 和 command。
+  - 将实际注册逻辑拆为 `_register_once()`；注册异常时清理 guard，避免失败后无法重试。
+  - 新增 `test_register_is_process_wide_idempotent`，覆盖重复调用 register 只注册一次。
+  - 已把修复同步到 Hermes 实际加载目录 `/Users/xiaojing/.hermes/plugins/coding-orchestration-plugin/coding_orchestration/__init__.py`。
+  - 已重启 Hermes Gateway。
+- 创建/修改的文件：
+  - `coding_orchestration/__init__.py`
+  - `tests/test_plugin_registration.py`
+  - `progress.md`
+  - `findings.md`
+- 已验证：
+  - 复现证据：修复前 Hermes discovery 显示 `pre_gateway_dispatch callbacks 2`，两个回调分别来自 canonical package 和 symlink package。
+  - 修复后验证：Hermes discovery 显示 `pre_gateway_dispatch callbacks 1`。
+  - focused：`rtk python3 -m unittest tests.test_plugin_registration`：2 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：183 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes Gateway：`rtk hermes gateway restart` 成功，日志显示 gateway 已重新连接 api_server 和 feishu。
+
+### 阶段 70：plan-only 非标准 runner status 归一化
+- **状态：** complete
+- 问题：
+  - 真实 `task_d7bd20850ef5/run_20b636f474e0` 的 Codex report 返回 `status=ready_for_implementation`。
+  - `ready_for_implementation` 是人类/任务语义，不是 `AgentRunStatus`；Hermes 在 `_task_status_for_run_result()` 调 `AgentRunStatus(status)` 时抛出 `ValueError`，导致 Gateway 回复 `plan-only run 启动或执行失败：'ready_for_implementation' is not a valid AgentRunStatus`。
+  - 该 run 实际已经产出可用计划，错误发生在收尾状态流转阶段。
+- 已完成：
+  - `CodexCliRunner` 增加 `_normalize_report_status()`，在 runner 边界把 plan-only 的 `ready_for_implementation`、`ready_to_implement`、`plan_ready`、`planned` 归一为 `AgentRunStatus.SUCCESS`。
+  - `ensure_report_contract()` 和 partial structured report recovery 都会先归一化 status，再写回 `report.json`。
+  - `run_subprocess()` 返回 `RunResult.status` 前也做归一化，避免非标准状态进入 orchestrator 状态机。
+  - 新增回归测试覆盖 plan-only report 中 `ready_for_implementation` 被保存为 `success`。
+  - 已同步修复到 Hermes 实际加载目录并重启 Gateway。
+  - 已将真实 `task_d7bd20850ef5` 恢复为 `planned/plan_ready`，清理 stale active run，并把该 run report 状态修正为 `success`。
+- 创建/修改的文件：
+  - `coding_orchestration/runners/codex_cli.py`
+  - `tests/test_codex_cli_runner.py`
+  - `progress.md`
+  - `findings.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_codex_cli_runner.CodexCliRunnerTest.test_plan_only_ready_for_implementation_status_is_normalized_to_success tests.test_codex_cli_runner.CodexCliRunnerTest.test_valid_report_generates_summary_markdown`：2 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_codex_cli_runner`：20 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：184 tests passed。
+  - py_compile：`rtk python3 -m py_compile coding_orchestration/runners/codex_cli.py`：passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes Gateway：`rtk hermes gateway restart` 成功。
+  - 真实任务验证：ledger 显示 `task_d7bd20850ef5 | status=planned | phase=plan_ready`，`run_20b636f474e0/report.json` 显示 `status=success`。
+
+### 阶段 71：runner status / task status 边界统一归一化
+- **状态：** complete
+- 问题：
+  - 阶段 70 解决了 `CodexCliRunner` 的 plan-only 单点问题，但同类风险还可能出现在 orchestrator 收尾、partial structured recovery、report schema 和公共状态机 helper。
+  - Codex 可能继续返回 task 语义状态，例如 plan-only 的 `ready_for_implementation` / `planned`，或 merge-test 的 `merged_test`；这些状态不能直接进入 `AgentRunStatus(...)`。
+- 已完成：
+  - 新增 `normalize_agent_run_status(status, mode)`，集中处理外部 runner status 到内部 `AgentRunStatus` 的转换。
+  - plan-only 中 `ready_for_implementation`、`ready_to_implement`、`plan_ready`、`planned` 统一归一为 `success`。
+  - merge-test 中 `merged_test`、`merge_test_complete`、`merge_test_completed` 统一归一为 `success`。
+  - 其他阶段出现 task 语义或未知状态时归一为 `completed_unstructured`，不会被误判为成功。
+  - orchestrator 在 run 收尾、report 写回、task status/phase 映射前二次归一化，避免任何 runner 绕过边界。
+  - report schema 的 status enum 改为从 `AgentRunStatus` 自动生成，并排除 `queued/running/orphaned`。
+  - `TaskStateMachine.task_status_for_run_status()` 增加归一化兜底，未知 runner status 不再直接抛 `ValueError`。
+  - plan-only prompt contract 明确要求成功计划返回 `status=success`，不要返回 Hermes 内部 task 状态。
+- 创建/修改的文件：
+  - `coding_orchestration/models.py`
+  - `coding_orchestration/state_machine.py`
+  - `coding_orchestration/runners/codex_cli.py`
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/prompt_builder.py`
+  - `tests/test_state_machine.py`
+  - `tests/test_codex_cli_runner.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `tests/test_router_prompt_summary.py`
+  - `task_plan.md`
+  - `progress.md`
+  - `findings.md`
+- 已验证：
+  - 状态残留扫描：`ready_for_implementation` 等外部别名只剩归一化白名单、prompt 禁止项、测试断言和合法 TaskStatus/TaskPhase 文档描述。
+  - focused：`rtk python3 -m unittest tests.test_state_machine tests.test_codex_cli_runner tests.test_router_prompt_summary`：46 tests passed。
+  - orchestrator focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_plan_only_runner_task_status_is_normalized_before_state_machine tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_plan_only_run_generates_artifacts_updates_ledger_and_writes_run_summary`：2 tests passed。
+  - py_compile：`rtk python3 -m py_compile coding_orchestration/models.py coding_orchestration/state_machine.py coding_orchestration/runners/codex_cli.py coding_orchestration/orchestrator.py coding_orchestration/prompt_builder.py`：passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：189 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 实际插件：已同步 `models.py`、`state_machine.py`、`prompt_builder.py`、`orchestrator.py`、`runners/codex_cli.py` 到 `/Users/xiaojing/.hermes/plugins/coding-orchestration-plugin/coding_orchestration`，并重启 Hermes Gateway。
+
 ---
 *每个阶段完成后或遇到错误时更新此文件*

@@ -160,6 +160,7 @@ class PromptBuilder:
 - 可以读取完成计划所需的上下文，包括项目文件、Swagger/OpenAPI、飞书/Lark 文档、API 元数据和依赖元信息。
 - 如果外部上下文读取失败，返回 `status=blocked`，并写清需要绑定权限、补充链接内容或提供可访问凭证。
 - 计划需要包含：范围、涉及模块、实现步骤、风险、待确认问题。
+- 计划完整且可以进入人工确认/implementation 时，返回 `status=success`。
 - 如果信息不足，返回 `status=blocked`，并说明需要人工补充什么。"""
         if mode == RunMode.MERGE_TEST:
             return """## 本轮要求
@@ -231,7 +232,13 @@ class PromptBuilder:
                 ]
             )
         else:
-            lines.append("- 本轮不要修改文件；需要人工确认时设置 `human_required=true`。")
+            lines.extend(
+                [
+                    "- 计划完整且可以进入人工确认/implementation 时，返回 `status=success`。",
+                    "- 不要返回 `ready_for_implementation`、`plan_ready` 或 `planned`，这些是 Hermes 内部 task 状态，不是 runner report status。",
+                    "- 本轮不要修改文件；需要人工确认时设置 `human_required=true`。",
+                ]
+            )
         lines.append(
             "- 如果 status 是 `blocked`、`ready_for_merge_test_with_known_gaps` 或 `runner_failed`，必须包含 `verification_limitations`，每项包含 `reason`、`impact`、`recovery_action` 和 `fallback_evidence`。"
         )

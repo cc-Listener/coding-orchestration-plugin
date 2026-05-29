@@ -96,6 +96,40 @@ class RunMode(str, Enum):
     MERGE_TEST = "merge-test"
 
 
+PLAN_ONLY_SUCCESS_STATUS_ALIASES = frozenset(
+    {
+        "plan_ready",
+        "planned",
+        "ready_for_implementation",
+        "ready_to_implement",
+    }
+)
+
+MERGE_TEST_SUCCESS_STATUS_ALIASES = frozenset(
+    {
+        "merged_test",
+        "merge_test_complete",
+        "merge_test_completed",
+    }
+)
+
+
+def normalize_agent_run_status(status: Any, mode: RunMode | str | None = None) -> str:
+    """Normalize external runner status into the internal AgentRunStatus contract."""
+    value = status.value if isinstance(status, Enum) else str(status or "")
+    value = value.strip()
+    mode_value = mode.value if isinstance(mode, Enum) else str(mode or "")
+    if mode_value == RunMode.PLAN_ONLY.value and value in PLAN_ONLY_SUCCESS_STATUS_ALIASES:
+        return AgentRunStatus.SUCCESS.value
+    if mode_value == RunMode.MERGE_TEST.value and value in MERGE_TEST_SUCCESS_STATUS_ALIASES:
+        return AgentRunStatus.SUCCESS.value
+    try:
+        AgentRunStatus(value)
+        return value
+    except ValueError:
+        return AgentRunStatus.COMPLETED_UNSTRUCTURED.value
+
+
 class RunnerName(str, Enum):
     CODEX_CLI = "codex_cli"
     HERMES_AUTONOMOUS_CODEX = "hermes_autonomous_codex"

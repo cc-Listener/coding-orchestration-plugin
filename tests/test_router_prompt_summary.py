@@ -140,6 +140,13 @@ class RouterPromptSummaryTest(unittest.TestCase):
         self.assertNotIn("Required Outputs", plan_prompt)
         self.assertNotIn("GitOps Implementation Contract", impl_prompt)
 
+    def test_plan_only_run_instructions_use_runner_status_contract(self):
+        instructions = PromptBuilder().build_run_instructions(mode=RunMode.PLAN_ONLY)
+
+        self.assertIn("返回 `status=success`", instructions)
+        self.assertIn("不要返回 `ready_for_implementation`", instructions)
+        self.assertIn("Hermes 内部 task 状态", instructions)
+
     def test_prompt_builder_incremental_prompt_is_chinese(self):
         prompt = PromptBuilder().build_incremental(
             task_id="task_1",

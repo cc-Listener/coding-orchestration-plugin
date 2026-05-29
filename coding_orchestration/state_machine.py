@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import AgentRunStatus, TaskStatus
+from .models import AgentRunStatus, TaskStatus, normalize_agent_run_status
 
 
 class InvalidTransition(ValueError):
@@ -74,5 +74,5 @@ class TaskStateMachine:
 
     @classmethod
     def task_status_for_run_status(cls, run_status: AgentRunStatus | str) -> TaskStatus:
-        status = AgentRunStatus(run_status)
+        status = AgentRunStatus(normalize_agent_run_status(run_status))
         return cls._RUN_TO_TASK[status]

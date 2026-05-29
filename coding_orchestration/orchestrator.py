@@ -30,6 +30,7 @@ from .models import (
     RunnerName,
     TaskPhase,
     TaskStatus,
+    normalize_agent_run_status,
     task_status_display,
 )
 from .prompt_builder import PromptBuilder
@@ -2608,7 +2609,11 @@ class CodingOrchestrator:
         qa_tested_commit = self._git_head(workspace_path) if mode == RunMode.QA else ""
         if qa_tested_commit:
             report["tested_commit"] = qa_tested_commit
-        status = str(result.status)
+        status = normalize_agent_run_status(result.status, mode)
+        report_status = normalize_agent_run_status(report.get("status") or status, mode)
+        if status == AgentRunStatus.COMPLETED_UNSTRUCTURED.value and report_status != status:
+            status = report_status
+        report["status"] = status
         session_id = self._thread_id_from_artifact(result.artifacts.stdout) or self._codex_resume_session_id_for_task(task)
         if session_id:
             manifest.session_id = session_id
@@ -3781,15 +3786,14 @@ class CodingOrchestrator:
                 "status": {
                     "type": "string",
                     "enum": [
-                        "success",
-                        "failed",
-                        "blocked",
-                        "cancelled",
-                        "timeout",
-                        "completed_unstructured",
-                        "ready_for_merge_test",
-                        "ready_for_merge_test_with_known_gaps",
-                        "runner_failed",
+                        status.value
+                        for status in AgentRunStatus
+                        if status
+                        not in {
+                            AgentRunStatus.QUEUED,
+                            AgentRunStatus.RUNNING,
+                            AgentRunStatus.ORPHANED,
+                        }
                     ],
                 },
                 "mode": {"type": "string", "enum": ["plan-only", "implementation", "qa", "merge-test"]},
@@ -4133,6 +4137,7 @@ class CodingOrchestrator:
 
     @staticmethod
     def _task_status_for_run_result(mode: RunMode, status: str) -> TaskStatus:
+        status = normalize_agent_run_status(status, mode)
         if mode == RunMode.PLAN_ONLY and status == AgentRunStatus.SUCCESS.value:
             return TaskStatus.PLANNED
         if mode in {RunMode.IMPLEMENTATION, RunMode.QA} and status in {
@@ -4150,6 +4155,7 @@ class CodingOrchestrator:
 
     @staticmethod
     def _task_phase_for_run_result(mode: RunMode, status: str) -> TaskPhase:
+        status = normalize_agent_run_status(status, mode)
         if mode == RunMode.PLAN_ONLY:
             if status == AgentRunStatus.SUCCESS.value:
                 return TaskPhase.PLAN_READY

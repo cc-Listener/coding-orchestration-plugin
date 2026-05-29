@@ -130,6 +130,11 @@
 | active run 期间确认词不是新指令 | 当前 task 仍有 `active_run_id` 时，确认词只返回正在执行的 run 信息和恢复动作，不启动新 run，也不调用 rewriter |
 | cancelled 是人工终态保护 | task 被人工标记 `cancelled` 后，不允许 pending action、自然语言确认、显式 `/coding run/implement/prepare-merge-test/merge-test` 或底层 `start_run()` 再启动 Codex；`continue/change/bugfix` 也只能返回终态提示 |
 | cancelled 需要显式恢复出口 | 用户可能误 cancel；普通动作仍被保护，但新增 `/coding restore <task_id>` 作为唯一恢复入口。restore 只恢复 Task Ledger 到最近可操作状态并清理 stale active run，不自动启动 Codex |
+| LLM Wiki 项目初始化按稳定性分层 | 通用初始化不把项目文档全文塞入 prompt；稳定知识写 verified profile/contract，历史计划写 candidate index，API/Figma/飞书/Swagger 等动态来源只写 source index 并要求 read-before-use |
+| API 契约不沉淀为长期 verified | `.api-spec.json`、`api-spec.md`、OpenAPI/Swagger 等只作为 `external_source_index`，具体 endpoint/schema/enum 必须在当前任务中重新读取并记录本次来源 |
+| 人工补充项目也要增强初始化 | 用户通过“项目文件夹名称”补充的新项目不能只写空 `project_profile`；应扫描 AGENTS、contracts、docs、`.codex/.agents/skills`、package scripts 和历史 plans，形成可复用项目知识包 |
+| Coding Mode enter/exit 需要幂等 | `进入coding` 日志命中 `coding_mode_entered`，不是正则误判；为防止平台重复事件或延迟消息造成重复回复，同一 Gateway message_id 只处理一次，重复 enter/exit 输出幂等文案 |
+| runner status 必须在边界归一化 | Codex report 可能返回 task/phase 语义状态；Hermes 统一在 runner、orchestrator、schema 和 state machine helper 边界归一到 `AgentRunStatus`，再映射为 `TaskStatus` |
 
 ## 遇到的问题
 | 问题 | 解决方案 |
@@ -182,6 +187,13 @@
 | runner fallback report 必须满足统一结构 | `_runner_failed_result` 和 checkpoint failed report 也要补齐 `qa_artifacts` 与 `tested_commit`，否则 runner 崩溃兜底报告仍会被后续结构化读取视为不完整 |
 | blocked 风险默认确认后可人工覆盖 | `/coding merge-test` 对 blocked task 增加分层评估：缺 implementation run、source branch、worktree 或 cancelled 是硬阻断；缺 report、缺 session、diff guard 越权、runner_failed/failed、结构化字段不完整或未落地代码证据会返回风险确认，人工 `--accept-risk` 后记录 `accepted_risk` 和 `blocked_merge_test_released` 并继续 merge-test |
 | 缺 Codex session 不再阻断 merge-test | 如果 source branch 和 worktree 存在但没有 resume_session_id，Hermes 会把它作为可接受风险提示；人工 `--accept-risk` 后启动新的 Codex session 执行 merge-test，避免老任务因 session 元数据缺失无法推进 |
+| LLM Wiki 初始化只有极简 project_profile | 新增 `ProjectKnowledgeInitializer` 生成项目指导合同、架构地图、开发约定、验证画像、工具画像、agent tooling、动态来源索引、历史计划索引和风险画像；registry bootstrap 与人工项目补充都会调用 |
+| 动态 API 来源容易过期 | `external_source_index` 使用 `status=candidate` 和 `freshness.mode=read_before_use`，prompt 召回时只能提示去实时读取，不能直接用旧 Wiki 内容实现字段 |
+| 敏感配置不能进入 Wiki | `.env*` 只记录为 guarded/sensitive path，不读取内容、不生成 source hash，避免把 token 或环境值写入 LLM Wiki |
+| Coding Mode 退出回复可能重复 | 增加 5 分钟 message_id 防抖；同时 `退出coding` 在未开启时回复“当前未开启”，避免重复事件第二次还返回“已退出” |
+| Hermes plugin discovery 会把 symlink 当独立入口 | `~/.hermes/plugins/coding-orchestration-plugin/coding_orchestration` 和 `~/.hermes/plugins/coding_orchestration` symlink 会被加载成两个不同 module，导致两个 `pre_gateway_dispatch` hook 同时发送回复；注册入口需要进程级 guard，或后续清理重复 symlink |
+| Codex 会返回任务语义 status | plan-only 可能返回 `ready_for_implementation` 这类人类语义状态；它不应进入 `AgentRunStatus` 状态机，runner 边界需要先归一为 `success`，再由 orchestrator 映射为 `planned/plan_ready` |
+| 状态机边界不只在 runner | orchestrator 收尾、partial structured recovery、report schema 和 `TaskStateMachine.task_status_for_run_status()` 也可能接触外部 status；已改为统一调用 `normalize_agent_run_status()`，未知值降级为 `completed_unstructured` 而不是抛异常 |
 
 ## 资源
 - `/Users/xiaojing/.hermes/coding-orchestration/runs/task_43141b20c03e`
