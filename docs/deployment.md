@@ -454,25 +454,74 @@ rtk python3 -m unittest tests.test_router_prompt_summary
 /coding help
 ```
 
-预期能看到 `/coding task`、`/coding status`、`/coding list`、`/coding implement`、`/coding merge-test`、`/coding complete`、`/coding delete` 等命令。后续所有工作都优先使用 `/coding <action>` 标准入口。
+预期能看到 `/coding task`、`/coding status`、`/coding list`、`/coding implement`、`/coding merge-test`、`/coding complete`、`/coding delete` 等命令。本文里的 CLI 命令指飞书或 Hermes Gateway 会话里的 slash command，不是部署机 shell 命令；后续所有工作都优先使用 `/coding <action>` 标准入口。
 
-### 2. 选择交互方式
+### 2. 两种上手场景
 
-推荐显式发送 `/coding <action>` 命令，便于审计和复现：
+#### 场景 A：CLI 命令
+
+CLI 命令适合需求明确、需要复制执行、多人协作或需要审计的场景。每条消息显式以 `/coding` 开头，Hermes 会直接按标准动作处理，不依赖自然语言 rewrite。
+
+常用闭环：
 
 ```text
-/coding task <需求>
+/coding task --project <项目名> <需求正文>
 /coding status <task_id>
-/coding continue <反馈>
+/coding continue <补充说明>
+/coding change <修改后的需求或变更点>
+/coding implement <task_id>
+/coding bugfix <实现或 QA 反馈>
+/coding merge-test <task_id>
+/coding complete <task_id>
 ```
 
-如果希望用自然语言连续沟通，先发送：
+使用规则：
+
+- 需要确定任务时带上 `task_id`；同会话有多个任务时先 `/coding use <task_id>`。
+- 创建、补充、变更、实现、合 test、完成都用独立命令表达，避免把多个动作写在同一条消息里。
+- `/coding cancel`、`/coding delete`、`/coding merge-test`、`/coding complete` 都会改变任务状态，发送前先确认 task_id。
+- 这是推荐默认方式，尤其适合生产任务。
+
+#### 场景 B：自然语言 Coding Mode
+
+自然语言适合需求还在沟通中、需要连续补充背景、希望成员少记命令的场景。先发送：
 
 ```text
 进入coding
 ```
 
-进入 Coding Mode 后，同一会话里的自然语言会先被改写成标准 `/coding <action>` 候选；高置信度且信息完整时才会执行，低置信度、缺信息或高风险动作会要求人工确认。结束时发送：
+进入 Coding Mode 后，同一会话里的自然语言会先被改写成标准 `/coding <action>` 候选；高置信度且信息完整时才会执行，低置信度、缺信息或高风险动作会要求人工确认。
+
+自然语言闭环示例：
+
+```text
+进入coding
+
+帮我在 <项目名> 做一个需求：<需求正文>。背景是 <业务背景>，验收标准是 <验收标准>。
+
+补充一下：<计划阶段需要追加的上下文>
+
+需求改了：<新的变更点>
+
+计划确认，可以开始实现 task_xxx。
+
+实现后这里有问题：<QA 或人工反馈>
+
+task_xxx 可以合 test。
+
+测试环境确认没问题，task_xxx 可以标记完成。
+
+退出coding
+```
+
+使用规则：
+
+- 自然语言不是直接执行代码；它会先被 rewrite 成 `/coding task`、`/coding continue`、`/coding change`、`/coding implement`、`/coding bugfix`、`/coding merge-test` 等标准命令。
+- 低置信度、缺少项目名、缺少 task_id、删除/取消等高风险动作会要求人工二次确认。
+- 同一个会话里有多个任务时，先用 `/coding list` 查看，再用 `/coding use <task_id>` 切换，避免自然语言引用错任务。
+- 如果一句自然语言可能有歧义，改用 CLI 命令。
+
+结束自然语言模式时发送：
 
 ```text
 退出coding
@@ -482,7 +531,7 @@ rtk python3 -m unittest tests.test_router_prompt_summary
 
 ### 3. 创建任务
 
-最常用的创建方式：
+CLI 命令创建方式：
 
 ```text
 /coding task --project <项目名> <需求正文>
@@ -498,6 +547,14 @@ rtk python3 -m unittest tests.test_router_prompt_summary
 
 ```text
 /coding task --project <项目名> <飞书链接> 背景：<业务背景>；目标：<要实现的结果>；验收：<怎么判断完成>
+```
+
+自然语言创建方式：
+
+```text
+进入coding
+
+帮我在 <项目名> 做一个需求：<需求正文>。需求来源是 <飞书链接>，背景是 <业务背景>，目标是 <要实现的结果>，验收标准是 <怎么判断完成>。
 ```
 
 建议一次性写清：
@@ -632,10 +689,37 @@ rtk python3 -m unittest tests.test_router_prompt_summary
 
 ### 9. 推荐需求模板
 
-成员可以直接复制下面模板创建任务：
+成员可以按使用方式复制下面任一模板创建任务。
+
+CLI 命令模板：
 
 ```text
 /coding task --project <项目名> <模块/页面/接口>
+
+需求：
+- <要实现或修复的内容>
+
+背景：
+- <业务背景、用户场景、相关飞书 Project/Wiki/Doc 链接>
+
+验收标准：
+- <可验证结果 1>
+- <可验证结果 2>
+
+边界：
+- 允许修改：<目录或模块>
+- 禁止修改：<配置、发布脚本、数据迁移、无关模块等>
+
+测试：
+- rtk <测试命令>
+```
+
+自然语言模板：
+
+```text
+进入coding
+
+帮我在 <项目名> 处理 <模块/页面/接口> 的需求。
 
 需求：
 - <要实现或修复的内容>
