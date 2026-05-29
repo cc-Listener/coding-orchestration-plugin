@@ -496,3 +496,81 @@ plan-only 阶段出现文件修改
 - 确认 Codex CLI 支持 `--sandbox read-only`。
 - 检查 runner 是否仍为 `codex_cli`，没有被改成自定义高权限 runner。
 - 保留 run 目录和 diff 证据，先不要进入 `/coding implement`。
+
+## 一键安装 Agent Prompt
+
+把下面整段复制给具备终端权限的 Agent，用于在目标机器执行生产安装。Agent 必须在关键步骤后输出检查结果；任一必需检查不通过时必须停止，不要继续安装。
+
+```text
+请帮我在这台机器上按生产部署安装 Hermes plugin `coding_orchestration`。
+
+约束：
+- 全程使用简体中文汇报。
+- 所有 shell 命令必须加 `rtk` 前缀。
+- 生产插件来源固定为 SSH 仓库：`git@github.com:cc-Listener/coding-orchestration-plugin.git`。
+- 生产运行根目录固定为：`~/.hermes/coding-orchestration-prod`。
+- 初始化时不要复制或创建 `project-registry.json`；项目注册后续通过 LLM Wiki `project_profile` 或人工确认流程沉淀。
+- 不要删除 `~/.hermes/coding-orchestration-prod` 里的历史数据；如果是重装，只删除 Hermes 插件安装物和插件入口。
+- 如果任何前置检查失败，停止并说明失败原因、影响和修复建议。
+
+前置检查：
+1. 执行 `rtk which hermes`、`rtk hermes gateway status`，确认 Hermes 可用。
+2. 执行 `rtk which codex`，确认 Codex CLI 可用；如 `.env` 里有 `CODEX_CLI_COMMAND`，同时确认该绝对路径存在。
+3. 执行 `rtk git ls-remote git@github.com:cc-Listener/coding-orchestration-plugin.git HEAD`，必须返回 commit hash 和 `HEAD`。
+4. 执行 `rtk ls -ld ~/.hermes ~/.hermes/plugins`，确认 Hermes home 和 plugins 目录可写。
+
+安装步骤：
+1. 备份配置：
+   - 先执行 `rtk date +%Y%m%d%H%M%S` 获取时间戳。
+   - `rtk cp ~/.hermes/config.yaml ~/.hermes/config.yaml.bak-coding-install-<timestamp>`
+   - `rtk cp ~/.hermes/.env ~/.hermes/.env.bak-coding-install-<timestamp>`，如果 `.env` 存在。
+2. 如已安装旧插件，先禁用：
+   - `rtk hermes plugins disable coding_orchestration`
+3. 删除旧插件安装物，但不要删除生产运行根目录：
+   - 删除 `~/.hermes/plugins/coding_orchestration` 软链或目录。
+   - 删除 `~/.hermes/plugins/coding-orchestration-plugin` 克隆目录。
+   - 不要删除 `~/.hermes/coding-orchestration-prod`。
+4. 安装插件：
+   - 优先执行 `rtk hermes plugins install git@github.com:cc-Listener/coding-orchestration-plugin.git --enable`。
+   - 安装后检查 `~/.hermes/plugins/coding-orchestration-plugin/coding_orchestration/plugin.yaml` 是否存在。
+   - 如果 Hermes install 因 clone 超时失败，改用：
+     `rtk git clone --depth 1 git@github.com:cc-Listener/coding-orchestration-plugin.git ~/.hermes/plugins/coding-orchestration-plugin`
+   - 如果仓库根目录没有 `plugin.yaml`，这是当前仓库结构的预期情况；需要把真实插件子目录注册为 Hermes 插件入口：
+     `rtk ln -s ~/.hermes/plugins/coding-orchestration-plugin/coding_orchestration ~/.hermes/plugins/coding_orchestration`
+   - 禁用无效根目录插件名：
+     `rtk hermes plugins disable coding-orchestration-plugin`
+   - 启用真实插件名：
+     `rtk hermes plugins enable coding_orchestration`
+5. 配置生产运行根目录：
+   - 在 `~/.hermes/.env` 中设置或更新：
+     `CODING_ORCHESTRATION_ROOT=~/.hermes/coding-orchestration-prod`
+   - 在 `~/.hermes/config.yaml` 中确认：
+     `plugins.enabled` 包含 `coding_orchestration`，`plugins.disabled` 包含 `coding-orchestration-plugin` 且不包含 `coding_orchestration`。
+   - 确认 `coding_orchestration` 配置使用生产路径：
+     `ledger_db: ~/.hermes/coding-orchestration-prod/ledger.db`
+     `run_root: ~/.hermes/coding-orchestration-prod/runs`
+     `workspace_root: ~/.hermes/coding-orchestration-prod/workspaces`
+     `llm_wiki.root: ~/.hermes/coding-orchestration-prod/llm-wiki`
+   - 不要配置 `project_registry`，除非我明确要求 registry bootstrap。
+6. 创建生产运行基础目录：
+   - `rtk mkdir -p ~/.hermes/coding-orchestration-prod/runs ~/.hermes/coding-orchestration-prod/workspaces ~/.hermes/coding-orchestration-prod/llm-wiki`
+7. 重启 Gateway：
+   - `rtk hermes gateway restart`
+
+验收：
+1. `rtk hermes plugins list` 必须显示 `coding_orchestration enabled`。
+2. `rtk hermes gateway status` 必须显示 Gateway service loaded。
+3. `rtk curl -i -s http://127.0.0.1:8642/health` 必须返回 `200 OK` 和 `{"status": "ok", "platform": "hermes-agent"}`。
+4. `rtk git -C ~/.hermes/plugins/coding-orchestration-plugin rev-parse HEAD` 输出的 commit 必须和 `git ls-remote ... HEAD` 一致。
+5. 验证插件命令注册：
+   `rtk ~/.hermes/hermes-agent/venv/bin/python -c "import os; os.environ['CODING_ORCHESTRATION_ROOT']=os.path.expanduser('~/.hermes/coding-orchestration-prod'); from hermes_cli.plugins import get_plugin_commands; print(sorted(get_plugin_commands()))"`
+   输出里必须包含 `coding`。
+6. 验证 LLM Wiki 初始化：
+   - `~/.hermes/coding-orchestration-prod/llm-wiki/purpose.md`
+   - `~/.hermes/coding-orchestration-prod/llm-wiki/schema.md`
+   - `~/.hermes/coding-orchestration-prod/llm-wiki/raw/sources/`
+   - `~/.hermes/coding-orchestration-prod/llm-wiki/wiki/index.md`
+   - `~/.hermes/coding-orchestration-prod/llm-wiki/wiki/overview.md`
+   - `~/.hermes/coding-orchestration-prod/llm-wiki/wiki/log.md`
+7. 最后汇总：安装来源、安装 commit、生产运行根目录、是否未带入 `project-registry.json`、Gateway 状态、插件命令列表。
+```
