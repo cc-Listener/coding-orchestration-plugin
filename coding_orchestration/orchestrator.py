@@ -3056,7 +3056,16 @@ class CodingOrchestrator:
 
     @staticmethod
     def _semantic_branch_slug(text: str) -> str:
-        mapped_terms = [
+        domain_terms = [
+            ("推单列表", "fulfill-task"),
+            ("推单类型", "fulfill-type"),
+            ("推OMS", "oms"),
+            ("推到OMS", "oms"),
+            ("虚拟产品", "virtual"),
+            ("虚拟品", "virtual"),
+            ("total_virtual", "total-virtual"),
+        ]
+        generic_terms = [
             ("修复", "fix"),
             ("新增", "add"),
             ("订单流", "orderflows"),
@@ -3072,6 +3081,12 @@ class CodingOrchestrator:
         ]
         tokens: list[str] = []
         lowered = text.lower()
+        for term, slug in domain_terms + generic_terms:
+            term_lower = term.lower()
+            if term in text or term_lower in lowered:
+                tokens.extend(slug.split("-"))
+        cleaned = re.sub(r"https?://[^\s，。；、]+", " ", lowered)
+        cleaned = re.sub(r"/api/[a-z0-9_./-]+", " ", cleaned)
         stop_words = {
             "the",
             "a",
@@ -3086,20 +3101,28 @@ class CodingOrchestrator:
             "project",
             "system",
             "需求",
+            "api",
+            "bps",
+            "ops",
+            "admin",
+            "swagger",
+            "http",
+            "https",
+            "index",
+            "html",
+            "v1",
+            "v2",
         }
-        for token in re.findall(r"[A-Za-z0-9]+", lowered):
-            if token in stop_words or len(token) <= 1:
+        for token in re.findall(r"[A-Za-z0-9]+", cleaned):
+            if token in stop_words or len(token) <= 1 or token.isdigit():
                 continue
             tokens.append(token)
-        for term, slug in mapped_terms:
-            if term in text:
-                tokens.extend(slug.split("-"))
         deduped: list[str] = []
         for token in tokens:
             safe = CodingOrchestrator._slugify_ascii(token)
             if safe and safe not in deduped:
                 deduped.append(safe)
-        return "-".join(deduped[:4]).strip("-")
+        return "-".join(deduped[:5]).strip("-")
 
     @staticmethod
     def _slugify_ascii(text: str) -> str:

@@ -3329,6 +3329,45 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["task_session"]["source_branch"], "codex/orderflows-filter-actions-43141b20c03e")
             self.assertEqual(manifest["source_branch"], "codex/orderflows-filter-actions-43141b20c03e")
 
+    def test_implementation_branch_ignores_swagger_url_noise_for_chinese_requirement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_d7bd20850ef5",
+                source={"type": "feishu_chat", "project_name": "bps-admin"},
+                requirement_summary=(
+                    "BPS运营后台新增需求：推单列表分类推单类型需要增加推单类型，"
+                    "这是最新的swagger文档 http://10.15.130.144:6060/api/bps_ops/v1/swagger/index.html"
+                    "#/%E8%AE%A2%E5%8D%95/post_api_bps_ops_v2_order_fulfill_task_list；"
+                    "共xx条记录要替换为“共xx条记录,x单已推到OMS，x单虚拟产品无需推单”。"
+                    "对应字段：推OMS = total - total_virtual；虚拟品 = total_virtual。"
+                ),
+                project_path=str(project),
+                status="planned",
+                llm_wiki_refs=[],
+                human_decisions=[],
+            )
+            fake_runner = FakeRunner()
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+
+            orchestrator.start_run("task_d7bd20850ef5", mode=RunMode.IMPLEMENTATION, timeout_seconds=5)
+
+            task = ledger.get_task("task_d7bd20850ef5")
+            manifest = json.loads(Path(task["artifacts"][0]["manifest"]).read_text(encoding="utf-8"))
+            self.assertEqual(task["task_session"]["source_branch"], "codex/fulfill-task-type-oms-virtual-d7bd20850ef5")
+            self.assertEqual(manifest["source_branch"], "codex/fulfill-task-type-oms-virtual-d7bd20850ef5")
+
     def test_implementation_worktree_defaults_to_main_even_when_project_on_test(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
