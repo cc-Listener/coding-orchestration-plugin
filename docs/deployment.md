@@ -441,6 +441,228 @@ rtk python3 -m unittest tests.test_router_prompt_summary
 - 需要飞书文档读取时，Gateway 环境里 `lark-cli` 可执行且已绑定 Hermes 身份。
 - `/coding help`、`/coding task`、`/coding status` 均可响应。
 
+## 成员快速上手
+
+本节面向已经完成生产部署后的普通成员。默认使用生产 Gateway 和 `~/.hermes/coding-orchestration-prod`；成员不需要初始化或提交 `project-registry.json`。
+
+### 1. 确认插件可用
+
+在飞书或 Hermes Gateway 会话里发送：
+
+```text
+/commands
+/coding help
+```
+
+预期能看到 `/coding task`、`/coding status`、`/coding list`、`/coding implement`、`/coding merge-test`、`/coding complete`、`/coding delete` 等命令。后续所有工作都优先使用 `/coding <action>` 标准入口。
+
+### 2. 选择交互方式
+
+推荐显式发送 `/coding <action>` 命令，便于审计和复现：
+
+```text
+/coding task <需求>
+/coding status <task_id>
+/coding continue <反馈>
+```
+
+如果希望用自然语言连续沟通，先发送：
+
+```text
+进入coding
+```
+
+进入 Coding Mode 后，同一会话里的自然语言会先被改写成标准 `/coding <action>` 候选；高置信度且信息完整时才会执行，低置信度、缺信息或高风险动作会要求人工确认。结束时发送：
+
+```text
+退出coding
+```
+
+也可以用 `/coding exit` 释放当前会话的 active task 绑定。
+
+### 3. 创建任务
+
+最常用的创建方式：
+
+```text
+/coding task --project <项目名> <需求正文>
+```
+
+需要固定 runner 时：
+
+```text
+/coding task --runner codex_cli --project <项目名> <需求正文>
+```
+
+需求来自飞书 Project、Wiki 或 Doc 时，把链接和必要背景一起放进需求里：
+
+```text
+/coding task --project <项目名> <飞书链接> 背景：<业务背景>；目标：<要实现的结果>；验收：<怎么判断完成>
+```
+
+建议一次性写清：
+
+- 项目名、模块名、页面或接口名。
+- 业务背景和用户期望，不只写“按文档做”。
+- 明确验收标准，例如字段、交互、接口返回、兼容逻辑。
+- 修改边界，例如只能改哪些目录，哪些配置、发布脚本或数据迁移不能动。
+- 推荐测试命令，命令统一加 `rtk` 前缀。
+
+创建后插件会自动进入 plan-only。plan-only 只做需求理解、项目识别和实现计划，不应该修改项目文件；如果飞书链接无法读取或项目识别不确定，任务会停在 `needs_human`，按提示补充信息即可。
+
+### 4. 查看和切换任务
+
+查看当前任务或指定任务：
+
+```text
+/coding status <task_id>
+```
+
+查看当前会话可操作的未结束任务：
+
+```text
+/coding list
+```
+
+同一个会话里有多个任务时，先切换 active task：
+
+```text
+/coding use <task_id>
+```
+
+不想让后续自然语言继续引用当前任务时：
+
+```text
+/coding exit
+```
+
+### 5. 补充信息和变更需求
+
+计划阶段要补充上下文、验收标准或测试要求时：
+
+```text
+/coding continue <补充说明>
+```
+
+需求本身发生变化时：
+
+```text
+/coding change <修改后的需求或变更点>
+```
+
+实现或 QA 后发现问题，需要在原 source branch 和原 workspace 上继续修复时：
+
+```text
+/coding bugfix <实现或 QA 反馈>
+```
+
+不要在 plan-only 阶段要求插件直接改文件。正确流程是先让 Codex 输出计划，人工确认计划、风险路径和测试命令后，再进入 implementation。
+
+### 6. 人工确认后进入实现
+
+只有 task 已完成 plan-only 并进入 `plan_ready` 后，才允许启动实现：
+
+```text
+/coding implement <task_id>
+```
+
+实现阶段会创建隔离 workspace 和 source branch，通常形如 `codex/<slug>-<task_id>`。成员需要重点检查：
+
+- 计划是否覆盖需求、边界和回滚风险。
+- 允许修改路径和禁止修改路径是否正确。
+- 测试命令是否明确，且使用 `rtk` 前缀。
+- 是否存在需要人工确认的外部依赖、飞书权限、数据库迁移或发布动作。
+
+如果实现输出里提示 `blocked`，先看 `/coding status <task_id>` 和 run summary，再决定补充信息、`/coding bugfix` 或取消任务。
+
+### 7. 合入测试分支和完成任务
+
+开发完成且验证通过后，任务会提示等待 merge-test。可先做人工准备标记：
+
+```text
+/coding prepare-merge-test <task_id>
+```
+
+真正执行合入测试分支时发送：
+
+```text
+/coding merge-test <task_id>
+```
+
+如果任务处于 `blocked` 但人工确认风险可接受，按提示使用：
+
+```text
+/coding merge-test <task_id> --accept-risk
+```
+
+`/coding merge-test` 只负责把 source branch 合入 `test` 并更新 Task Ledger；测试环境发布和线上发布仍由人工流程控制。测试环境确认无误后，再人工标记完成：
+
+```text
+/coding complete <task_id>
+```
+
+### 8. 取消、恢复和删除
+
+取消任务或运行：
+
+```text
+/coding cancel <task_id|run_id>
+```
+
+误取消时可以恢复任务状态，但不会自动重启 Codex：
+
+```text
+/coding restore <task_id>
+```
+
+删除任务会清理 Task Ledger 记录、active binding、关联 LLM Wiki 记录和本地 run/workspace，属于高风险动作。确认不需要保留后再执行：
+
+```text
+/coding delete <task_id>
+```
+
+需要保留排查材料时：
+
+```text
+/coding delete <task_id> --keep-artifacts
+/coding delete <task_id> --keep-wiki
+```
+
+运行中的任务默认先 `/coding cancel <task_id>`，确实要强制删除时才使用 `/coding delete <task_id> --force`。
+
+### 9. 推荐需求模板
+
+成员可以直接复制下面模板创建任务：
+
+```text
+/coding task --project <项目名> <模块/页面/接口>
+
+需求：
+- <要实现或修复的内容>
+
+背景：
+- <业务背景、用户场景、相关飞书 Project/Wiki/Doc 链接>
+
+验收标准：
+- <可验证结果 1>
+- <可验证结果 2>
+
+边界：
+- 允许修改：<目录或模块>
+- 禁止修改：<配置、发布脚本、数据迁移、无关模块等>
+
+测试：
+- rtk <测试命令>
+```
+
+使用注意事项：
+
+- 未进入 Coding Mode 时，不要期待普通自然语言触发插件；优先显式写 `/coding <action>`。
+- 不要让自然语言绕过 `/coding` 标准入口，除非已经发送“进入coding”。
+- 不要在 plan-only 阶段要求改文件；实现必须经过人工确认计划后执行 `/coding implement <task_id>`。
+- 生产初始化不带入 `project-registry.json`；项目知识优先通过 LLM Wiki `project_profile` 和人工确认沉淀。
+- 删除、取消、merge-test、complete 都会改变任务状态，执行前先确认 task_id。
+
 ## 权限边界
 
 - plan-only 使用只读 profile：只允许读取项目文件和外部上下文，不允许修改项目文件。
