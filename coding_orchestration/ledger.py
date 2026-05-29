@@ -190,6 +190,39 @@ class TaskLedger:
                 (requirement_summary, task_id),
             )
 
+    def update_project_context(
+        self,
+        task_id: str,
+        *,
+        project_name: str,
+        project_path: str,
+        confidence: float,
+        match_evidence: list[dict[str, Any]],
+    ) -> None:
+        task = self.get_task(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        source = dict(task.get("source") or {})
+        source["project_name"] = project_name
+        source["project_confidence"] = confidence
+        source["match_evidence"] = match_evidence
+        session = dict(task.get("task_session") or {})
+        session["project_name"] = project_name
+        with self._connect() as conn:
+            conn.execute(
+                """
+                update tasks
+                set source_json = ?, project_path = ?, task_session_json = ?, updated_at = current_timestamp
+                where task_id = ?
+                """,
+                (
+                    json.dumps(source, ensure_ascii=False),
+                    project_path,
+                    json.dumps(session, ensure_ascii=False),
+                    task_id,
+                ),
+            )
+
     def replace_llm_wiki_refs(self, task_id: str, refs: list[dict[str, Any]]) -> None:
         with self._connect() as conn:
             conn.execute(

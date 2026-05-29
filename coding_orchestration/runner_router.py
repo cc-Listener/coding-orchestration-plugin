@@ -6,6 +6,7 @@ from typing import Any
 from .models import RunMode
 from .runners.codex_cli import CodexCliRunner
 from .runners.generic_cli import GenericCliRunner
+from .runners.hermes_autonomous_codex import HermesAutonomousCodexRunner
 
 
 class RunnerUnavailable(ValueError):
@@ -26,7 +27,16 @@ class RunnerRouter:
                 command=(runners_cfg.get("codex_cli") or {}).get("command")
                 or os.environ.get("CODEX_CLI_COMMAND")
                 or "codex"
-            )
+            ),
+            "hermes_autonomous_codex": HermesAutonomousCodexRunner(
+                command=(runners_cfg.get("hermes_autonomous_codex") or {}).get("command")
+                or os.environ.get("HERMES_AUTONOMOUS_CODEX_COMMAND")
+                or os.environ.get("CODEX_CLI_COMMAND")
+                or "codex",
+                skill_path=(runners_cfg.get("hermes_autonomous_codex") or {}).get("skill_path")
+                or os.environ.get("HERMES_AUTONOMOUS_CODEX_SKILL")
+                or "/Users/xiaojing/.hermes/hermes-agent/skills/autonomous-ai-agents/codex/SKILL.md",
+            ),
         }
         if (runners_cfg.get("claude_code") or {}).get("enabled"):
             runners["claude_code"] = GenericCliRunner(

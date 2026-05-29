@@ -19,128 +19,224 @@ class PromptBuilder:
         mode: RunMode,
         runner_name: str,
         confirmed_plan: str = "",
+        context_artifacts: dict[str, str] | None = None,
     ) -> str:
-        wiki_block = "\n".join(
-            f"- {ref.get('id')}: {ref.get('title')}\n  {ref.get('body', '')}"
-            for ref in wiki_refs
-        ) or "- none"
-        confirmed_plan_block = self._confirmed_plan_block(mode, confirmed_plan)
-        execution_contract = self._execution_contract(
-            mode=mode,
-            project_path=project_path,
-            workspace_path=workspace_path,
-        )
-        return f"""# Coding Task
+        del project_path, workspace_path, workflow, runner_name, confirmed_plan
+        context_artifacts = context_artifacts or {}
+        if mode == RunMode.MERGE_TEST:
+            return f"""# Merge Test
 
-## Requirement
+## 本轮动作
+{self._visible_mode_instruction(mode)}
+
+## 相关上下文
+{self._context_block(wiki_refs, context_artifacts)}
+"""
+        if mode == RunMode.QA:
+            return f"""# QA 验证
+
+## 本轮动作
+{self._visible_mode_instruction(mode)}
+
+## 相关上下文
+{self._context_block(wiki_refs, context_artifacts)}
+"""
+        confirmed_plan_block = self._confirmed_plan_ref(mode, context_artifacts)
+        return f"""# 编码任务
+
+## 目标
 {requirement_summary}
 
-## Source
-{source}
+## 来源
+{self._source_block(source)}
 
-## Project
-{project_path}
-
-## Mode
-{mode.value}
-
-## Runner
-{runner_name}
-
-## Workflow
-Allowed Paths:
-{self._bullets(workflow.allowed_paths)}
-
-Forbidden Paths:
-{self._bullets(workflow.forbidden_paths)}
-
-Test Commands:
-{self._bullets(workflow.default_test_commands)}
-
-Merge Policy: {workflow.merge_policy}
-Publish Policy: {workflow.publish_policy}
-
-## LLM Wiki References
-{wiki_block}
+## 相关上下文
+{self._context_block(wiki_refs, context_artifacts)}
 
 {confirmed_plan_block}
 
-{execution_contract}
+## 本轮动作
+{self._visible_mode_instruction(mode)}
+"""
 
-## Required Outputs
-- Return a final JSON object matching the runner schema.
-- Put the human-readable plan or implementation summary in `summary_markdown`; Hermes will persist it to `summary.md` and show it in Feishu for human confirmation.
-- In plan-only mode, `summary_markdown` must contain a concrete plan with scope, files/modules to inspect, implementation steps, tests to run, risks, and open questions.
-- In plan-only mode, do not modify files; set `human_required` to true when the plan needs confirmation before implementation.
-- Use `test_results` entries shaped as `{{"command":"...","status":"passed|failed|not_run|blocked","output_summary":"..."}}`.
-- Do not operate Feishu directly.
-{self._mode_output_policy(mode)}
+    def build_incremental(
+        self,
+        *,
+        task_id: str,
+        mode: RunMode,
+        runner_name: str,
+        project_path: str,
+        workspace_path: str | None,
+        resume_session_id: str,
+        incremental_context: str,
+        context_artifacts: dict[str, str] | None = None,
+    ) -> str:
+        del runner_name, project_path, workspace_path
+        context_artifacts = context_artifacts or {}
+        delta = incremental_context.strip() or "- 未记录新的人工反馈；请基于现有 task session 上下文继续。"
+        context_block = self._context_block([], context_artifacts)
+        return f"""# 编码任务增量
+
+## 复用任务 Session 的本轮增量
+- Task：`{task_id}`
+- 既有 Codex session：`{resume_session_id}`
+
+## 本轮新增信息
+{delta}
+
+## 本轮动作
+{self._visible_mode_instruction(mode)}
+
+## 相关上下文
+{context_block}
+
+除非安全需要，不要重新总结或重新加载完整历史上下文。请基于既有 Codex session 记忆继续，只把上面的新增信息作为本轮 delta。
 """
 
     @staticmethod
-    def _bullets(values: list[str]) -> str:
-        return "\n".join(f"- {value}" for value in values) or "- none"
+    def _source_block(source: dict[str, Any]) -> str:
+        allowed_keys = ("type", "title", "url", "project_name", "message_summary", "related_task_id")
+        lines = [f"- {key}: {source[key]}" for key in allowed_keys if source.get(key)]
+        return "\n".join(lines) or "- 未记录"
 
     @staticmethod
-    def _confirmed_plan_block(mode: RunMode, confirmed_plan: str) -> str:
-        if mode == RunMode.MERGE_TEST:
-            context = confirmed_plan.strip() or "- No previous implementation context was found."
-            return f"""## Previous Implementation Context
-{context}"""
+    def _context_block(wiki_refs: list[dict[str, Any]], context_artifacts: dict[str, str]) -> str:
+        lines: list[str] = []
+        artifact_labels = {
+            "context_index": "上下文索引",
+            "wiki_context": "Wiki 上下文",
+            "confirmed_plan": "已确认计划",
+            "implementation_context": "实现上下文",
+            "run_instructions": "运行说明",
+        }
+        for key, label in artifact_labels.items():
+            value = str(context_artifacts.get(key) or "").strip()
+            if value:
+                lines.append(f"- {label}：`{value}`")
+        if wiki_refs:
+            lines.append("- Wiki 参考：")
+            for ref in wiki_refs:
+                ref_id = ref.get("id") or "unknown"
+                title = ref.get("title") or "未命名"
+                lines.append(f"  - {ref_id}：{title}")
+        return "\n".join(lines) or "- 无"
+
+    @staticmethod
+    def _confirmed_plan_ref(mode: RunMode, context_artifacts: dict[str, str]) -> str:
         if mode != RunMode.IMPLEMENTATION:
             return ""
-        plan = confirmed_plan.strip() or (
-            "- No prior plan-only summary was found. If the implementation cannot proceed safely, "
-            "return `status=blocked` and explain what human confirmation is missing."
-        )
-        return f"""## Confirmed Plan From Plan-only Run
-{plan}"""
+        path = str(context_artifacts.get("confirmed_plan") or "").strip()
+        if path:
+            return f"""## 已确认计划
+- 详见：`{path}`"""
+        return """## 已确认计划
+- 未找到已确认计划 artifact；如果无法安全进入实现，返回 `status=blocked` 并说明需要人工补充什么。"""
 
     @staticmethod
-    def _execution_contract(mode: RunMode, project_path: str, workspace_path: str | None) -> str:
+    def _visible_mode_instruction(mode: RunMode) -> str:
         if mode == RunMode.PLAN_ONLY:
-            return """## Plan-only Contract
-- 当前由 Hermes 进入 Codex plan-only 阶段；只允许输出计划，不允许修改文件、创建分支、运行发布或 merge。
-- 计划必须像 Codex Plan 模式一样可供人工审核，明确目标、范围、涉及文件、实现步骤、测试命令、风险和待确认问题。
-- 如果需求缺少关键信息，返回 `status=blocked` 或 `human_required=true`，并在 `next_actions` 里列出需要人确认的问题。
-- 计划完成后停止；不要进入 implementation。"""
+            return "- 只做计划，不修改文件；信息不足时直接说明需要补充什么。"
+        if mode == RunMode.IMPLEMENTATION:
+            return "- 按已确认计划实现；缺少依赖时先安装并继续验证；不要发布、部署或 merge。"
+        if mode == RunMode.QA:
+            return "- 使用 `$qa` 执行测试链路；缺少依赖时先安装；可修复 QA 发现的问题并复验；不要 merge-test、发布或部署。"
         if mode == RunMode.MERGE_TEST:
-            workspace = workspace_path or "(not provided)"
-            return f"""## Merge-to-test Contract
-- This is a Hermes-controlled post-review merge-to-test handoff. The human has already reviewed/tested the implementation and explicitly requested merge-to-test.
-- You are resuming the same Codex task session when possible. Continue from the implementation context, source branch, and worktree already established for this task.
-- Use the `merge-to-test` skill exactly. It is allowed to commit tracked source-branch changes, push the source branch to origin, merge the source branch into `test`, and push `origin/test`.
-- Do not publish or deploy any environment. Publishing remains manual.
-- Current task worktree/workspace: `{workspace}`.
-- Original project directory: `{project_path}`.
-- If git refuses to switch to `test` because another worktree already has it checked out, use the repository context to choose the least risky merge-to-test workflow. Stop with `status=blocked` if doing so would require guessing or overwriting unrelated work.
+            return "- 使用 `merge-to-test` skill 执行人工触发的 merge-test；不要发布或部署。"
+        return "- 按本轮上下文继续。"
 
-## Merge Watchdog Checklist
-- Confirm the source branch before committing or pushing.
-- Inspect `git status --short` and do not include unrelated untracked files without explicit user confirmation.
-- Push the source branch to `origin` before or during the merge workflow.
-- Merge into `test` and push `origin/test`.
-- Return `status=success` only if the source branch push, merge into `test`, and `origin/test` push completed or were already up to date with concrete git evidence.
-- Return `status=blocked` if there are conflicts or unrelated local changes that cannot be safely resolved."""
-        if mode != RunMode.IMPLEMENTATION:
-            return ""
-        workspace = workspace_path or "(not provided)"
-        return f"""## GitOps Implementation Contract
-- This is the post-plan implementation handoff. Follow the confirmed plan above unless it is unsafe or incomplete.
-- Use the Codex superpowers workflow before editing: `using-superpowers`, `using-git-worktrees`, `test-driven-development`, and `verification-before-completion` when available.
-- Hermes has already launched you inside a task-scoped Hermes-controlled worktree/workspace: `{workspace}`.
-- Treat the current working directory as the implementation worktree. Do not modify the original project directory directly: `{project_path}`.
-- If the current working directory is not an isolated worktree/workspace, stop and return `status=blocked` with the isolation issue.
-- Do not create a nested worktree unless the superpowers workflow explicitly requires it after detecting that Hermes did not provide a valid isolated workspace.
+    def build_run_instructions(self, *, mode: RunMode) -> str:
+        return f"""# Run Instructions
 
-## GitOps Watchdog Checklist
-- Confirm the current branch/worktree before editing and mention it in `summary_markdown`.
-- Keep all edits inside the allowed paths and avoid forbidden paths.
-- Run the project test commands when feasible; otherwise report why each command was not run.
-- Produce a complete structured report for Hermes. If any contract item cannot be satisfied, return `status=blocked` rather than continuing loosely."""
+{self._execution_contract(mode=mode)}
+
+{self._output_requirements(mode)}
+"""
 
     @staticmethod
-    def _mode_output_policy(mode: RunMode) -> str:
+    def _execution_contract(mode: RunMode) -> str:
+        if mode == RunMode.PLAN_ONLY:
+            return """## 执行要求
+- 只输出计划，不修改文件。
+- 可以读取完成计划所需的上下文，包括项目文件、Swagger/OpenAPI、飞书/Lark 文档、API 元数据和依赖元信息。
+- 如果外部上下文读取失败，返回 `status=blocked`，并写清需要绑定权限、补充链接内容或提供可访问凭证。
+- 计划需要包含：范围、涉及模块、实现步骤、风险、待确认问题。
+- 如果信息不足，返回 `status=blocked`，并说明需要人工补充什么。"""
         if mode == RunMode.MERGE_TEST:
-            return "- Merge/push to `test` is allowed only for this merge-test run. Do not publish or deploy."
-        return "- Do not publish, merge, or operate Feishu directly."
+            return """## 本轮要求
+- 人工已明确要求执行 merge-test。
+- Hermes 会在启动本 run 前把当前 source worktree 的实现改动创建 checkpoint commit；如果工作树已 clean，直接继续，不要再要求用户确认未跟踪文件。
+- 使用 `merge-to-test` skill。
+- 只允许处理 source branch 到 `test` 的 merge/push。
+- 不发布、不部署。
+- 如果存在冲突或无关改动无法安全处理，返回 `status=blocked`。
+- 不要在 Codex session 中直接追问用户；需要人工确认时返回结构化 report，设置 `human_required=true`，让 Hermes 负责确认续接。"""
+        if mode == RunMode.QA:
+            return """## 本轮要求
+- 使用 `$qa` skill 执行测试链路。
+- 优先使用 diff-aware mode；如果需要 URL 或登录态，按 `$qa` 的规则请求人工输入。
+- 缺少依赖时先安装依赖并继续验证；所有 shell 命令使用 `rtk` 前缀。
+- QA 修复可以提交到当前 task worktree；源码修改只限当前 task workspace。
+- 项目外写入只允许依赖缓存、git metadata、dev server/browser 临时文件和 `.gstack` QA 产物。
+- 可以按 `$qa` 规则修复 QA 发现的问题并复验。
+- 不要执行 merge-test，不要 merge，不要 push 到 `test`。
+- 不发布、不部署、不操作飞书。
+- QA 通过后返回 `status=ready_for_merge_test`。
+- QA 有已知缺口但可继续人工判断时返回 `status=ready_for_merge_test_with_known_gaps`，并写清 `verification_limitations`。
+- QA 无法安全完成时返回 `status=blocked`。"""
+        if mode != RunMode.IMPLEMENTATION:
+            return ""
+        return """## 本轮要求
+- 根据已确认计划实现。
+- 遵循项目内已有规则、AGENTS.md、WORKFLOW.md 和仓库约束。
+- 缺少依赖时先安装依赖并继续验证；所有 shell 命令使用 `rtk` 前缀。
+- 源码修改只限当前 task workspace。
+- 项目外写入只允许依赖缓存、git metadata、dev server/browser 临时文件和 `.gstack` QA 产物。
+- 不发布、不部署、不操作飞书。
+- 开发完成且验证通过后返回 `status=ready_for_merge_test`。
+- 开发完成但验证受限时返回 `status=ready_for_merge_test_with_known_gaps`，并写清 `verification_limitations`。
+- 无法安全实现时返回 `status=blocked`。"""
+
+    @staticmethod
+    def _output_requirements(mode: RunMode) -> str:
+        lines = [
+            "## 输出要求",
+            "- 返回符合 report schema 的 JSON。",
+            "- 把给人看的计划、实现或 merge-test 摘要写入 `summary_markdown`。",
+            '- `test_results` 使用 `{"command":"...","status":"passed|failed|not_run|blocked","output_summary":"..."}` 结构。',
+            '- 必须包含 `qa_artifacts` 和 `tested_commit`；没有 QA 产物时使用 `{"report":"","baseline":"","screenshots_dir":""}` 和空字符串。',
+        ]
+        if mode == RunMode.IMPLEMENTATION:
+            lines.extend(
+                [
+                    "- 开发完成且验证通过时，返回 `status=ready_for_merge_test`。",
+                    "- 开发完成但验证受限时，返回 `status=ready_for_merge_test_with_known_gaps`。",
+                    "- 只有无法安全实现或缺少必要人工输入时，才返回 `status=blocked`。",
+                ]
+            )
+        elif mode == RunMode.QA:
+            lines.extend(
+                [
+                    "- QA 通过时，返回 `status=ready_for_merge_test`。",
+                    "- QA 有已知缺口但可继续人工判断时，返回 `status=ready_for_merge_test_with_known_gaps`。",
+                    "- QA 无法安全完成时，返回 `status=blocked`。",
+                    "- 如果 `$qa` 生成报告或截图，把路径写入 `summary_markdown` 或 `next_actions`。",
+                ]
+            )
+        elif mode == RunMode.MERGE_TEST:
+            lines.extend(
+                [
+                    "- merge-test 完成后返回 `status=success`。",
+                    "- 如果存在无法安全解决的冲突或无关改动，返回 `status=blocked`。",
+                    "- 如果需要人工确认，设置 `human_required=true`，不要只在自然语言摘要里提问。",
+                ]
+            )
+        else:
+            lines.append("- 本轮不要修改文件；需要人工确认时设置 `human_required=true`。")
+        lines.append(
+            "- 如果 status 是 `blocked`、`ready_for_merge_test_with_known_gaps` 或 `runner_failed`，必须包含 `verification_limitations`，每项包含 `reason`、`impact`、`recovery_action` 和 `fallback_evidence`。"
+        )
+        if mode == RunMode.MERGE_TEST:
+            lines.append("- 只有本次 merge-test run 允许 merge/push 到 `test`；不要发布或部署。")
+        else:
+            lines.append("- 不要发布、merge 或直接操作飞书。")
+        return "\n".join(lines)

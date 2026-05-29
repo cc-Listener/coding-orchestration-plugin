@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import ProjectCandidate
+from .models import ProjectCandidate, task_status_display
 
 
 def render_task_created(
@@ -18,8 +18,7 @@ def render_task_created(
         "已创建编码任务\n"
         f"任务ID： {task_id}\n"
         f"需求小结：{summary}\n"
-        f"当前状态：{status}\n"
-        f"当前阶段：{phase}\n"
+        f"当前状态：{task_status_display(status)}\n"
         f"项目：{project_name} ({project_path})\n"
         f"下一步：{next_step}"
     )
@@ -43,12 +42,13 @@ def render_task_needs_source_context(task_id: str, summary: str, source_url: str
     return (
         f"任务需要人工确认： {task_id}\n"
         f"需求：{summary}\n"
-        f"飞书 Project：{source_url}\n"
-        f"原因：无法读取飞书 Project 描述。{reason}\n"
-        "下一步：请为 Hermes 配置 FEISHU_PROJECT_PLUGIN_TOKEN / FEISHU_PROJECT_USER_KEY，"
-        "或在飞书消息里补充/粘贴需求描述后重新提交。"
+        f"飞书来源：{source_url}\n"
+        f"原因：无法读取飞书来源内容。{reason}\n"
+        "下一步：如果是飞书 Project，请配置 FEISHU_PROJECT_PLUGIN_TOKEN / FEISHU_PROJECT_USER_KEY；"
+        "如果是飞书 Wiki/Doc，请执行 lark-cli config bind --source hermes --identity user-default，"
+        "或在飞书消息里补充/粘贴来源内容后重新提交。"
     )
 
 
 def render_error(task_id: str, status: str, reason: str) -> str:
-    return f"[{task_id}] 异常：{reason}\n当前状态：{status}\n请人工确认下一步。"
+    return f"[{task_id}] 异常：{reason}\n当前状态：{task_status_display(status)}\n请人工确认下一步。"

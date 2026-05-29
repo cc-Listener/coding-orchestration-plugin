@@ -14,14 +14,35 @@ class TaskStateMachine:
         TaskStatus.PLANNED: {TaskStatus.QUEUED, TaskStatus.NEEDS_HUMAN, TaskStatus.CANCELLED},
         TaskStatus.QUEUED: {TaskStatus.RUNNING, TaskStatus.CANCELLED, TaskStatus.FAILED},
         TaskStatus.RUNNING: {
-            TaskStatus.READY_FOR_REVIEW,
+            TaskStatus.MERGED_TEST,
             TaskStatus.BLOCKED,
+            TaskStatus.READY_FOR_MERGE_TEST,
+            TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS,
+            TaskStatus.RUNNER_FAILED,
             TaskStatus.FAILED,
             TaskStatus.CANCELLED,
         },
-        TaskStatus.BLOCKED: {TaskStatus.PLANNED, TaskStatus.QUEUED, TaskStatus.CANCELLED},
-        TaskStatus.READY_FOR_REVIEW: {TaskStatus.DONE, TaskStatus.PLANNED, TaskStatus.CANCELLED},
+        TaskStatus.BLOCKED: {
+            TaskStatus.PLANNED,
+            TaskStatus.QUEUED,
+            TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS,
+            TaskStatus.CANCELLED,
+        },
+        TaskStatus.READY_FOR_MERGE_TEST: {
+            TaskStatus.QUEUED,
+            TaskStatus.DONE,
+            TaskStatus.PLANNED,
+            TaskStatus.CANCELLED,
+        },
+        TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS: {
+            TaskStatus.QUEUED,
+            TaskStatus.DONE,
+            TaskStatus.PLANNED,
+            TaskStatus.CANCELLED,
+        },
+        TaskStatus.RUNNER_FAILED: {TaskStatus.PLANNED, TaskStatus.CANCELLED},
         TaskStatus.FAILED: {TaskStatus.PLANNED, TaskStatus.CANCELLED},
+        TaskStatus.MERGED_TEST: {TaskStatus.DONE, TaskStatus.PLANNED, TaskStatus.CANCELLED},
         TaskStatus.CANCELLED: {TaskStatus.PLANNED},
         TaskStatus.DONE: {TaskStatus.PLANNED},
     }
@@ -29,13 +50,16 @@ class TaskStateMachine:
     _RUN_TO_TASK: dict[AgentRunStatus, TaskStatus] = {
         AgentRunStatus.QUEUED: TaskStatus.QUEUED,
         AgentRunStatus.RUNNING: TaskStatus.RUNNING,
-        AgentRunStatus.SUCCESS: TaskStatus.READY_FOR_REVIEW,
+        AgentRunStatus.SUCCESS: TaskStatus.READY_FOR_MERGE_TEST,
         AgentRunStatus.FAILED: TaskStatus.FAILED,
         AgentRunStatus.BLOCKED: TaskStatus.BLOCKED,
         AgentRunStatus.CANCELLED: TaskStatus.CANCELLED,
-        AgentRunStatus.TIMEOUT: TaskStatus.FAILED,
+        AgentRunStatus.TIMEOUT: TaskStatus.RUNNER_FAILED,
         AgentRunStatus.ORPHANED: TaskStatus.FAILED,
         AgentRunStatus.COMPLETED_UNSTRUCTURED: TaskStatus.BLOCKED,
+        AgentRunStatus.READY_FOR_MERGE_TEST: TaskStatus.READY_FOR_MERGE_TEST,
+        AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS: TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS,
+        AgentRunStatus.RUNNER_FAILED: TaskStatus.RUNNER_FAILED,
     }
 
     @classmethod

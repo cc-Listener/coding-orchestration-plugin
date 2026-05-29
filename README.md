@@ -8,9 +8,9 @@ Hermes Coding Orchestration Plugin 是一个 Hermes 用户插件，用 Hermes Ga
 
 当前仓库实现的是 **MVP 版本**。
 
-MVP 的目标是先跑通最小闭环：飞书显式 `/coding` 输入、Hermes 主控、Task Ledger 追踪状态、LLM Wiki 沉淀知识、Codex CLI 受控执行 plan-only / implementation、人工确认 plan、人工测试和人工发布。
+MVP 的目标是先跑通最小闭环：飞书 `/coding` 标准命令、Coding Mode 自然语言改写、Hermes 主控、Task Ledger 追踪状态、LLM Wiki 沉淀知识、Codex CLI 受控执行 plan-only / implementation / QA、人工确认 plan、人工触发 merge-test 和人工发布。
 
-MVP 不追求大平台化，也不让普通自然语言自动进入 plugin。所有 coding 流程必须显式使用 `/coding <action>`。
+MVP 不追求大平台化，也不让普通自然语言绕过主控直接进入 plugin。标准入口是 `/coding <action>`；发送“进入coding”后，同会话自然语言会先由 LLM rewrite 成标准命令，高置信度直接执行，低置信度或高风险候选等待确认。
 
 ## 解决的问题
 
@@ -129,6 +129,11 @@ plugins:
 coding_orchestration:
   enabled: true
   default_runner: codex_cli
+  runners:
+    # 可选：使用 Hermes autonomous-ai-agents/codex 对齐的 Codex 后端。
+    hermes_autonomous_codex:
+      command: codex
+      skill_path: ~/.hermes/hermes-agent/skills/autonomous-ai-agents/codex/SKILL.md
   ledger_db: ~/.hermes/coding-orchestration/ledger.db
   run_root: ~/.hermes/coding-orchestration/runs
   workspace_root: ~/.hermes/coding-orchestration/workspaces
@@ -159,19 +164,20 @@ FEISHU_PROJECT_WORK_ITEM_DETAIL_URL_TEMPLATE=https://project.feishu.cn/open_api/
 
 ## Coding 命令入口规则
 
-插件只处理显式 `/coding` 前缀消息。普通自然语言不会进入 `coding_orchestration`，也不会被 active task binding 自动吞掉；这可以避免 Hermes 主 agent 和 plugin 抢上下文。
+插件默认只处理显式 `/coding` 前缀消息。普通自然语言不会进入 `coding_orchestration`，也不会被 active task binding 自动吞掉；发送“进入coding”后，本会话自然语言才会进入 LLM rewrite 链路。
 
 所有动作都必须写成 `/coding <action>`：
 
 - 创建任务：`/coding task <需求>`
 - 补充计划反馈：`/coding continue <反馈>`
+- 提交需求变更：`/coding change <反馈>`
 - 提交 QA/bugfix 反馈：`/coding bugfix <反馈>`
 - 人工确认后进入实现：`/coding implement <task_id>`
 - 查看、切换、退出：`/coding status|list|use|exit ...`
 
-active task binding 只用于 `/coding continue`、`/coding bugfix`、`/coding implement` 这类显式命令在缺省 `task_id` 时找到当前任务，不用于接管普通自然语言。旧的 `/coding-*` 和 `/codex-*` slash 命令仍兼容，但文档、团队使用和后续集成都统一使用 `/coding <action>`。
+active task binding 用于 `/coding continue`、`/coding change`、`/coding bugfix`、`/coding implement` 这类命令在缺省 `task_id` 时找到当前任务；在 Coding Mode 中也会作为 rewrite 上下文。slash 命令只保留 `/coding <action>` 入口，不再兼容旧的 `/coding-*` 或 `/codex-*` 形式。
 
-implementation 有硬门禁：必须先由 Codex 完成 plan-only，Hermes 将 phase 标为 `plan_ready` 后，再通过 `/coding implement <task_id>` 进入 GitOps implementation。`新建分支去干活`、`确认` 这类自然语言不会触发 plugin；请显式发送 `/coding implement <task_id>`。
+implementation 有硬门禁：必须先由 Codex 完成 plan-only，Hermes 将 phase 标为 `plan_ready` 后，再通过 `/coding implement <task_id>` 或 Coding Mode 高置信度 rewrite 进入 GitOps implementation。未进入 Coding Mode 时，`新建分支去干活`、`确认` 这类自然语言仍交给 Hermes 主 agent。
 
 ## Plugin 任务处理流程
 
@@ -186,7 +192,7 @@ implementation 有硬门禁：必须先由 Codex 完成 plan-only，Hermes 将 p
   -> Task Ledger 创建或更新 task 运行事实
   -> LLM Wiki 写入 draft_knowledge 或读取历史知识
   -> Prompt Builder 生成 input-prompt.md 和 run-manifest.json
-  -> Runner Router 选择 Codex CLI
+  -> Runner Router 选择 Codex runner
   -> Codex 执行 plan-only / implementation / merge-test
   -> 收集 stdout、stderr、report.json、summary.md、diff.patch
   -> 校验 report schema、diff guard、测试结果
@@ -199,11 +205,17 @@ implementation 有硬门禁：必须先由 Codex 完成 plan-only，Hermes 将 p
 
 - `/coding task`：创建 task，自动进入 plan-only，成功后进入 `plan_ready`。
 - `/coding continue`：追加人工反馈，重新进入 plan-only。
+- `/coding change`：记录需求变更，重新进入 plan-only 做变更影响分析和短计划。
 - `/coding implement`：仅在 `plan_ready` 后允许，进入隔离 workspace 开发。
 - `/coding bugfix`：复用原 implementation workspace、source branch 和上下文继续修复。
 - `/coding merge-test`：续接 Codex session 执行 merge-to-test，发布测试环境仍人工。
+- `/coding complete`：merge-test 已合入 test 后，由人工标记 task 完成。
 - `/coding cancel`：取消任务或 run，保留排查材料。
 - `/coding delete`：删除 task、active binding，并按参数清理 artifacts / LLM Wiki。
+
+同一个 task 只维护一个 Codex session。首个 Codex run 创建 session 后，Hermes 会把 `resume_session_id`、`attach_command` 写入 `task_session` 和后续 `run-manifest.json`；之后的 plan retry、implementation、bugfix、merge-test 都优先 `codex exec resume <session_id> -`。visible session prompt 保持极简，只包含目标、来源、上下文 artifact 引用和本轮动作；Wiki 正文、已确认计划、实现上下文、详细执行契约和报告要求写入 run 目录中的 `context-index.json`、`wiki-context.md`、`confirmed-plan.md`、`implementation-context.md` 或 `run-instructions.md`。
+
+plan-only 使用 `plan_read_only` 权限 profile：Codex CLI 以只读沙箱运行，只产出计划，不允许修改项目文件；飞书/Lark 文档、Swagger/OpenAPI、私有 API 元数据等外部上下文优先由 Hermes source reader 在创建 task 前读取并注入 artifact。implementation 和 QA run 使用受控高权限 Codex CLI session，以便自动安装依赖、访问私有源、启动测试/dev server、执行浏览器 QA、写入 `.gstack` QA 产物，并提交 QA 修复。边界不是放给 runner 自由发挥：子进程 cwd 仍是 task worktree，源码修改只允许落在当前 workspace；项目外写入只限依赖缓存、git metadata、dev server/browser 临时文件和 QA artifact；Hermes 继续用 diff guard 审计 workspace 内改动。
 
 运行期事实只写 Task Ledger；长期知识只写 LLM Wiki；可审计材料写 run artifacts。
 
@@ -284,7 +296,7 @@ implementation 有硬门禁：必须先由 Codex 完成 plan-only，Hermes 将 p
 /coding task --runner codex_cli --project 订单系统 生成实现计划
 ```
 
-飞书 Gateway 只有显式 `/coding task ...` 会创建任务并自动启动 plan-only run。补跑已有任务时，可以执行：
+飞书 Gateway 只有显式 `/coding task ...` 或 Coding Mode 中高置信度 rewrite 为 `/coding task ...` 的消息会创建任务并自动启动 plan-only run。补跑已有任务时，可以执行：
 
 ```text
 /coding run task_xxx
@@ -296,9 +308,9 @@ implementation 有硬门禁：必须先由 Codex 完成 plan-only，Hermes 将 p
 /coding implement task_xxx
 ```
 
-飞书里 plan-only 回写计划后，需要显式发送 `/coding implement task_xxx`。普通确认语不会进入 plugin，也不会启动 implementation。
+飞书里 plan-only 回写计划后，可以显式发送 `/coding implement task_xxx`。如果已进入 Coding Mode，自然语言确认会先经过 LLM rewrite，高置信度且信息完整时才会启动 implementation。
 
-implementation run 会把最近一次 plan-only 的 `summary.md` 作为已确认计划注入 `input-prompt.md`，再交给 Codex。Codex prompt 会明确进入 `GitOps Implementation Contract`，要求使用 superpowers 流程，包括 `using-git-worktrees`、`test-driven-development` 和 `verification-before-completion`；Hermes 会先提供 task-scoped 隔离 worktree/workspace 和稳定 source branch，Codex 在其中执行，不直接修改原项目目录。
+implementation run 会把最近一次 plan-only 的 `summary.md` 写入本次 run 的 `confirmed-plan.md`，把详细执行/报告契约写入 `run-instructions.md`，`input-prompt.md` 只引用这些 artifact，不再内联完整计划或插件规范。Codex visible prompt 只表达本轮动作：按已确认计划实现、缺依赖先安装并验证、不发布不部署不 merge。
 
 任务切换：
 
@@ -346,9 +358,14 @@ implementation run 会把最近一次 plan-only 的 `summary.md` 作为已确认
 ```text
 /coding prepare-merge-test task_xxx
 /coding merge-test task_xxx
+/coding complete task_xxx
 ```
 
-`/coding prepare-merge-test` 只把 task 标记为 ready-to-merge-test 并回写操作提示。人工测试通过后，执行 `/coding merge-test <task_id>` 会让 Hermes 续接上一次 implementation 的 Codex session，要求 Codex 使用 `merge-to-test` skill：提交 source branch 上的已跟踪改动、push source branch、merge 到 `test` 并 push `origin/test`。成功后 Task Ledger 会更新为 `done / merged_test`，并写入 `merge_records`。测试环境发布仍然人工。
+开发完成且验证通过后，task 状态进入 `ready_for_merge_test`，中文展示为“等待手动执行 merge test”。Hermes 会提示人工执行 `/coding merge-test <task_id>`；`/coding prepare-merge-test` 只是可选的人工准备标记，不会启动新的 implementation。
+
+如果 task 处于 `blocked`，`/coding merge-test <task_id>` 会先做风险评估。只要能找到 implementation worktree 和 source branch，Hermes 就能进入风险确认：缺 Codex session 会开启新 session，缺 report、report 不完整、QA/依赖/浏览器受限、runner_failed/failed 或 diff guard 越权等都会先返回确认提示。人工确认后执行 `/coding merge-test <task_id> --accept-risk`，Hermes 会记录 `accepted_risk` 和 `blocked_merge_test_released`，把任务归一为 `ready_for_merge_test_with_known_gaps` 后继续 merge-test。缺 implementation run、缺 worktree、缺 source branch 或 task 已 cancelled 仍是硬阻断。
+
+执行 `/coding merge-test <task_id>` 会让 Hermes 续接上一次 implementation 的 Codex session，要求 Codex 使用 `merge-to-test` skill：提交 source branch 上的已跟踪改动、push source branch、merge 到 `test` 并 push `origin/test`。成功后 Task Ledger 的 `TaskStatus` 会更新为 `merged_test`，并写入 `merge_records`；这代表已合入 test，但 task 还未完成。确认测试环境符合预期后，再发送 `/coding complete <task_id>` 人工标记为 `done`。测试环境发布仍然人工。
 
 ## 运行产物
 
@@ -356,6 +373,7 @@ implementation run 会把最近一次 plan-only 的 `summary.md` 作为已确认
 
 ```text
 input-prompt.md
+run-instructions.md
 run-manifest.json
 report.schema.json
 stdout.log

@@ -27,7 +27,27 @@ class RouterPromptSummaryTest(unittest.TestCase):
 
         self.assertEqual(runner.command, "/opt/bin/codex")
 
-    def test_prompt_builder_includes_workflow_and_wiki_refs(self):
+    def test_runner_router_selects_hermes_autonomous_codex(self):
+        router = RunnerRouter.from_config(
+            {
+                "default_runner": "hermes_autonomous_codex",
+                "runners": {
+                    "hermes_autonomous_codex": {
+                        "command": "/opt/bin/codex",
+                        "skill_path": "/skills/autonomous-ai-agents/codex/SKILL.md",
+                    }
+                },
+            }
+        )
+
+        runner = router.select_runner(mode=RunMode.IMPLEMENTATION)
+
+        self.assertEqual(runner.name, "hermes_autonomous_codex")
+        self.assertEqual(runner.command, "/opt/bin/codex")
+        self.assertEqual(runner.skill_path, "/skills/autonomous-ai-agents/codex/SKILL.md")
+        self.assertEqual(runner.capabilities().sandbox_level, "hermes_autonomous_codex")
+
+    def test_prompt_builder_uses_minimal_first_prompt_with_context_refs(self):
         prompt = PromptBuilder().build(
             requirement_summary="修复发货失败",
             source={"type": "feishu_chat", "url": "https://example.test/doc"},
@@ -41,14 +61,34 @@ class RouterPromptSummaryTest(unittest.TestCase):
             wiki_refs=[{"id": "wiki_1", "title": "发货模块经验", "body": "先看 shipping service"}],
             mode=RunMode.PLAN_ONLY,
             runner_name="codex_cli",
+            context_artifacts={
+                "context_index": "/tmp/run/context-index.json",
+                "wiki_context": "/tmp/run/wiki-context.md",
+                "run_instructions": "/tmp/run/run-instructions.md",
+            },
         )
 
+        self.assertIn("# 编码任务", prompt)
+        self.assertIn("## 目标", prompt)
         self.assertIn("修复发货失败", prompt)
-        self.assertIn("Allowed Paths", prompt)
+        self.assertIn("## 来源", prompt)
+        self.assertIn("https://example.test/doc", prompt)
+        self.assertIn("## 相关上下文", prompt)
         self.assertIn("wiki_1", prompt)
-        self.assertIn("summary_markdown", prompt)
+        self.assertIn("发货模块经验", prompt)
+        self.assertIn("context-index.json", prompt)
+        self.assertIn("run-instructions.md", prompt)
+        self.assertNotIn("summary_markdown", prompt)
+        self.assertNotIn("先看 shipping service", prompt)
+        self.assertNotIn("## 模式", prompt)
+        self.assertNotIn("## 项目", prompt)
+        self.assertNotIn("允许路径", prompt)
+        self.assertNotIn("禁止路径", prompt)
+        self.assertNotIn("测试命令", prompt)
+        self.assertNotIn("rtk pnpm test", prompt)
+        self.assertNotIn("verification_limitations", prompt)
 
-    def test_prompt_builder_makes_plan_only_and_gitops_contracts_explicit(self):
+    def test_prompt_builder_uses_minimal_mode_requirements(self):
         plan_prompt = PromptBuilder().build(
             requirement_summary="订单列表新增状态筛选",
             source={"type": "feishu_chat"},
@@ -77,14 +117,127 @@ class RouterPromptSummaryTest(unittest.TestCase):
             wiki_refs=[],
             mode=RunMode.IMPLEMENTATION,
             runner_name="codex_cli",
-            confirmed_plan="已确认计划",
+            confirmed_plan="详细计划正文不应内联",
+            context_artifacts={
+                "context_index": "/tmp/run/context-index.json",
+                "confirmed_plan": "/tmp/run/confirmed-plan.md",
+            },
         )
 
-        self.assertIn("Plan-only Contract", plan_prompt)
-        self.assertIn("只允许输出计划", plan_prompt)
-        self.assertIn("GitOps Implementation Contract", impl_prompt)
-        self.assertIn("Watchdog", impl_prompt)
-        self.assertIn("using-git-worktrees", impl_prompt)
+        self.assertIn("只做计划，不修改文件", plan_prompt)
+        self.assertNotIn("计划需要包含：范围、涉及模块、实现步骤、风险、待确认问题", plan_prompt)
+        self.assertIn("## 已确认计划", impl_prompt)
+        self.assertIn("confirmed-plan.md", impl_prompt)
+        self.assertIn("按已确认计划实现", impl_prompt)
+        self.assertIn("缺少依赖时先安装", impl_prompt)
+        self.assertNotIn("源码修改只限当前 task workspace", impl_prompt)
+        self.assertNotIn("开发完成且验证通过后返回 `status=ready_for_merge_test`", impl_prompt)
+        self.assertNotIn("verification_limitations", impl_prompt)
+        self.assertNotIn("详细计划正文不应内联", impl_prompt)
+        self.assertNotIn("GitOps 实现阶段契约", impl_prompt)
+        self.assertNotIn("GitOps 检查清单", impl_prompt)
+        self.assertNotIn("using-git-worktrees", impl_prompt)
+        self.assertNotIn("Required Outputs", plan_prompt)
+        self.assertNotIn("GitOps Implementation Contract", impl_prompt)
+
+    def test_prompt_builder_incremental_prompt_is_chinese(self):
+        prompt = PromptBuilder().build_incremental(
+            task_id="task_1",
+            mode=RunMode.IMPLEMENTATION,
+            runner_name="codex_cli",
+            project_path="/repo/bps-admin",
+            workspace_path="/tmp/worktree",
+            resume_session_id="019e-session",
+            incremental_context="- Human implementation_feedback: 修复 sku 绑定",
+            context_artifacts={"run_instructions": "/tmp/run/run-instructions.md"},
+        )
+
+        self.assertIn("# 编码任务增量", prompt)
+        self.assertIn("## 复用任务 Session 的本轮增量", prompt)
+        self.assertIn("## 本轮新增信息", prompt)
+        self.assertIn("修复 sku 绑定", prompt)
+        self.assertIn("按已确认计划实现", prompt)
+        self.assertIn("run-instructions.md", prompt)
+        self.assertNotIn("verification_limitations", prompt)
+        self.assertNotIn("summary_markdown", prompt)
+        self.assertNotIn("原始项目目录", prompt)
+        self.assertNotIn("当前 workspace", prompt)
+        self.assertNotIn("GitOps 实现阶段契约", prompt)
+        self.assertNotIn("Resumed Task Session Increment", prompt)
+        self.assertNotIn("Do not re-summarize", prompt)
+
+    def test_prompt_builder_merge_test_prompt_is_minimal(self):
+        prompt = PromptBuilder().build(
+            requirement_summary="订单筛选完成后合并测试分支",
+            source={"type": "feishu_chat", "project_name": "order-system"},
+            project_path="/repo/bps-admin",
+            workspace_path="/tmp/worktree",
+            workflow=WorkflowSpec(
+                project_path="/repo/bps-admin",
+                allowed_paths=["src/"],
+                forbidden_paths=[".env"],
+                default_test_commands=["rtk pnpm test"],
+            ),
+            wiki_refs=[],
+            mode=RunMode.MERGE_TEST,
+            runner_name="codex_cli",
+            confirmed_plan="实现上下文正文不应内联",
+            context_artifacts={
+                "context_index": "/tmp/run/context-index.json",
+                "implementation_context": "/tmp/run/implementation-context.md",
+                "run_instructions": "/tmp/run/run-instructions.md",
+            },
+        )
+
+        self.assertIn("# Merge Test", prompt)
+        self.assertIn("人工触发的 merge-test", prompt)
+        self.assertIn("使用 `merge-to-test` skill", prompt)
+        self.assertIn("implementation-context.md", prompt)
+        self.assertIn("run-instructions.md", prompt)
+        self.assertNotIn("实现上下文正文不应内联", prompt)
+        self.assertNotIn("/repo/bps-admin", prompt)
+        self.assertNotIn("/tmp/worktree", prompt)
+        self.assertNotIn("允许路径", prompt)
+        self.assertNotIn("禁止路径", prompt)
+        self.assertNotIn("rtk pnpm test", prompt)
+        self.assertNotIn("verification_limitations", prompt)
+
+    def test_prompt_builder_qa_prompt_uses_qa_skill_and_is_minimal(self):
+        prompt = PromptBuilder().build(
+            requirement_summary="订单筛选完成后自动 QA",
+            source={"type": "feishu_chat", "project_name": "order-system"},
+            project_path="/repo/bps-admin",
+            workspace_path="/tmp/worktree",
+            workflow=WorkflowSpec(
+                project_path="/repo/bps-admin",
+                allowed_paths=["src/"],
+                forbidden_paths=[".env"],
+                default_test_commands=["rtk pnpm test"],
+            ),
+            wiki_refs=[],
+            mode=RunMode.QA,
+            runner_name="codex_cli",
+            confirmed_plan="实现上下文正文不应内联",
+            context_artifacts={
+                "context_index": "/tmp/run/context-index.json",
+                "implementation_context": "/tmp/run/implementation-context.md",
+                "run_instructions": "/tmp/run/run-instructions.md",
+            },
+        )
+
+        self.assertIn("# QA 验证", prompt)
+        self.assertIn("使用 `$qa` 执行测试链路", prompt)
+        self.assertIn("缺少依赖时先安装", prompt)
+        self.assertIn("不要 merge-test、发布或部署", prompt)
+        self.assertIn("run-instructions.md", prompt)
+        self.assertNotIn("优先使用 diff-aware mode", prompt)
+        self.assertNotIn("QA 修复可以提交到当前 task worktree", prompt)
+        self.assertIn("implementation-context.md", prompt)
+        self.assertNotIn("实现上下文正文不应内联", prompt)
+        self.assertNotIn("/repo/bps-admin", prompt)
+        self.assertNotIn("/tmp/worktree", prompt)
+        self.assertNotIn("rtk pnpm test", prompt)
+        self.assertNotIn("verification_limitations", prompt)
 
     def test_run_summary_writer_upserts_to_wiki(self):
         with tempfile.TemporaryDirectory() as tmp:

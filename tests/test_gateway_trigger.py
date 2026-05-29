@@ -12,8 +12,10 @@ class GatewayTriggerTest(unittest.TestCase):
     def test_explicit_coding_commands_trigger_gateway_hook(self):
         self.assertTrue(CodingOrchestrator._looks_like_task("/coding task --project 订单系统 修复发货"))
         self.assertTrue(CodingOrchestrator._looks_like_task("/coding status task_xxx"))
-        self.assertTrue(CodingOrchestrator._looks_like_task("/coding-task --project 订单系统 修复发货"))
-        self.assertTrue(CodingOrchestrator._looks_like_task("/codex-task --project 订单系统 写计划"))
+        self.assertTrue(CodingOrchestrator._looks_like_task("进入coding"))
+        self.assertTrue(CodingOrchestrator._looks_like_task("退出coding"))
+        self.assertFalse(CodingOrchestrator._looks_like_task("/coding-task --project 订单系统 修复发货"))
+        self.assertFalse(CodingOrchestrator._looks_like_task("/codex-task --project 订单系统 写计划"))
         self.assertFalse(CodingOrchestrator._looks_like_task("coding task --project 订单系统 修复发货"))
         self.assertFalse(CodingOrchestrator._looks_like_task("编码任务：修复订单发货失败"))
         self.assertFalse(CodingOrchestrator._looks_like_task("https://project.feishu.cn/example/issue/123"))

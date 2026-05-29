@@ -4,6 +4,7 @@ import asyncio
 import inspect
 import re
 import shutil
+import subprocess
 import threading
 import uuid
 from dataclasses import dataclass, field
@@ -16,7 +17,19 @@ from .feishu_messages import render_task_created, render_task_needs_human, rende
 from .feishu_project_reader import FeishuProjectReader
 from .ledger import TaskLedger
 from .llm_wiki_adapter import LocalLlmWikiAdapter
-from .models import AgentRunStatus, RunManifest, RunMode, RunnerName, TaskPhase, TaskStatus
+from .command_rewriter import HermesCommandRewriter
+from .models import (
+    AgentRunStatus,
+    ArtifactSet,
+    MatchEvidence,
+    ProjectResolveResult,
+    RunManifest,
+    RunMode,
+    RunnerName,
+    TaskPhase,
+    TaskStatus,
+    task_status_display,
+)
 from .prompt_builder import PromptBuilder
 from .project_knowledge_resolver import ProjectKnowledgeResolver
 from .project_resolver import ProjectRegistry, ProjectResolver
@@ -24,12 +37,19 @@ from .project_resolver import normalize_text as normalize_project_text
 from .run_summary_writer import RunSummaryWriter
 from .runner_router import RunnerRouter
 from .state_machine import TaskStateMachine
+from .runners.base import RunResult
 from .symphony_compat.workflow_loader import WorkflowLoader, WorkflowSpec
 from .symphony_compat.workspace_manager import WorkspaceManager
 
 
-_CODING_COMMAND_RE = re.compile(r"^\s*/(coding-[a-z-]+|codex-[a-z-]+|coding)\b\s*(.*)$", re.I | re.S)
+_CODING_COMMAND_RE = re.compile(r"^\s*/(coding)(?:\s+(.*)|\s*)$", re.I | re.S)
 _COMMANDS_COMMAND_RE = re.compile(r"^\s*/commands\b\s*(.*)$", re.I | re.S)
+_CODING_MODE_ENTER_RE = re.compile(r"^\s*进入\s*cod(?:e|ing)(?:\s*mode|模式)?\s*$", re.I)
+_CODING_MODE_EXIT_RE = re.compile(r"^\s*退出\s*cod(?:e|ing)(?:\s*mode|模式)?\s*$", re.I)
+_CODING_MODE_TASK_ID = "__coding_mode__"
+_PENDING_REWRITE_TASK_ID = "__coding_rewrite_pending__"
+_PENDING_ACTION_TASK_ID = "__coding_pending_action__"
+_CODING_REWRITE_CONFIDENCE_THRESHOLD = 0.85
 
 
 @dataclass(frozen=True)
@@ -48,11 +68,15 @@ class CodingOrchestrator:
     run_root: Path | None = None
     workspace_root: Path | None = None
     runner_router: Any | None = None
+    command_rewriter: Any | None = None
     feishu_project_reader: Any | None = None
     workflow_loader: WorkflowLoader = field(default_factory=WorkflowLoader)
     prompt_builder: PromptBuilder = field(default_factory=PromptBuilder)
     diff_guard: DiffGuard = field(default_factory=DiffGuard)
     default_timeout_seconds: int = 3600
+    implementation_timeout_seconds: int = 10800
+    qa_timeout_seconds: int = 10800
+    merge_test_timeout_seconds: int = 5400
     heartbeat_interval_seconds: int = 30
 
     def __post_init__(self) -> None:
@@ -82,6 +106,7 @@ class CodingOrchestrator:
             run_root=root / "runs",
             workspace_root=root / "workspaces",
             runner_router=RunnerRouter.from_config({"default_runner": "codex_cli"}),
+            command_rewriter=HermesCommandRewriter(),
         )
 
     def handle_gateway_event(self, event: Any, gateway: Any = None, session_store: Any = None) -> dict | None:
@@ -94,6 +119,17 @@ class CodingOrchestrator:
         explicit_command = self._handle_explicit_gateway_command(text, event, gateway)
         if explicit_command is not None:
             return explicit_command
+        pending_action_command = self._handle_pending_action_gateway_message(
+            text,
+            event,
+            gateway,
+            include_latest_human_required=False,
+        )
+        if pending_action_command is not None:
+            return pending_action_command
+        coding_mode_command = self._handle_coding_mode_gateway_message(text, event, gateway)
+        if coding_mode_command is not None:
+            return coding_mode_command
         if self._looks_like_plugin_generated_message(text):
             return {"action": "skip", "reason": "ignored_coding_orchestration_echo"}
         return None
@@ -117,6 +153,8 @@ class CodingOrchestrator:
             return self.command_coding_status(rest)
         if command == "coding-continue":
             return self.command_coding_continue(rest)
+        if command == "coding-change":
+            return self.command_coding_change(rest)
         if command == "coding-bugfix":
             return self.command_coding_bugfix(rest)
         if command == "coding-run":
@@ -125,12 +163,16 @@ class CodingOrchestrator:
             return self.command_coding_implement(rest)
         if command == "coding-cancel":
             return self.command_coding_cancel(rest)
+        if command == "coding-restore":
+            return self.command_coding_restore(rest)
         if command == "coding-delete":
             return self.command_coding_delete(rest)
         if command == "coding-prepare-merge-test":
             return self.command_prepare_merge_test(rest)
         if command == "coding-merge-test":
             return self.command_coding_merge_test(rest)
+        if command == "coding-complete":
+            return self.command_coding_complete(rest)
         return self.command_coding_help(raw_args)
 
     def command_coding_help(self, raw_args: str = "") -> str:
@@ -145,28 +187,27 @@ class CodingOrchestrator:
                 "- /coding exit：退出当前飞书会话的 coding 任务绑定。",
                 "",
                 "查看与补充",
-                "- /coding status <task_id>：查看任务状态、phase、项目、source branch、worktree。",
+                "- /coding status <task_id>：查看任务状态、项目、source branch、worktree。",
                 "- /coding continue <反馈>：给当前 active task 补充 plan 反馈，并重新进入 plan-only。",
+                "- /coding change <反馈>：记录需求变更，重新进入 plan-only 做变更影响分析。",
                 "- /coding bugfix <反馈>：给当前 active task 补充实现/QA 修复反馈，并在源 workspace 继续 implementation。",
                 "",
                 "执行流程",
                 "- /coding run <task_id>：对已有任务启动 plan-only run。",
                 "- /coding implement <task_id>：人工确认 plan 后，启动 GitOps implementation run。",
-                "- /coding prepare-merge-test <task_id>：把任务标记为准备 merge-to-test，仅记录人工准备动作。",
-                "- /coding merge-test <task_id>：人工测试通过后，续接 Codex session 执行 merge-to-test skill。",
+                "- /coding prepare-merge-test <task_id>：把任务标记为等待人工执行 merge test，仅记录人工准备动作。",
+                "- /coding merge-test <task_id> [--accept-risk]：人工触发后执行 merge-to-test；blocked 风险可人工确认后放行。",
+                "- /coding complete <task_id>：merge-test 已合入 test 后，由人工标记任务完成。",
                 "",
                 "控制与清理",
                 "- /coding cancel <task_id|run_id>：取消任务或 run。注意：当前 task_id 取消会让任务进入 cancelled。",
+                "- /coding restore <task_id>：恢复误取消的 task，只恢复状态，不自动启动 Codex。",
                 "- /coding delete <task_id> [--keep-artifacts] [--keep-wiki] [--force]：删除 task，并按参数清理 artifacts / LLM Wiki 记录。",
-                "",
-                "兼容别名",
-                "- /coding-* 和 /codex-* 旧命令仍兼容，但新流程统一使用 /coding <action>。",
-                "",
                 "帮助",
-                "- /coding help：显示本帮助。也兼容 /coding -help、/coding --help、/coding-help。",
+                "- /coding help：显示本帮助。",
                 "",
                 "边界",
-                "- 普通自然语言不会进入 plugin；创建、补充、修复、确认都必须显式使用 /coding 前缀。",
+                "- 默认普通自然语言不会进入 plugin；发送“进入coding”后，本会话自然语言会按 coding 指令处理，发送“退出coding”关闭。",
             ]
         )
 
@@ -186,16 +227,19 @@ class CodingOrchestrator:
             "`/coding list` -- 列出当前未结束的 coding task。",
             "`/coding use <task_id>` -- 切换当前飞书会话绑定的 active task。",
             "`/coding exit` -- 退出当前飞书会话的 coding 任务绑定。",
-            "`/coding status <task_id>` -- 查看任务状态、phase、项目、source branch、worktree。",
+            "`/coding status <task_id>` -- 查看任务状态、项目、source branch、worktree。",
             "`/coding continue <反馈>` -- 补充 plan 反馈，并重新进入 plan-only。",
+            "`/coding change <反馈>` -- 记录需求变更，重新进入 plan-only 做变更影响分析。",
             "`/coding bugfix <反馈>` -- 补充实现/QA 修复反馈，并在源 workspace 继续 implementation。",
             "`/coding run <task_id>` -- 对已有任务启动 plan-only run。",
             "`/coding implement <task_id>` -- 人工确认 plan 后，启动 GitOps implementation run。",
-            "`/coding prepare-merge-test <task_id>` -- 标记任务准备 merge-to-test。",
-            "`/coding merge-test <task_id>` -- 续接 Codex session 执行 merge-to-test skill。",
+            "`/coding prepare-merge-test <task_id>` -- 标记任务等待人工执行 merge test。",
+            "`/coding merge-test <task_id> [--accept-risk]` -- 人工触发 merge-test run；blocked 风险可人工确认后放行。",
+            "`/coding complete <task_id>` -- merge-test 已合入 test 后，由人工标记任务完成。",
             "`/coding cancel <task_id|run_id>` -- 取消任务或 run。",
+            "`/coding restore <task_id>` -- 恢复误取消的 task，只恢复状态，不自动启动 Codex。",
             "`/coding delete <task_id> [--keep-artifacts] [--keep-wiki] [--force]` -- 删除 task 并清理关联记录。",
-            "说明：普通自然语言不会进入 plugin；必须显式使用 `/coding <action>`。",
+            "说明：默认普通自然语言不会进入 plugin；发送“进入coding”后，本会话自然语言会按 coding 指令处理。",
         ]
         hermes_lines = self._hermes_gateway_command_lines()
         if hermes_lines:
@@ -232,22 +276,12 @@ class CodingOrchestrator:
         except Exception:
             return []
 
-    def command_codex_task(self, raw_args: str) -> str:
-        return self.create_task_from_text(f"--runner codex_cli {raw_args}".strip())
-
     def command_coding_list(self, raw_args: str = "") -> str:
         statuses = self._active_coding_statuses()
         tasks = self.ledger.list_recent_tasks(statuses=statuses, limit=20)
         if not tasks:
             return "当前没有未结束 coding task。"
-        lines = ["当前未结束 coding task："]
-        for task in tasks:
-            session = task.get("task_session") or {}
-            lines.append(
-                f"- {task['task_id']} | phase={task.get('phase')} | status={task.get('status')} | "
-                f"{task.get('project_path') or '未确定'} | branch={session.get('source_branch') or '未创建'}"
-            )
-        return "\n".join(lines)
+        return self._format_task_list(tasks)
 
     def command_coding_use(self, raw_args: str) -> str:
         task_id = raw_args.strip()
@@ -267,6 +301,9 @@ class CodingOrchestrator:
     def command_coding_continue(self, raw_args: str) -> str:
         return "命令模式缺少 active task 上下文；请在飞书里使用 /coding continue <反馈>，或使用 /coding run <task_id>。"
 
+    def command_coding_change(self, raw_args: str) -> str:
+        return "命令模式缺少 active task 上下文；请在飞书里使用 /coding change <反馈>。"
+
     def command_coding_bugfix(self, raw_args: str) -> str:
         return "命令模式缺少 active task 上下文；请在飞书里使用 /coding bugfix <反馈>，或使用 /coding implement <task_id>。"
 
@@ -277,7 +314,7 @@ class CodingOrchestrator:
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
-        return f"[{task_id}] 状态：{task['status']}\n项目：{task.get('project_path') or '未确定'}"
+        return self._format_task_status_details(task, include_branch=False)
 
     def command_coding_cancel(self, raw_args: str) -> str:
         target = raw_args.strip()
@@ -286,6 +323,46 @@ class CodingOrchestrator:
         changed = self.ledger.mark_cancelled(target)
         return f"已标记取消：{target}" if changed else f"未找到可取消对象：{target}"
 
+    def command_coding_restore(self, raw_args: str) -> str:
+        task_id = raw_args.strip()
+        if not task_id:
+            return "请提供 task_id。"
+        task = self.ledger.get_task(task_id)
+        if not task:
+            return f"未找到任务：{task_id}"
+        if not self._task_is_cancelled(task):
+            return f"[{task_id}] 当前状态是 {task_status_display(task.get('status'))}，不需要 restore。"
+        status, phase, reason = self._restore_state_for_cancelled_task(task)
+        self.ledger.update_status(task_id, status.value)
+        self.ledger.update_phase(task_id, phase.value)
+        self.ledger.update_task_session(
+            task_id,
+            {
+                "runner": {
+                    "active_run_id": None,
+                    "active_mode": None,
+                }
+            },
+        )
+        self.ledger.append_human_decision(
+            task_id,
+            {
+                "type": "task_restored",
+                "previous_status": TaskStatus.CANCELLED.value,
+                "previous_phase": TaskPhase.CANCELLED.value,
+                "restored_status": status.value,
+                "restored_phase": phase.value,
+                "reason": reason,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        return (
+            f"[{task_id}] 已恢复误取消的 coding task。\n"
+            f"状态：{task_status_display(status)}\n"
+            f"恢复依据：{reason}\n"
+            "说明：restore 只恢复 Task Ledger 状态，不会自动启动 Codex。"
+        )
+
     def command_coding_delete(self, raw_args: str) -> str:
         return self._delete_task_from_args(raw_args)
 
@@ -293,6 +370,11 @@ class CodingOrchestrator:
         task_id = raw_args.strip()
         if not task_id:
             return "请提供 task_id。"
+        task = self.ledger.get_task(task_id)
+        if not task:
+            return f"未找到任务：{task_id}"
+        if self._task_is_cancelled(task):
+            return self._cancelled_task_message(task)
         result = self.start_run(task_id, mode=RunMode.PLAN_ONLY)
         return self._format_run_completion_message(task_id, result)
 
@@ -368,6 +450,8 @@ class CodingOrchestrator:
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
+        if self._task_is_cancelled(task):
+            return self._cancelled_task_message(task)
         if not self._task_is_plan_ready_for_implementation(task):
             self.ledger.append_human_decision(
                 task_id,
@@ -380,7 +464,11 @@ class CodingOrchestrator:
             return self._implementation_blocked_before_plan_ready_message(task)
         self.ledger.update_phase(task_id, TaskPhase.PLAN_APPROVED.value)
         result = self.start_run(task_id, mode=RunMode.IMPLEMENTATION)
-        return self._format_implementation_completion_message(task_id, result)
+        message = self._format_implementation_completion_message(task_id, result)
+        qa_result = self._start_qa_after_implementation_if_ready(task_id, result)
+        if qa_result:
+            return f"{message}\n\n---\n\n{self._format_qa_completion_message(task_id, qa_result)}"
+        return message
 
     def command_prepare_merge_test(self, raw_args: str) -> str:
         task_id = raw_args.strip()
@@ -389,8 +477,16 @@ class CodingOrchestrator:
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
-        if task["status"] != TaskStatus.READY_FOR_REVIEW.value:
+        if self._task_is_cancelled(task):
+            return self._cancelled_task_message(task)
+        status_update = self._status_update_for_prepare_merge_test(task)
+        if task["status"] not in {
+            TaskStatus.READY_FOR_MERGE_TEST.value,
+            TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+        } and status_update is None:
             return f"[{task_id}] 当前状态是 {task['status']}，还不能准备 merge-to-test。"
+        if status_update is not None:
+            self.ledger.update_status(task_id, status_update.value)
         self.ledger.update_phase(task_id, TaskPhase.READY_TO_MERGE_TEST.value)
         self.ledger.append_merge_record(
             task_id,
@@ -398,25 +494,45 @@ class CodingOrchestrator:
                 "type": "merge_test_prepared",
                 "status": "ready",
                 "target_branch": "test",
+                "known_gaps": status_update == TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             },
         )
         return (
-            f"[{task_id}] 已准备人工 merge-to-test。\n"
+            f"[{task_id}] 已切换为等待人工执行 merge test。\n"
             f"项目目录：{task.get('project_path') or '未确定'}\n"
-            "可继续使用 /coding merge-test <task_id> 让 Hermes 续接 Codex session 执行 merge-to-test；发布测试环境仍然人工。"
+            f"下一步：确认后发送 /coding merge-test {task_id}，让 Hermes 续接 Codex session 执行 merge-to-test；发布测试环境仍然人工。"
         )
 
+    def _status_update_for_prepare_merge_test(self, task: dict[str, Any]) -> TaskStatus | None:
+        status = str(task.get("status") or "")
+        if status != TaskStatus.BLOCKED.value:
+            return None
+        assessment = self._blocked_task_merge_test_assessment(task)
+        return TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS if assessment.get("mergeable") else None
+
     def command_coding_merge_test(self, raw_args: str) -> str:
-        task_id = raw_args.strip()
+        args = raw_args.split()
+        accept_risk = "--accept-risk" in args
+        confirm_qa_risk = "--confirm-qa-risk" in args or accept_risk
+        task_id = next((part for part in args if not part.startswith("--")), "")
         if not task_id:
             return "请提供 task_id。"
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
+        assessment = self._blocked_task_merge_test_assessment(task)
+        if assessment.get("requires_acceptance") and not accept_risk:
+            return self._blocked_merge_test_risk_confirmation_message(task_id, assessment)
+        release = self._release_blocked_task_for_merge_test_if_allowed(task, accept_risk=accept_risk)
+        if release:
+            task = self.ledger.get_task(task_id) or task
         blocked = self._merge_test_blocker(task)
         if blocked:
             return blocked
+        qa_evidence = self._qa_evidence_for_merge_test(task)
+        if qa_evidence.get("requires_confirmation") == "true" and not confirm_qa_risk:
+            return self._merge_test_qa_risk_confirmation_message(task_id, qa_evidence, include_reply_hint=False)
         self.ledger.update_phase(task_id, TaskPhase.READY_TO_MERGE_TEST.value)
         self.ledger.append_merge_record(
             task_id,
@@ -424,11 +540,42 @@ class CodingOrchestrator:
                 "type": "merge_test_requested",
                 "status": "running",
                 "target_branch": "test",
+                "qa_evidence": qa_evidence,
+                "blocked_release": release,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             },
         )
         result = self.start_run(task_id, mode=RunMode.MERGE_TEST)
-        return self._format_merge_test_completion_message(task_id, result)
+        message = self._format_merge_test_completion_message(task_id, result)
+        if release:
+            message = f"{message}\n\nBlocked 放行：{release['reason']}；已按 known gaps 进入 merge-test。"
+        if qa_evidence.get("message"):
+            message = f"{message}\n\nQA 证据：{qa_evidence['message']}"
+        return message
+
+    def command_coding_complete(self, raw_args: str) -> str:
+        task_id = raw_args.strip()
+        if not task_id:
+            return "请提供 task_id。"
+        task = self.ledger.get_task(task_id)
+        if not task:
+            return f"未找到任务：{task_id}"
+        current_status = str(task.get("status") or "")
+        if current_status != TaskStatus.MERGED_TEST.value:
+            return f"[{task_id}] 当前状态是 {task_status_display(current_status)}，不能标记完成；请先执行 /coding merge-test {task_id}。"
+        TaskStateMachine.transition(current_status, TaskStatus.DONE, reason="manual completion")
+        self.ledger.update_status(task_id, TaskStatus.DONE.value)
+        self.ledger.update_phase(task_id, TaskPhase.DONE.value)
+        self.ledger.append_human_decision(
+            task_id,
+            {
+                "type": "task_completed",
+                "previous_status": current_status,
+                "previous_phase": task.get("phase"),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        return f"[{task_id}] 已人工标记完成。\n状态：{task_status_display(TaskStatus.DONE)}"
 
     def create_task_from_text(self, text: str) -> str:
         return self._create_task_from_text(text).message
@@ -548,8 +695,19 @@ class CodingOrchestrator:
             return reader.read_from_text(text, gateway=gateway)
         except Exception as exc:
             link = FeishuProjectReader.extract_first_link(text)
-            if link is None:
+            document_link = FeishuProjectReader.extract_first_document_link(text)
+            if link is None and document_link is None:
                 return None
+            if document_link is not None:
+                return {
+                    "read_status": "failed",
+                    "source_type": "feishu_wiki" if document_link.document_kind == "wiki" else "feishu_docx",
+                    "url": document_link.url,
+                    "document_kind": document_link.document_kind,
+                    "document_token": document_link.document_token,
+                    "error": str(exc),
+                    "requires_human_context": True,
+                }
             return {
                 "read_status": "failed",
                 "source_type": f"feishu_project_{link.work_item_type_key}",
@@ -588,6 +746,10 @@ class CodingOrchestrator:
             "work_item_type_key",
             "work_item_id",
             "title",
+            "document_kind",
+            "document_token",
+            "document_id",
+            "revision_id",
             "error",
             "requires_human_context",
         }
@@ -626,6 +788,45 @@ class CodingOrchestrator:
             media.append(item)
         return media
 
+    @staticmethod
+    def _mentions_image_placeholder_without_media(text: str, event: Any | None) -> bool:
+        if "[Image]" not in text:
+            return False
+        return not CodingOrchestrator._event_media_for_ledger(event)
+
+    @staticmethod
+    def _missing_feedback_media_message(task: dict[str, Any], action: str) -> str:
+        task_id = task.get("task_id") or "unknown"
+        return (
+            f"[{task_id}] 未启动 Codex：检测到图片占位 [Image]，但图片未捕获，Hermes 没有拿到可访问图片。\n"
+            f"请重发图片或图片链接，或补充文字描述后再发送 /coding {action} <反馈>。"
+        )
+
+    @staticmethod
+    def _media_prompt_lines(media: list[dict[str, Any]], *, indent: str = "") -> list[str]:
+        if not media:
+            return []
+        lines = [f"{indent}图片附件："]
+        for item in media:
+            url = str(item.get("url") or "").strip()
+            if not url:
+                continue
+            media_type = str(item.get("media_type") or item.get("type") or "unknown").strip()
+            lines.append(f"{indent}- media_type={media_type} url={url}")
+        if len(lines) == 1:
+            return []
+        lines.append(
+            f"{indent}请根据上述图片附件理解用户提到的截图样式；如果无法访问图片，报告 blocked 并说明需要用户重发图片或链接。"
+        )
+        return lines
+
+    @staticmethod
+    def _append_media_description(text: str, media: list[dict[str, Any]]) -> str:
+        lines = CodingOrchestrator._media_prompt_lines(media)
+        if not lines:
+            return text
+        return f"{text.rstrip()}\n\n" + "\n".join(lines)
+
     def _draft_knowledge_source_refs(
         self,
         task_id: str,
@@ -639,7 +840,7 @@ class CodingOrchestrator:
                 "type": str(source_context.get("source_type") or "feishu_source"),
                 "url": source_url,
             }
-            for key in ("project_key", "work_item_type_key", "work_item_id"):
+            for key in ("project_key", "work_item_type_key", "work_item_id", "document_kind", "document_token", "document_id", "revision_id"):
                 value = source_context.get(key)
                 if value is not None and str(value) != "":
                     source_ref[key] = str(value)
@@ -656,15 +857,16 @@ class CodingOrchestrator:
         if not match:
             return None
         command = match.group(1).lower()
-        raw_args = match.group(2).strip()
+        raw_args = (match.group(2) or "").strip()
         command, raw_args = self._normalize_coding_gateway_command(command, raw_args)
+        self._clear_pending_action_for_event(event)
         if command in {"coding-help"}:
             self._reply_if_possible(gateway, event, self.command_coding_help(raw_args))
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command in {"coding-task", "codex-task"}:
+        if command == "coding-task":
             source_context = self._read_source_context(raw_args, gateway)
             created = self._create_task_from_text(
-                f"--runner codex_cli {raw_args}".strip() if command == "codex-task" else raw_args,
+                raw_args,
                 auto_plan_on_ready=True,
                 source_context=source_context,
                 event=event,
@@ -673,29 +875,55 @@ class CodingOrchestrator:
             if created.auto_plan_started:
                 self._start_background_plan_only(created.task_id, gateway, event)
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command in {"coding-list", "codex-list"}:
+        if command == "coding-list":
             self._reply_if_possible(gateway, event, self._format_task_list_for_event(event))
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command in {"coding-use", "codex-use"}:
+        if command == "coding-use":
             self._reply_if_possible(gateway, event, self._select_active_task_for_event(raw_args, event))
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command in {"coding-exit", "codex-exit"}:
+        if command == "coding-exit":
             self._reply_if_possible(gateway, event, self._clear_active_task_for_event(event))
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command in {"coding-status", "codex-status"}:
+        if command == "coding-status":
             self._reply_if_possible(gateway, event, self._status_for_event(raw_args, event))
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command in {"coding-continue", "codex-continue"}:
+        if command == "coding-continue":
             self._reply_if_possible(gateway, event, self._continue_active_task(raw_args, event, gateway))
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command in {"coding-bugfix", "codex-bugfix"}:
+        if command == "coding-change":
+            self._reply_if_possible(gateway, event, self._change_active_task(raw_args, event, gateway))
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        if command == "coding-bugfix":
             self._reply_if_possible(gateway, event, self._bugfix_active_task(raw_args, event, gateway))
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command in {"coding-implement", "codex-implement"}:
+        if command == "coding-run":
+            task_id = raw_args or self._active_task_id_for_event(event) or ""
+            task = self.ledger.get_task(task_id) if task_id else None
+            if task is None:
+                message = (
+                    f"未找到任务：{task_id}"
+                    if task_id
+                    else "请提供 task_id，或先使用 /coding use <task_id> 切换当前任务。"
+                )
+                self._reply_if_possible(gateway, event, message)
+                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+            if self._task_is_cancelled(task):
+                self._reply_if_possible(gateway, event, self._cancelled_task_message(task))
+                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+            if str(task.get("status") or "") in {TaskStatus.QUEUED.value, TaskStatus.RUNNING.value}:
+                self._reply_if_possible(gateway, event, self._plan_only_already_running_message(task))
+                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+            self._reply_if_possible(gateway, event, self._plan_only_started_message(task))
+            self._start_background_plan_only(task_id, gateway, event)
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        if command == "coding-implement":
             task_id = raw_args or self._active_task_id_for_event(event) or ""
             task = self.ledger.get_task(task_id) if task_id else None
             if task is None:
                 self._reply_if_possible(gateway, event, "请提供 task_id，或先使用 /coding use <task_id> 切换当前任务。")
+                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+            if self._task_is_cancelled(task):
+                self._reply_if_possible(gateway, event, self._cancelled_task_message(task))
                 return {"action": "skip", "reason": "handled_by_coding_orchestration"}
             if not self._task_is_plan_ready_for_implementation(task):
                 self._record_implementation_confirmation_before_plan_ready(task_id, text, event)
@@ -709,14 +937,48 @@ class CodingOrchestrator:
             self._reply_if_possible(gateway, event, self.command_prepare_merge_test(raw_args))
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
         if command == "coding-merge-test":
-            task_id = raw_args or self._active_task_id_for_event(event) or ""
+            args = raw_args.split()
+            accept_risk = "--accept-risk" in args
+            confirm_qa_risk = "--confirm-qa-risk" in args or accept_risk
+            task_id = next((part for part in args if not part.startswith("--")), "") or self._active_task_id_for_event(event) or ""
             task = self.ledger.get_task(task_id) if task_id else None
             if task is None:
                 self._reply_if_possible(gateway, event, "请提供 task_id，或先使用 /coding use <task_id> 切换当前任务。")
                 return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+            assessment = self._blocked_task_merge_test_assessment(task)
+            if assessment.get("requires_acceptance") and not accept_risk:
+                self._store_pending_action_for_event(
+                    event,
+                    task_id=task_id,
+                    action="merge_test_accept_risk",
+                    command_text=f"/coding merge-test {task_id} --accept-risk",
+                    reason=str(assessment.get("impact") or "blocked task merge-test 需要人工接受风险"),
+                    mode=RunMode.MERGE_TEST.value,
+                )
+                self._reply_if_possible(gateway, event, self._blocked_merge_test_risk_confirmation_message(task_id, assessment))
+                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+            release = self._release_blocked_task_for_merge_test_if_allowed(task, accept_risk=accept_risk)
+            if release:
+                task = self.ledger.get_task(task_id) or task
             blocked = self._merge_test_blocker(task)
             if blocked:
                 self._reply_if_possible(gateway, event, blocked)
+                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+            qa_evidence = self._qa_evidence_for_merge_test(task)
+            if qa_evidence.get("requires_confirmation") == "true" and not confirm_qa_risk:
+                self._store_pending_action_for_event(
+                    event,
+                    task_id=task_id,
+                    action="merge_test_qa_risk",
+                    command_text=f"/coding merge-test {task_id} --confirm-qa-risk",
+                    reason=str(qa_evidence.get("impact") or "merge-test 存在 QA 风险，需要人工确认"),
+                    mode=RunMode.MERGE_TEST.value,
+                )
+                self._reply_if_possible(
+                    gateway,
+                    event,
+                    self._merge_test_qa_risk_confirmation_message(task_id, qa_evidence),
+                )
                 return {"action": "skip", "reason": "handled_by_coding_orchestration"}
             self.ledger.update_phase(task_id, TaskPhase.READY_TO_MERGE_TEST.value)
             self.ledger.append_merge_record(
@@ -725,17 +987,531 @@ class CodingOrchestrator:
                     "type": "merge_test_requested",
                     "status": "running",
                     "target_branch": "test",
+                    "qa_evidence": qa_evidence,
+                    "blocked_release": release,
                     "gateway_source": self._event_source_for_ledger(event),
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 },
             )
-            self._reply_if_possible(gateway, event, self._merge_test_started_message(task))
+            started_message = self._merge_test_started_message(task)
+            if release:
+                started_message = (
+                    f"{started_message}\n"
+                    f"说明：该任务原为 blocked，已按 known gaps 人工放行；原因：{release['reason']}。"
+                )
+            self._reply_if_possible(gateway, event, started_message)
             self._start_background_merge_test(task_id, gateway, event)
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command in {"coding-delete", "codex-delete"}:
+        if command == "coding-complete":
+            task_id = raw_args or self._active_task_id_for_event(event) or ""
+            self._reply_if_possible(gateway, event, self.command_coding_complete(task_id))
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        if command == "coding-cancel":
+            self._reply_if_possible(gateway, event, self.command_coding_cancel(raw_args))
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        if command == "coding-restore":
+            self._reply_if_possible(gateway, event, self.command_coding_restore(raw_args))
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        if command == "coding-delete":
             self._reply_if_possible(gateway, event, self._delete_task_from_args(raw_args))
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
         return None
+
+    def _handle_coding_mode_gateway_message(self, text: str, event: Any, gateway: Any) -> dict[str, str] | None:
+        normalized = normalize_project_text(text)
+        if _CODING_MODE_ENTER_RE.match(normalized):
+            self._enable_coding_mode_for_event(event)
+            self._clear_pending_rewrite_for_event(event)
+            self._clear_pending_action_for_event(event)
+            self._reply_if_possible(gateway, event, "已进入 coding mode。本会话后续自然语言会按 coding 指令处理；发送“退出coding”关闭。")
+            return {"action": "skip", "reason": "coding_mode_entered"}
+        if _CODING_MODE_EXIT_RE.match(normalized):
+            self._disable_coding_mode_for_event(event)
+            self._clear_pending_rewrite_for_event(event)
+            self._clear_pending_action_for_event(event)
+            self._reply_if_possible(gateway, event, "已退出 coding mode。本会话后续自然语言不会再进入 coding plugin。")
+            return {"action": "skip", "reason": "coding_mode_exited"}
+        if not self._coding_mode_enabled_for_event(event):
+            return None
+        if self._looks_like_plugin_generated_message(normalized):
+            return {"action": "skip", "reason": "ignored_coding_orchestration_echo"}
+        pending_action = self._handle_pending_action_gateway_message(
+            normalized,
+            event,
+            gateway,
+            include_latest_human_required=True,
+        )
+        if pending_action is not None:
+            return pending_action
+        if self._is_human_confirmation_reply(normalized):
+            active_task = self._active_task_for_event(event)
+            if active_task and self._task_has_active_run(active_task):
+                self._reply_if_possible(gateway, event, self._active_run_already_running_message(active_task))
+                return {"action": "skip", "reason": "coding_confirmation_active_run"}
+        pending = self._pending_rewrite_for_event(event)
+        if pending:
+            if self._is_rewrite_confirmation(normalized):
+                self._clear_pending_rewrite_for_event(event)
+                command_text = str(pending.get("canonical_command") or "").strip()
+                handled = self._handle_explicit_gateway_command(command_text, event, gateway)
+                if handled is None:
+                    self._reply_if_possible(
+                        gateway,
+                        event,
+                        f"未执行：待确认的 rewrite 命令已失效。\n候选命令：{command_text or '无'}\n请重新描述或直接发送 /coding <action>。",
+                    )
+                return {"action": "skip", "reason": "coding_rewrite_confirmed"}
+            if self._is_rewrite_cancellation(normalized):
+                self._clear_pending_rewrite_for_event(event)
+                self._reply_if_possible(gateway, event, "已取消本次 coding rewrite 候选命令，未执行任何操作。")
+                return {"action": "skip", "reason": "coding_rewrite_cancelled"}
+            self._clear_pending_rewrite_for_event(event)
+
+        if self.command_rewriter is None:
+            self._reply_if_possible(
+                gateway,
+                event,
+                "当前 coding mode 需要 LLM rewrite，但未配置 command_rewriter。请直接使用 /coding <action>。",
+            )
+            return {"action": "skip", "reason": "coding_rewrite_unavailable"}
+
+        rewrite = self._rewrite_coding_command(normalized, event)
+        command_text, rejection = self._validated_rewrite_command(rewrite)
+        if rejection:
+            self._reply_if_possible(gateway, event, self._rewrite_needs_human_confirmation_message(normalized, rewrite, rejection))
+            return {"action": "skip", "reason": "coding_rewrite_needs_human_confirmation"}
+
+        if self._rewrite_requires_confirmation(command_text, rewrite):
+            self._store_pending_rewrite_for_event(event, command_text, rewrite, normalized)
+            self._reply_if_possible(gateway, event, self._rewrite_confirmation_message(command_text, rewrite))
+            return {"action": "skip", "reason": "coding_rewrite_confirmation"}
+
+        handled = self._handle_explicit_gateway_command(command_text, event, gateway)
+        if handled is None:
+            self._reply_if_possible(
+                gateway,
+                event,
+                f"未执行：rewrite 命令未被 `/coding` handler 接受。\n候选命令：{command_text}\n请直接发送明确的 /coding <action> 命令。",
+            )
+        return {"action": "skip", "reason": "coding_rewrite_executed"}
+
+    @staticmethod
+    def _extract_task_id(text: str) -> str:
+        match = re.search(r"\btask_[A-Za-z0-9_:-]+\b", text)
+        return match.group(0) if match else ""
+
+    def _rewrite_coding_command(self, text: str, event: Any) -> dict[str, Any]:
+        context = self._coding_rewrite_context(text, event)
+        try:
+            result = self.command_rewriter.rewrite(context) if self.command_rewriter is not None else None
+        except Exception as exc:
+            return {
+                "intent": "llm_error",
+                "canonical_command": None,
+                "confidence": 0.0,
+                "risk_level": "unknown",
+                "needs_confirmation": True,
+                "needs_human_review": True,
+                "task_id": None,
+                "uses_active_task": False,
+                "missing": ["canonical_command"],
+                "reason": f"{type(exc).__name__}: {exc}",
+            }
+        if not isinstance(result, dict):
+            return {
+                "intent": "invalid_rewrite_result",
+                "canonical_command": None,
+                "confidence": 0.0,
+                "risk_level": "unknown",
+                "needs_confirmation": True,
+                "needs_human_review": True,
+                "task_id": None,
+                "uses_active_task": False,
+                "missing": ["canonical_command"],
+                "reason": "command_rewriter 未返回 JSON object。",
+            }
+        return dict(result)
+
+    def _coding_rewrite_context(self, text: str, event: Any) -> dict[str, Any]:
+        media = self._event_media_for_ledger(event)
+        active_task = self._active_task_for_event(event)
+        active_context = None
+        if active_task:
+            active_context = {
+                "task_id": str(active_task.get("task_id") or ""),
+                "status": str(active_task.get("status") or ""),
+                "status_label": task_status_display(active_task.get("status")),
+                "project": self._task_project_label(active_task),
+                "summary": self._task_description_label(active_task),
+            }
+        known_tasks = self.ledger.list_recent_tasks(statuses=self._active_coding_statuses(), limit=10)
+        return {
+            "user_text": text,
+            "coding_mode_enabled": True,
+            "active_task": active_context,
+            "known_task_ids": [str(task.get("task_id") or "") for task in known_tasks if task.get("task_id")],
+            "known_tasks": [
+                {
+                    "task_id": str(task.get("task_id") or ""),
+                    "status": str(task.get("status") or ""),
+                    "project": self._task_project_label(task),
+                    "summary": self._task_description_label(task),
+                }
+                for task in known_tasks
+            ],
+            "has_media": bool(media),
+            "media_types": [str(item.get("type") or "") for item in media if item.get("type")],
+            "allowed_commands": self._coding_rewrite_allowed_commands(),
+        }
+
+    @staticmethod
+    def _coding_rewrite_allowed_commands() -> list[dict[str, str]]:
+        return [
+            {"command": "/coding task <需求>", "intent": "create_task", "effect": "write"},
+            {"command": "/coding list", "intent": "list_tasks", "effect": "read"},
+            {"command": "/coding use <task_id>", "intent": "select_task", "effect": "write_binding"},
+            {"command": "/coding exit", "intent": "exit_task", "effect": "write_binding"},
+            {"command": "/coding status <task_id>", "intent": "status_task", "effect": "read"},
+            {"command": "/coding continue <反馈>", "intent": "plan_feedback", "effect": "write"},
+            {"command": "/coding change <反馈>", "intent": "requirement_change", "effect": "write"},
+            {"command": "/coding bugfix <反馈>", "intent": "bugfix_feedback", "effect": "write"},
+            {"command": "/coding run <task_id>", "intent": "run_plan", "effect": "start_runner"},
+            {"command": "/coding implement <task_id>", "intent": "implement", "effect": "start_runner"},
+            {"command": "/coding prepare-merge-test <task_id>", "intent": "prepare_merge_test", "effect": "write"},
+            {"command": "/coding merge-test <task_id>", "intent": "merge_test", "effect": "start_runner"},
+            {"command": "/coding complete <task_id>", "intent": "complete_task", "effect": "write"},
+            {"command": "/coding cancel <task_id|run_id>", "intent": "cancel", "effect": "write"},
+            {"command": "/coding restore <task_id>", "intent": "restore_cancelled_task", "effect": "write"},
+            {"command": "/coding delete <task_id>", "intent": "delete", "effect": "destructive"},
+            {"command": "/coding help", "intent": "help", "effect": "read"},
+        ]
+
+    def _validated_rewrite_command(self, rewrite: dict[str, Any]) -> tuple[str, str]:
+        command_text = self._canonical_rewrite_command(rewrite.get("canonical_command"))
+        if not command_text:
+            return "", "LLM 没有返回合法的 `/coding <action>` 候选命令。"
+        try:
+            confidence = float(rewrite.get("confidence") or 0.0)
+        except (TypeError, ValueError):
+            confidence = 0.0
+        if confidence < _CODING_REWRITE_CONFIDENCE_THRESHOLD:
+            return "", f"置信度 {confidence:.2f} 低于阈值 {_CODING_REWRITE_CONFIDENCE_THRESHOLD:.2f}。"
+        if bool(rewrite.get("needs_human_review")):
+            return "", "LLM 标记需要人工二次确认。"
+        missing = rewrite.get("missing") or []
+        if missing:
+            return "", f"缺少必要信息：{', '.join(str(item) for item in missing)}。"
+        return command_text, ""
+
+    @staticmethod
+    def _rewrite_requires_confirmation(command_text: str, rewrite: dict[str, Any]) -> bool:
+        if bool(rewrite.get("needs_confirmation")):
+            return True
+        risk_level = str(rewrite.get("risk_level") or "").strip().lower()
+        if risk_level == "destructive":
+            return True
+        normalized = normalize_project_text(command_text).lower()
+        return normalized.startswith("/coding delete ") or normalized.startswith("/coding cancel ")
+
+    def _canonical_rewrite_command(self, value: Any) -> str:
+        if not isinstance(value, str):
+            return ""
+        command_text = normalize_project_text(value)
+        match = _CODING_COMMAND_RE.match(command_text)
+        if not match:
+            return ""
+        raw_args = (match.group(2) or "").strip()
+        action, _, _rest = raw_args.partition(" ")
+        action = action.strip().lower()
+        allowed_actions = {
+            "",
+            "help",
+            "-help",
+            "--help",
+            "task",
+            "list",
+            "use",
+            "status",
+            "continue",
+            "change",
+            "bugfix",
+            "run",
+            "implement",
+            "prepare-merge-test",
+            "merge-test",
+            "complete",
+            "cancel",
+            "restore",
+            "delete",
+            "exit",
+        }
+        if action not in allowed_actions:
+            return ""
+        internal_command, rest = self._normalize_coding_gateway_command("coding", raw_args)
+        action_by_internal = {
+            "coding-help": "help",
+            "coding-task": "task",
+            "coding-list": "list",
+            "coding-use": "use",
+            "coding-exit": "exit",
+            "coding-status": "status",
+            "coding-continue": "continue",
+            "coding-change": "change",
+            "coding-bugfix": "bugfix",
+            "coding-run": "run",
+            "coding-implement": "implement",
+            "coding-cancel": "cancel",
+            "coding-delete": "delete",
+            "coding-prepare-merge-test": "prepare-merge-test",
+            "coding-merge-test": "merge-test",
+            "coding-complete": "complete",
+            "coding-restore": "restore",
+        }
+        canonical_action = action_by_internal.get(internal_command)
+        if canonical_action is None:
+            return ""
+        return f"/coding {canonical_action}{f' {rest}' if rest else ''}".strip()
+
+    def _rewrite_confirmation_message(self, command_text: str, rewrite: dict[str, Any]) -> str:
+        reason = normalize_project_text(str(rewrite.get("reason") or ""))
+        lines = [
+            "我理解你要执行：",
+            "",
+            command_text,
+        ]
+        if reason:
+            lines.extend(["", f"理由：{reason}"])
+        lines.extend(["", "回复“确认”执行，或回复“取消”放弃。"])
+        return "\n".join(lines)
+
+    @staticmethod
+    def _rewrite_needs_human_confirmation_message(text: str, rewrite: dict[str, Any], rejection: str) -> str:
+        confidence = rewrite.get("confidence")
+        try:
+            confidence_text = f"{float(confidence):.2f}"
+        except (TypeError, ValueError):
+            confidence_text = "unknown"
+        candidate = rewrite.get("canonical_command") or "无"
+        reason = normalize_project_text(str(rewrite.get("reason") or "无"))
+        return "\n".join(
+            [
+                "需要人工二次确认，未执行任何 coding 操作。",
+                f"原话：{text}",
+                f"候选命令：{candidate}",
+                f"置信度：{confidence_text}",
+                f"原因：{rejection}",
+                f"LLM 理由：{reason}",
+                "请重新描述，或直接发送明确的 /coding <action> 命令。",
+            ]
+        )
+
+    def _handle_pending_action_gateway_message(
+        self,
+        text: str,
+        event: Any,
+        gateway: Any,
+        *,
+        include_latest_human_required: bool,
+    ) -> dict[str, str] | None:
+        normalized = normalize_project_text(text)
+        pending = self._pending_action_for_event(event)
+        from_binding = pending is not None
+        if pending is None and include_latest_human_required and self._is_human_confirmation_reply(normalized):
+            pending = self._pending_action_from_latest_human_required_run(event)
+        if pending is None:
+            return None
+        if self._is_human_cancellation_reply(normalized):
+            if from_binding:
+                self._clear_pending_action_for_event(event)
+            self._reply_if_possible(gateway, event, "已取消当前待确认的 coding 动作，未启动新的 run。")
+            return {"action": "skip", "reason": "coding_pending_action_cancelled"}
+        if self._is_human_confirmation_reply(normalized):
+            if from_binding:
+                self._clear_pending_action_for_event(event)
+            task_id = str(pending.get("task_id") or "").strip()
+            task = self.ledger.get_task(task_id) if task_id else None
+            if task is not None and self._task_is_cancelled(task):
+                self._reply_if_possible(gateway, event, self._cancelled_task_message(task))
+                return {"action": "skip", "reason": "coding_pending_action_cancelled_task"}
+            self._record_pending_action_confirmation(pending, normalized, event)
+            command_text = str(pending.get("command_text") or "").strip()
+            handled = self._handle_explicit_gateway_command(command_text, event, gateway)
+            if handled is None:
+                self._reply_if_possible(
+                    gateway,
+                    event,
+                    f"未执行：待确认动作已失效。\n候选命令：{command_text or '无'}\n请重新描述或直接发送 /coding <action>。",
+                )
+            return {"action": "skip", "reason": "coding_pending_action_confirmed"}
+        if from_binding:
+            self._clear_pending_action_for_event(event)
+        return None
+
+    def _store_pending_action_for_event(
+        self,
+        event: Any | None,
+        *,
+        task_id: str,
+        action: str,
+        command_text: str,
+        reason: str,
+        run_id: str = "",
+        mode: str = "",
+    ) -> bool:
+        binding_key = self._pending_action_binding_key_for_event(event)
+        if not binding_key:
+            return False
+        scope = self._event_source_for_ledger(event)
+        scope["pending_action"] = {
+            "task_id": task_id,
+            "action": action,
+            "command_text": command_text,
+            "reason": reason,
+            "run_id": run_id,
+            "mode": mode,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.ledger.bind_active_task(
+            binding_key=binding_key,
+            task_id=_PENDING_ACTION_TASK_ID,
+            scope=scope,
+        )
+        return True
+
+    def _pending_action_for_event(self, event: Any | None) -> dict[str, Any] | None:
+        binding_key = self._pending_action_binding_key_for_event(event)
+        if not binding_key:
+            return None
+        binding = self.ledger.get_active_binding(binding_key)
+        if not binding or binding.get("task_id") != _PENDING_ACTION_TASK_ID:
+            return None
+        scope = binding.get("scope") or {}
+        pending = scope.get("pending_action")
+        return pending if isinstance(pending, dict) else None
+
+    def _pending_action_from_latest_human_required_run(self, event: Any | None) -> dict[str, Any] | None:
+        task = self._active_task_for_event(event)
+        if task is None:
+            return None
+        for run in reversed(task.get("agent_runs") or []):
+            if run.get("mode") != RunMode.MERGE_TEST.value:
+                continue
+            report = self._read_report_json((run.get("artifact") or {}).get("report"))
+            if not bool(report.get("human_required")):
+                return None
+            task_id = str(task.get("task_id") or "")
+            qa_evidence = self._qa_evidence_for_merge_test(task)
+            qa_flag = " --confirm-qa-risk" if qa_evidence.get("requires_confirmation") == "true" else ""
+            return {
+                "task_id": task_id,
+                "action": "merge_test_retry",
+                "command_text": f"/coding merge-test {task_id}{qa_flag}",
+                "reason": normalize_project_text(str(report.get("summary_markdown") or "merge-test 需要人工确认")),
+                "run_id": str(run.get("run_id") or ""),
+                "mode": RunMode.MERGE_TEST.value,
+            }
+        return None
+
+    def _clear_pending_action_for_event(self, event: Any | None) -> bool:
+        binding_key = self._pending_action_binding_key_for_event(event)
+        if not binding_key:
+            return False
+        return self.ledger.clear_active_binding(binding_key)
+
+    def _pending_action_binding_key_for_event(self, event: Any | None) -> str | None:
+        binding_key = self._binding_key_for_event(event)
+        return f"{binding_key}:coding_pending_action" if binding_key else None
+
+    def _record_pending_action_confirmation(self, pending: dict[str, Any], text: str, event: Any | None) -> None:
+        task_id = str(pending.get("task_id") or "").strip()
+        if not task_id or self.ledger.get_task(task_id) is None:
+            return
+        self.ledger.append_human_decision(
+            task_id,
+            {
+                "type": "pending_action_confirmation",
+                "action": str(pending.get("action") or ""),
+                "command": str(pending.get("command_text") or ""),
+                "source_run_id": str(pending.get("run_id") or ""),
+                "mode": str(pending.get("mode") or ""),
+                "text": text,
+                "gateway_source": self._event_source_for_ledger(event),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+
+    def _store_pending_rewrite_for_event(
+        self,
+        event: Any | None,
+        command_text: str,
+        rewrite: dict[str, Any],
+        user_text: str,
+    ) -> bool:
+        binding_key = self._pending_rewrite_binding_key_for_event(event)
+        if not binding_key:
+            return False
+        scope = self._event_source_for_ledger(event)
+        scope["pending_rewrite"] = {
+            "canonical_command": command_text,
+            "rewrite": rewrite,
+            "user_text": user_text,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.ledger.bind_active_task(
+            binding_key=binding_key,
+            task_id=_PENDING_REWRITE_TASK_ID,
+            scope=scope,
+        )
+        return True
+
+    def _pending_rewrite_for_event(self, event: Any | None) -> dict[str, Any] | None:
+        binding_key = self._pending_rewrite_binding_key_for_event(event)
+        if not binding_key:
+            return None
+        binding = self.ledger.get_active_binding(binding_key)
+        if not binding or binding.get("task_id") != _PENDING_REWRITE_TASK_ID:
+            return None
+        scope = binding.get("scope") or {}
+        pending = scope.get("pending_rewrite")
+        return pending if isinstance(pending, dict) else None
+
+    def _clear_pending_rewrite_for_event(self, event: Any | None) -> bool:
+        binding_key = self._pending_rewrite_binding_key_for_event(event)
+        if not binding_key:
+            return False
+        return self.ledger.clear_active_binding(binding_key)
+
+    def _pending_rewrite_binding_key_for_event(self, event: Any | None) -> str | None:
+        binding_key = self._binding_key_for_event(event)
+        return f"{binding_key}:coding_rewrite_pending" if binding_key else None
+
+    @staticmethod
+    def _is_rewrite_confirmation(text: str) -> bool:
+        value = normalize_project_text(text).lower()
+        return value in {"确认", "确认执行", "执行", "可以", "可以执行", "好的", "好", "ok", "okay", "yes", "y"}
+
+    @staticmethod
+    def _is_rewrite_cancellation(text: str) -> bool:
+        value = normalize_project_text(text).lower()
+        return value in {"取消", "取消执行", "放弃", "不要执行", "不执行", "算了", "no", "n"}
+
+    @staticmethod
+    def _is_human_confirmation_reply(text: str) -> bool:
+        value = normalize_project_text(text).lower()
+        if not value or CodingOrchestrator._is_human_cancellation_reply(value):
+            return False
+        if value in {"确认", "确认执行", "执行", "可以", "可以执行", "好的", "好", "ok", "okay", "yes", "y", "继续", "确认继续"}:
+            return True
+        confirmation_markers = ("确认", "确定", "可以", "同意", "继续", "执行", "提交")
+        return len(value) <= 80 and any(marker in value for marker in confirmation_markers)
+
+    @staticmethod
+    def _is_human_cancellation_reply(text: str) -> bool:
+        value = normalize_project_text(text).lower()
+        if value in {"取消", "取消执行", "放弃", "不要执行", "不执行", "算了", "no", "n", "先别", "暂停"}:
+            return True
+        cancellation_markers = ("取消", "放弃", "不要", "不可以", "别", "暂停")
+        return len(value) <= 80 and any(marker in value for marker in cancellation_markers)
 
     def _handle_commands_gateway_command(self, text: str, event: Any, gateway: Any) -> dict[str, str] | None:
         match = _COMMANDS_COMMAND_RE.match(normalize_project_text(text))
@@ -764,13 +1540,18 @@ class CodingOrchestrator:
             "use": "coding-use",
             "exit": "coding-exit",
             "continue": "coding-continue",
+            "change": "coding-change",
+            "revise": "coding-change",
             "bugfix": "coding-bugfix",
             "run": "coding-run",
             "implement": "coding-implement",
             "cancel": "coding-cancel",
+            "restore": "coding-restore",
+            "reopen": "coding-restore",
             "delete": "coding-delete",
             "prepare-merge-test": "coding-prepare-merge-test",
             "merge-test": "coding-merge-test",
+            "complete": "coding-complete",
         }
         mapped = command_map.get(action)
         if mapped:
@@ -783,17 +1564,66 @@ class CodingOrchestrator:
         tasks = self.ledger.list_recent_tasks(statuses=self._active_coding_statuses(), limit=10)
         if not tasks:
             return "当前没有未结束 coding task。"
-        lines = ["当前未结束 coding task："]
-        for task in tasks:
-            marker = "*" if task["task_id"] == active_id else "-"
-            lines.append(
-                f"{marker} {task['task_id']} | phase={task.get('phase')} | status={task.get('status')} | "
-                f"{task.get('project_path') or '未确定'}"
-            )
+        lines = self._format_task_list(tasks, active_id=active_id).splitlines()
         if binding_key:
-            lines.append(f"当前会话绑定：{active_id or '无'}")
-        lines.append("使用 /coding use <task_id> 切换当前任务。")
+            lines.append(f"tip: 当前会话绑定：{active_id or '无'};使用 /coding use <task_id> 切换当前任务。")
+        else:
+            lines.append("tip: 使用 /coding use <task_id> 切换当前任务。")
         return "\n".join(lines)
+
+    def _format_task_list(self, tasks: list[dict[str, Any]], active_id: str | None = None) -> str:
+        lines = ["当前未结束 coding task："]
+        for index, task in enumerate(tasks):
+            if index > 0:
+                lines.append("")
+            marker = "*" if active_id and task["task_id"] == active_id else ""
+            task_id = f"{marker}{task['task_id']}" if marker else str(task["task_id"])
+            lines.append(
+                f"id: {task_id}\n"
+                f"状态: {task_status_display(task.get('status'))}\n"
+                f"项目: {self._task_project_label(task)}\n"
+                f"任务描述: {self._task_description_label(task)}"
+            )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _task_project_label(task: dict[str, Any]) -> str:
+        source = task.get("source") or {}
+        session = task.get("task_session") or {}
+        project_name = source.get("project_name") or session.get("project_name")
+        if project_name:
+            return str(project_name)
+        project_path = task.get("project_path")
+        if project_path:
+            return Path(str(project_path)).name
+        return "未确定"
+
+    @staticmethod
+    def _task_description_label(task: dict[str, Any]) -> str:
+        summary = normalize_project_text(str(task.get("requirement_summary") or ""))
+        if not summary:
+            return "未填写"
+        summary = re.sub(r"##\s*人工(?:计划|实现)?反馈.*$", "", summary, flags=re.S).strip()
+        summary = re.sub(r"需要支持以下功能[:：]?", "支持", summary)
+        summary = re.sub(r"\s*[1-9][、.．]\s*", "；", summary)
+        parts = [part.strip(" ：:；，,。") for part in summary.split("；") if part.strip(" ：:；，,。")]
+        if len(parts) > 1 and parts[0].endswith("支持"):
+            first_item = parts[1].split("，", 1)[0].strip(" ：:；，,。")
+            summary = f"{parts[0]}{first_item}"
+        elif parts:
+            summary = parts[0]
+        replacements = {
+            "的订单列表的": "订单列表",
+            "批量绑定商品弹窗": "批量绑定商品弹窗",
+            "变体ID、商品名称两种方式的搜索": "变体ID/商品名称搜索",
+            "变体ID、商品名称": "变体ID/商品名称",
+        }
+        for old, new in replacements.items():
+            summary = summary.replace(old, new)
+        summary = re.sub(r"搜索商品现在要支持", "支持", summary)
+        summary = summary.replace("支持支持", "支持")
+        summary = re.sub(r"\s+", "", summary)
+        return summary if len(summary) <= 42 else f"{summary[:39]}..."
 
     def _select_active_task_for_event(self, task_id: str, event: Any) -> str:
         task_id = task_id.strip()
@@ -806,9 +1636,8 @@ class CodingOrchestrator:
             return f"[{task_id}] 当前来源无法建立 active binding。"
         return (
             f"[{task_id}] 已切换当前 coding task。\n"
-            f"phase：{task.get('phase')}\n"
-            f"status：{task.get('status')}\n"
-            "后续补充、修复、确认仍必须带 /coding 前缀；普通自然语言不会进入 plugin。"
+            f"状态：{task_status_display(task.get('status'))}\n"
+            "后续可继续使用 /coding 前缀；若已发送“进入coding”，本会话自然语言也会进入 plugin。"
         )
 
     def _clear_active_task_for_event(self, event: Any) -> str:
@@ -816,7 +1645,14 @@ class CodingOrchestrator:
         if not binding_key:
             return "当前来源无法识别，无 active task 可退出。"
         cleared = self.ledger.clear_active_binding(binding_key)
-        return "已退出当前飞书会话的 coding 模式。" if cleared else "当前飞书会话没有绑定 coding task。"
+        mode_cleared = self._disable_coding_mode_for_event(event)
+        pending_cleared = self._clear_pending_rewrite_for_event(event)
+        action_cleared = self._clear_pending_action_for_event(event)
+        return (
+            "已退出当前飞书会话的 coding 模式。"
+            if cleared or mode_cleared or pending_cleared or action_cleared
+            else "当前飞书会话没有绑定 coding task。"
+        )
 
     def _status_for_event(self, raw_args: str, event: Any) -> str:
         task_id = raw_args.strip() or self._active_task_id_for_event(event) or ""
@@ -825,38 +1661,133 @@ class CodingOrchestrator:
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
+        return self._format_task_status_details(task, include_branch=True)
+
+    @staticmethod
+    def _format_task_status_details(task: dict[str, Any], *, include_branch: bool) -> str:
+        task_id = str(task.get("task_id") or "")
         session = task.get("task_session") or {}
-        return (
-            f"[{task_id}] 状态：{task.get('status')}\n"
-            f"phase：{task.get('phase')}\n"
-            f"项目：{task.get('project_path') or '未确定'}\n"
-            f"source_branch：{session.get('source_branch') or '未创建'}\n"
-            f"worktree：{session.get('worktree_path') or '未创建'}"
-        )
+        lines = [
+            f"[{task_id}] 状态：{task_status_display(task.get('status'))}",
+            f"项目：{task.get('project_path') or '未确定'}",
+        ]
+        if include_branch:
+            lines.extend(
+                [
+                    f"source_branch：{session.get('source_branch') or '未创建'}",
+                    f"worktree：{session.get('worktree_path') or '未创建'}",
+                ]
+            )
+        qa_run = CodingOrchestrator._latest_qa_run(task)
+        if qa_run:
+            qa_artifacts = qa_run.get("qa_artifacts") or {}
+            qa_report_path = str(qa_artifacts.get("report") or "").strip()
+            report = CodingOrchestrator._read_report_json((qa_run.get("artifact") or {}).get("report"))
+            if qa_report_path:
+                lines.append(f"QA report：{qa_report_path}")
+                health_score = CodingOrchestrator._qa_health_score_from_report_path(qa_report_path)
+                if health_score:
+                    lines.append(f"QA health score：{health_score}")
+            limitations = report.get("verification_limitations") or []
+            if limitations:
+                lines.append("已知缺口：")
+                for item in limitations[:3]:
+                    if not isinstance(item, dict):
+                        continue
+                    reason = str(item.get("reason") or "unknown")
+                    impact = str(item.get("impact") or "").strip()
+                    recovery = str(item.get("recovery_action") or "").strip()
+                    line = f"- {reason}"
+                    if impact:
+                        line += f"；影响：{impact}"
+                    if recovery:
+                        line += f"；恢复：{recovery}"
+                    lines.append(line)
+        return "\n".join(lines)
+
+    @staticmethod
+    def _latest_qa_run(task: dict[str, Any]) -> dict[str, Any] | None:
+        for run in reversed(task.get("agent_runs") or []):
+            if run.get("mode") == RunMode.QA.value:
+                return run
+        return None
+
+    @staticmethod
+    def _read_report_json(path_value: Any) -> dict[str, Any]:
+        if not path_value:
+            return {}
+        path = Path(str(path_value))
+        if not path.exists():
+            return {}
+        try:
+            import json
+
+            parsed = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+
+    @staticmethod
+    def _qa_health_score_from_report_path(path_value: Any) -> str:
+        path = Path(str(path_value))
+        if not path.exists():
+            return ""
+        text = path.read_text(encoding="utf-8", errors="replace")
+        match = re.search(r"health\s*score\s*[:：]\s*([0-9]+(?:\s*[-→>]+\s*[0-9]+)?)", text, flags=re.I)
+        return match.group(1).strip() if match else ""
 
     def _continue_active_task(self, raw_args: str, event: Any, gateway: Any) -> str:
         task = self._active_task_for_event(event)
         if task is None:
             return "未找到当前 active coding task，请先使用 /coding use <task_id>。"
+        if self._task_is_cancelled(task):
+            return self._cancelled_task_message(task)
         if not raw_args.strip():
             return "请在 /coding continue 后提供补充内容。"
+        if self._mentions_image_placeholder_without_media(raw_args, event):
+            return self._missing_feedback_media_message(task, "continue")
         status = str(task.get("status") or "")
         if status in {TaskStatus.QUEUED.value, TaskStatus.RUNNING.value}:
             self._record_runtime_feedback(task, raw_args, event)
             return self._runtime_feedback_received_message(task)
         if status == TaskStatus.NEEDS_HUMAN.value:
-            self._record_human_clarification(task, raw_args, event)
-            return self._human_clarification_received_message(task)
+            project_resolved = self._record_human_clarification(task, raw_args, event)
+            updated_task = self.ledger.get_task(task["task_id"]) or task
+            if project_resolved:
+                self._start_background_plan_only(task["task_id"], gateway, event)
+                return self._human_clarification_project_resolved_message(updated_task)
+            return self._human_clarification_received_message(updated_task)
         self._record_plan_feedback(task, raw_args, event)
         self._start_background_plan_only(task["task_id"], gateway, event)
         return self._plan_feedback_received_message(task)
+
+    def _change_active_task(self, raw_args: str, event: Any, gateway: Any) -> str:
+        task = self._active_task_for_event(event)
+        if task is None:
+            return "未找到当前 active coding task，请先使用 /coding use <task_id>。"
+        if self._task_is_cancelled(task):
+            return self._cancelled_task_message(task)
+        if not raw_args.strip():
+            return "请在 /coding change 后提供需求变更内容。"
+        if self._mentions_image_placeholder_without_media(raw_args, event):
+            return self._missing_feedback_media_message(task, "change")
+        self._record_requirement_change(task, raw_args, event)
+        status = str(task.get("status") or "")
+        if status in {TaskStatus.QUEUED.value, TaskStatus.RUNNING.value}:
+            return self._requirement_change_queued_message(task)
+        self._start_background_plan_only(task["task_id"], gateway, event)
+        return self._requirement_change_received_message(task)
 
     def _bugfix_active_task(self, raw_args: str, event: Any, gateway: Any) -> str:
         task = self._active_task_for_event(event)
         if task is None:
             return "未找到当前 active coding task，请先使用 /coding use <task_id>。"
+        if self._task_is_cancelled(task):
+            return self._cancelled_task_message(task)
         if not raw_args.strip():
             return "请在 /coding bugfix 后提供修复反馈。"
+        if self._mentions_image_placeholder_without_media(raw_args, event):
+            return self._missing_feedback_media_message(task, "bugfix")
         self._record_implementation_feedback(task, raw_args, event)
         self._start_background_implementation(task["task_id"], gateway, event)
         return self._implementation_feedback_received_message(task)
@@ -868,6 +1799,31 @@ class CodingOrchestrator:
         source = self._event_source_for_ledger(event)
         self.ledger.bind_active_task(binding_key=binding_key, task_id=task_id, scope=source)
         return True
+
+    def _enable_coding_mode_for_event(self, event: Any | None) -> bool:
+        binding_key = self._coding_mode_binding_key_for_event(event)
+        if not binding_key:
+            return False
+        source = self._event_source_for_ledger(event)
+        self.ledger.bind_active_task(binding_key=binding_key, task_id=_CODING_MODE_TASK_ID, scope=source)
+        return True
+
+    def _disable_coding_mode_for_event(self, event: Any | None) -> bool:
+        binding_key = self._coding_mode_binding_key_for_event(event)
+        if not binding_key:
+            return False
+        return self.ledger.clear_active_binding(binding_key)
+
+    def _coding_mode_enabled_for_event(self, event: Any | None) -> bool:
+        binding_key = self._coding_mode_binding_key_for_event(event)
+        if not binding_key:
+            return False
+        binding = self.ledger.get_active_binding(binding_key)
+        return bool(binding and binding.get("task_id") == _CODING_MODE_TASK_ID)
+
+    def _coding_mode_binding_key_for_event(self, event: Any | None) -> str | None:
+        binding_key = self._binding_key_for_event(event)
+        return f"{binding_key}:coding_mode" if binding_key else None
 
     def _active_task_for_event(self, event: Any) -> dict[str, Any] | None:
         task_id = self._active_task_id_for_event(event)
@@ -905,13 +1861,67 @@ class CodingOrchestrator:
             TaskStatus.QUEUED.value,
             TaskStatus.RUNNING.value,
             TaskStatus.BLOCKED.value,
-            TaskStatus.READY_FOR_REVIEW.value,
+            TaskStatus.READY_FOR_MERGE_TEST.value,
+            TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+            TaskStatus.RUNNER_FAILED.value,
             TaskStatus.FAILED.value,
+            TaskStatus.MERGED_TEST.value,
         ]
 
     @staticmethod
     def _looks_like_plugin_generated_message(text: str) -> bool:
         return bool(re.search(r"^\s*\[task_[A-Za-z0-9_:-]+\]", normalize_project_text(text)))
+
+    @staticmethod
+    def _task_is_cancelled(task: dict[str, Any]) -> bool:
+        return str(task.get("status") or "") == TaskStatus.CANCELLED.value
+
+    @staticmethod
+    def _cancelled_task_message(task: dict[str, Any] | str) -> str:
+        task_id = task if isinstance(task, str) else str(task.get("task_id") or "unknown")
+        return (
+            f"[{task_id}] 已取消，不能继续操作。\n"
+            "说明：cancelled 是人工终态保护；不会再启动 plan、implementation、QA 或 merge-test。"
+        )
+
+    def _restore_state_for_cancelled_task(self, task: dict[str, Any]) -> tuple[TaskStatus, TaskPhase, str]:
+        for run in reversed(task.get("agent_runs") or []):
+            mode = str(run.get("mode") or "")
+            status = str(run.get("status") or "")
+            if mode == RunMode.MERGE_TEST.value:
+                if status == AgentRunStatus.SUCCESS.value:
+                    return TaskStatus.MERGED_TEST, TaskPhase.MERGED_TEST, "最近 merge-test 已成功"
+                return (
+                    TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS,
+                    TaskPhase.READY_TO_MERGE_TEST,
+                    f"最近 merge-test 未完成（{status or 'unknown'}），恢复为可重新 merge-test",
+                )
+            if mode in {RunMode.IMPLEMENTATION.value, RunMode.QA.value}:
+                if status in {AgentRunStatus.SUCCESS.value, AgentRunStatus.READY_FOR_MERGE_TEST.value}:
+                    return TaskStatus.READY_FOR_MERGE_TEST, TaskPhase.READY_TO_MERGE_TEST, f"最近 {mode} 已准备 merge-test"
+                if status in {
+                    AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+                    AgentRunStatus.BLOCKED.value,
+                    AgentRunStatus.COMPLETED_UNSTRUCTURED.value,
+                    AgentRunStatus.TIMEOUT.value,
+                }:
+                    return (
+                        TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS,
+                        TaskPhase.READY_TO_MERGE_TEST,
+                        f"最近 {mode} 有实现证据但存在缺口（{status or 'unknown'}）",
+                    )
+                if status == AgentRunStatus.RUNNER_FAILED.value:
+                    return TaskStatus.RUNNER_FAILED, TaskPhase.RUNNER_FAILED, f"最近 {mode} runner_failed"
+                if status == AgentRunStatus.FAILED.value:
+                    return TaskStatus.FAILED, TaskPhase.FAILED, f"最近 {mode} failed"
+            if mode == RunMode.PLAN_ONLY.value and status in {
+                AgentRunStatus.SUCCESS.value,
+                AgentRunStatus.COMPLETED_UNSTRUCTURED.value,
+            }:
+                return TaskStatus.PLANNED, TaskPhase.PLAN_READY, "最近 plan-only 已完成"
+        if task.get("project_path"):
+            return TaskStatus.PLANNED, TaskPhase.PLAN_READY, "未找到可用 run，按已有项目上下文恢复为 planned"
+        return TaskStatus.NEEDS_HUMAN, TaskPhase.DRAFT, "未找到项目上下文，恢复为 needs_human"
 
     def _record_implementation_confirmation(self, task_id: str, text: str, event: Any) -> None:
         self.ledger.update_phase(task_id, TaskPhase.PLAN_APPROVED.value)
@@ -938,8 +1948,14 @@ class CodingOrchestrator:
 
     @staticmethod
     def _task_is_plan_ready_for_implementation(task: dict[str, Any]) -> bool:
-        if str(task.get("phase") or "") == TaskPhase.PLAN_READY.value:
+        if str(task.get("phase") or "") in {TaskPhase.PLAN_READY.value, TaskPhase.PLAN_APPROVED.value}:
             return True
+        for decision in reversed(task.get("human_decisions") or []):
+            if decision.get("type") == "implementation_confirmed":
+                return True
+        for run in reversed(task.get("agent_runs") or []):
+            if run.get("mode") == RunMode.IMPLEMENTATION.value:
+                return True
         for run in reversed(task.get("agent_runs") or []):
             if run.get("mode") == RunMode.PLAN_ONLY.value and run.get("status") == AgentRunStatus.SUCCESS.value:
                 return True
@@ -955,6 +1971,18 @@ class CodingOrchestrator:
             title_prefix="计划反馈",
             summary_heading="人工计划反馈",
             tags=["requirement", "plan_feedback", "draft"],
+        )
+
+    def _record_requirement_change(self, task: dict[str, Any], text: str, event: Any) -> None:
+        self.ledger.update_phase(task["task_id"], TaskPhase.PLAN_REVISION.value)
+        self._record_task_feedback(
+            task,
+            text,
+            event,
+            decision_type="requirement_change",
+            title_prefix="需求变更",
+            summary_heading="人工需求变更",
+            tags=["requirement", "requirement_change", "draft"],
         )
 
     def _record_implementation_feedback(self, task: dict[str, Any], text: str, event: Any) -> None:
@@ -980,7 +2008,7 @@ class CodingOrchestrator:
             tags=["requirement", "runtime_feedback", "draft"],
         )
 
-    def _record_human_clarification(self, task: dict[str, Any], text: str, event: Any) -> None:
+    def _record_human_clarification(self, task: dict[str, Any], text: str, event: Any) -> ProjectResolveResult | None:
         self._record_task_feedback(
             task,
             text,
@@ -989,6 +2017,157 @@ class CodingOrchestrator:
             title_prefix="人工补充",
             summary_heading="人工补充",
             tags=["requirement", "human_clarification", "draft"],
+        )
+        updated_task = self.ledger.get_task(task["task_id"]) or task
+        return self._apply_project_clarification(updated_task, text)
+
+    def _apply_project_clarification(self, task: dict[str, Any], text: str) -> ProjectResolveResult | None:
+        if task.get("project_path"):
+            return None
+        combined_text = "\n".join(
+            part
+            for part in [
+                str(task.get("requirement_summary") or ""),
+                normalize_project_text(text),
+            ]
+            if part
+        )
+        resolved = self.resolver.resolve(combined_text)
+        if not resolved.project_path:
+            resolved = self._resolve_local_project_from_human_text(combined_text)
+        if not resolved or not resolved.project_path or not resolved.project_name:
+            return None
+
+        evidence = [
+            {"source": item.source, "value": item.value, "score": item.score}
+            for item in resolved.match_evidence
+        ]
+        self.ledger.update_project_context(
+            task["task_id"],
+            project_name=resolved.project_name,
+            project_path=resolved.project_path,
+            confidence=resolved.confidence,
+            match_evidence=evidence,
+        )
+        self.ledger.update_status(task["task_id"], TaskStatus.PLANNED.value)
+        self.ledger.update_phase(task["task_id"], TaskPhase.PLANNING.value)
+        return resolved
+
+    def _resolve_local_project_from_human_text(self, text: str) -> ProjectResolveResult | None:
+        for candidate in self._project_folder_candidates_from_text(text):
+            project_path = self._local_project_path_for_candidate(candidate)
+            if project_path is None:
+                continue
+            project_name = project_path.name
+            aliases = self._project_aliases_from_human_text(text, project_name)
+            self._upsert_human_project_profile(
+                project_name=project_name,
+                project_path=project_path,
+                aliases=aliases,
+                body=text,
+            )
+            return ProjectResolveResult(
+                project_name=project_name,
+                project_path=str(project_path),
+                confidence=1.0,
+                match_evidence=[MatchEvidence("human_project_folder", candidate, 1.0)],
+                candidates=[],
+                needs_human=False,
+            )
+        return None
+
+    @staticmethod
+    def _project_folder_candidates_from_text(text: str) -> list[str]:
+        candidates: list[str] = []
+        candidates.extend(match.strip() for match in re.findall(r"`([^`]+)`", text) if match.strip())
+        patterns = [
+            r"(?:项目(?:文件夹|目录)?名称|文件夹名称|项目文件夹|项目目录|项目路径|本地目录|本地路径)\s*(?:为|是|叫|=|:|：)?\s*([~/A-Za-z0-9_.\-/]+)",
+            r"(?:folder|directory|repo|repository)\s*(?:is|=|:)?\s*([~/A-Za-z0-9_.\-/]+)",
+        ]
+        for pattern in patterns:
+            candidates.extend(match.strip() for match in re.findall(pattern, text, flags=re.I) if match.strip())
+        seen: set[str] = set()
+        unique: list[str] = []
+        for candidate in candidates:
+            value = candidate.strip().strip("，,。；;")
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            unique.append(value)
+        return unique
+
+    def _local_project_path_for_candidate(self, candidate: str) -> Path | None:
+        value = candidate.strip()
+        if not value:
+            return None
+        direct = Path(value).expanduser()
+        if direct.is_dir():
+            return direct.resolve()
+        for root in self._local_project_search_roots():
+            path = root / value
+            if path.is_dir():
+                return path.resolve()
+        return None
+
+    def _local_project_search_roots(self) -> list[Path]:
+        roots: list[Path] = []
+        for project in self.resolver.registry.projects:
+            try:
+                parent = Path(project.path).expanduser().resolve().parent
+            except Exception:
+                continue
+            roots.append(parent)
+        roots.append(Path.home() / "Desktop" / "project")
+        seen: set[Path] = set()
+        unique: list[Path] = []
+        for root in roots:
+            try:
+                resolved = root.expanduser().resolve()
+            except Exception:
+                continue
+            if resolved in seen or not resolved.is_dir():
+                continue
+            seen.add(resolved)
+            unique.append(resolved)
+        return unique
+
+    @staticmethod
+    def _project_aliases_from_human_text(text: str, project_name: str) -> list[str]:
+        aliases: list[str] = [project_name]
+        for match in re.findall(r"项目(?:为|是|叫)\s*([^，,。；;\s`]+)", text):
+            value = match.strip()
+            if value and value not in aliases:
+                aliases.append(value)
+        for match in re.findall(r"([\w\u4e00-\u9fff-]*后台)", text):
+            value = re.sub(r"^(?:这是|项目为|项目是|项目叫|为|是|叫)", "", match.strip())
+            if value and value not in aliases:
+                aliases.append(value)
+        return aliases
+
+    def _upsert_human_project_profile(
+        self,
+        *,
+        project_name: str,
+        project_path: Path,
+        aliases: list[str],
+        body: str,
+    ) -> None:
+        self.wiki.upsert(
+            {
+                "kind": "project_profile",
+                "title": f"{project_name} 项目画像",
+                "body": body,
+                "project": project_name,
+                "project_id": project_name,
+                "name": project_name,
+                "aliases": aliases,
+                "local_paths": [str(project_path)],
+                "keywords": aliases,
+                "source_refs": [{"type": "human_clarification", "project_path": str(project_path)}],
+                "confidence": "high",
+                "status": "verified",
+            },
+            options={"dedupe_key": f"project:{project_name}"},
         )
 
     def _record_task_feedback(
@@ -1005,19 +2184,21 @@ class CodingOrchestrator:
         task_id = task["task_id"]
         feedback = normalize_project_text(text)
         now = datetime.now(timezone.utc).isoformat()
-        self.ledger.append_human_decision(
-            task_id,
-            {
-                "type": decision_type,
-                "text": feedback,
-                "gateway_source": self._event_source_for_ledger(event),
-                "created_at": now,
-            },
-        )
+        media = self._event_media_for_ledger(event)
+        decision = {
+            "type": decision_type,
+            "text": feedback,
+            "gateway_source": self._event_source_for_ledger(event),
+            "created_at": now,
+        }
+        if media:
+            decision["media"] = media
+        self.ledger.append_human_decision(task_id, decision)
+        feedback_body = self._append_media_description(feedback, media)
         updated_summary = (
             f"{str(task.get('requirement_summary') or '').rstrip()}\n\n"
             f"## {summary_heading} {now}\n"
-            f"{feedback}"
+            f"{feedback_body}"
         ).strip()
         self.ledger.update_requirement_summary(task_id, updated_summary)
         source = task.get("source") or {}
@@ -1025,7 +2206,7 @@ class CodingOrchestrator:
             {
                 "kind": "draft_knowledge",
                 "title": f"{title_prefix} {task_id}",
-                "body": feedback,
+                "body": feedback_body,
                 "source_refs": self._draft_knowledge_source_refs(task_id, {}, event),
                 "project": source.get("project_name"),
                 "module": None,
@@ -1052,9 +2233,44 @@ class CodingOrchestrator:
     def _implementation_blocked_before_plan_ready_message(task: dict[str, Any]) -> str:
         return (
             f"[{task['task_id']}] 已拦截 implementation 确认，但当前任务还不能开始开发。\n"
-            f"phase：{task.get('phase') or 'unknown'}\n"
-            f"状态：{task.get('status') or 'unknown'}\n"
+            f"状态：{task_status_display(task.get('status'))}\n"
             "必须先完成 Codex plan-only，并由你确认计划完整度和正确性后，才能进入 GitOps implementation。"
+        )
+
+    @staticmethod
+    def _plan_only_started_message(task: dict[str, Any]) -> str:
+        return (
+            f"[{task['task_id']}] 已开始 plan-only。\n"
+            f"项目：{task.get('project_path') or '未确定'}\n"
+            "说明：Codex 正在后台生成计划；完成后会自动回传结果。"
+        )
+
+    @staticmethod
+    def _plan_only_already_running_message(task: dict[str, Any]) -> str:
+        return CodingOrchestrator._active_run_already_running_message(task, requested_mode="plan-only")
+
+    @staticmethod
+    def _task_has_active_run(task: dict[str, Any]) -> bool:
+        runner = (task.get("task_session") or {}).get("runner") or {}
+        return bool(runner.get("active_run_id")) or str(task.get("status") or "") in {
+            TaskStatus.QUEUED.value,
+            TaskStatus.RUNNING.value,
+        }
+
+    @staticmethod
+    def _active_run_already_running_message(task: dict[str, Any], *, requested_mode: str | None = None) -> str:
+        session = task.get("task_session") or {}
+        runner = session.get("runner") or {}
+        active_run_id = runner.get("active_run_id") or "未记录"
+        active_mode = runner.get("active_mode") or runner.get("last_requested_mode") or "未记录"
+        task_id = task["task_id"]
+        action_text = f"未重复启动 {requested_mode}。" if requested_mode else "确认词已被识别为当前 run 续接，但 run 仍在执行，未启动新动作。"
+        return (
+            f"[{task_id}] 当前已有 run 正在执行，{action_text}\n"
+            f"状态：{task_status_display(task.get('status'))}\n"
+            f"active_run_id：{active_run_id}\n"
+            f"mode：{active_mode}\n"
+            f"恢复动作：等待完成回传；如果确认卡住，先发送 /coding status {task_id} 查看详情，必要时再 /coding cancel {task_id} 后重试。"
         )
 
     @staticmethod
@@ -1063,6 +2279,22 @@ class CodingOrchestrator:
             f"[{task['task_id']}] 已收到计划反馈，重新进入 plan-only。\n"
             f"项目：{task.get('project_path') or '未确定'}\n"
             "说明：反馈已写入 Task Ledger 和 LLM Wiki draft，并会注入新的计划 run；不会交给 Hermes 主 agent。"
+        )
+
+    @staticmethod
+    def _requirement_change_received_message(task: dict[str, Any]) -> str:
+        return (
+            f"[{task['task_id']}] 已收到需求变更，重新进入 plan-only 做变更影响分析。\n"
+            f"项目：{task.get('project_path') or '未确定'}\n"
+            "说明：需求变更已写入 Task Ledger 和 LLM Wiki draft；本轮只做影响分析和短计划，不直接进入 bugfix implementation。"
+        )
+
+    @staticmethod
+    def _requirement_change_queued_message(task: dict[str, Any]) -> str:
+        return (
+            f"[{task['task_id']}] 已记录需求变更，但当前 run 仍在运行。\n"
+            f"项目：{task.get('project_path') or '未确定'}\n"
+            "说明：为避免并发修改，暂不启动新的 plan-only；请等待当前 run 结束后再次发送 /coding change，或先取消当前 run。"
         )
 
     @staticmethod
@@ -1090,6 +2322,14 @@ class CodingOrchestrator:
             "说明：补充已写入 Task Ledger 和 LLM Wiki draft；请在项目或来源信息明确后重新触发 plan-only。"
         )
 
+    @staticmethod
+    def _human_clarification_project_resolved_message(task: dict[str, Any]) -> str:
+        return (
+            f"[{task['task_id']}] 已补充项目上下文，开始进入 plan-only。\n"
+            f"项目：{task.get('project_path') or '未确定'}\n"
+            "说明：项目已写入 Task Ledger 和 LLM Wiki project_profile；本轮补充会注入 Codex 计划上下文。"
+        )
+
     def start_run(
         self,
         task_id: str,
@@ -1101,12 +2341,14 @@ class CodingOrchestrator:
         task = self.ledger.get_task(task_id)
         if task is None:
             raise KeyError(task_id)
+        if self._task_is_cancelled(task):
+            raise ValueError(f"task is cancelled and cannot start run: {task_id}")
         if not task.get("project_path"):
             self.ledger.update_status(task_id, TaskStatus.NEEDS_HUMAN.value)
             raise ValueError(f"task has no project_path: {task_id}")
 
         mode = RunMode(mode)
-        timeout = timeout_seconds or self.default_timeout_seconds
+        timeout = self._timeout_seconds_for_mode(mode, timeout_seconds)
         run_id = f"run_{uuid.uuid4().hex[:12]}"
         run_dir = self.run_root / task_id / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -1115,6 +2357,9 @@ class CodingOrchestrator:
         project_name = source.get("project_name") or self._project_name_for_path(str(project_path)) or project_path.name
         workflow = self._workflow_for_project(project_path)
         runner = self.runner_router.select_runner(mode=mode, requested=runner_name or source.get("requested_runner"))
+        resume_session_id = (
+            self._codex_resume_session_id_for_task(task) if self._is_codex_session_runner(runner.name) else ""
+        )
         self.ledger.update_task_session(
             task_id,
             {
@@ -1135,7 +2380,25 @@ class CodingOrchestrator:
                 task_id,
                 {
                     "source_branch": self._source_branch_for_task(task, project_name),
+                    "source_base_branch": self._source_base_branch_for_task(task),
                     "worktree_path": str(workspace_path),
+                },
+            )
+        elif mode == RunMode.QA:
+            workspace_path = self._merge_test_workspace(task)
+            if workspace_path is None:
+                self.ledger.update_status(task_id, TaskStatus.BLOCKED.value)
+                self.ledger.update_phase(task_id, TaskPhase.BLOCKED.value)
+                raise ValueError(f"task has no implementation worktree to QA: {task_id}")
+            self.ledger.update_task_session(
+                task_id,
+                {
+                    "source_branch": self._source_branch_for_task(task, project_name),
+                    "source_base_branch": self._source_base_branch_for_task(task),
+                    "worktree_path": str(workspace_path),
+                    "runner": {
+                        "resume_session_id": resume_session_id,
+                    },
                 },
             )
         elif mode == RunMode.MERGE_TEST:
@@ -1144,11 +2407,11 @@ class CodingOrchestrator:
                 self.ledger.update_status(task_id, TaskStatus.BLOCKED.value)
                 self.ledger.update_phase(task_id, TaskPhase.BLOCKED.value)
                 raise ValueError(f"task has no implementation worktree to merge from: {task_id}")
-            resume_session_id = self._codex_resume_session_id_for_task(task)
             self.ledger.update_task_session(
                 task_id,
                 {
                     "source_branch": self._source_branch_for_task(task, project_name),
+                    "source_base_branch": self._source_base_branch_for_task(task),
                     "worktree_path": str(workspace_path),
                     "runner": {
                         "resume_session_id": resume_session_id,
@@ -1162,23 +2425,47 @@ class CodingOrchestrator:
         self.ledger.replace_llm_wiki_refs(task_id, wiki_refs)
 
         self._write_report_schema(run_dir / "report.schema.json")
-        prompt = self.prompt_builder.build(
-            requirement_summary=task["requirement_summary"],
-            source=source,
-            project_path=str(project_path),
-            workspace_path=str(workspace_path) if workspace_path else None,
-            workflow=workflow,
-            wiki_refs=wiki_docs,
-            mode=mode,
-            runner_name=runner.name,
-            confirmed_plan=(
-                self._confirmed_plan_for_task(task)
-                if mode == RunMode.IMPLEMENTATION
-                else self._merge_test_context_for_task(task)
-                if mode == RunMode.MERGE_TEST
-                else ""
-            ),
+        confirmed_context = (
+            self._confirmed_plan_for_task(task)
+            if mode == RunMode.IMPLEMENTATION
+            else self._merge_test_context_for_task(task)
+            if mode in {RunMode.QA, RunMode.MERGE_TEST}
+            else ""
         )
+        context_artifacts = self._write_prompt_context_artifacts(
+            run_dir=run_dir,
+            task=task,
+            mode=mode,
+            source=source,
+            project_name=project_name,
+            wiki_docs=wiki_docs,
+            wiki_refs=wiki_refs,
+            confirmed_context=confirmed_context,
+        )
+        if resume_session_id:
+            prompt = self.prompt_builder.build_incremental(
+                task_id=task_id,
+                mode=mode,
+                runner_name=runner.name,
+                project_path=str(project_path),
+                workspace_path=str(workspace_path) if workspace_path else None,
+                resume_session_id=resume_session_id,
+                incremental_context=self._incremental_context_for_resumed_session(task, mode),
+                context_artifacts=context_artifacts,
+            )
+        else:
+            prompt = self.prompt_builder.build(
+                requirement_summary=task["requirement_summary"],
+                source=source,
+                project_path=str(project_path),
+                workspace_path=str(workspace_path) if workspace_path else None,
+                workflow=workflow,
+                wiki_refs=wiki_docs,
+                mode=mode,
+                runner_name=runner.name,
+                confirmed_plan=confirmed_context,
+                context_artifacts=context_artifacts,
+            )
         (run_dir / "input-prompt.md").write_text(prompt, encoding="utf-8")
         manifest = self._build_manifest(
             task=task,
@@ -1192,10 +2479,23 @@ class CodingOrchestrator:
             timeout_seconds=timeout,
             run_dir=run_dir,
         )
-        if mode == RunMode.MERGE_TEST:
-            manifest.resume_session_id = self._codex_resume_session_id_for_task(task)
-            manifest.target_branch = "test"
+        if resume_session_id:
+            manifest.resume_session_id = resume_session_id
+            manifest.session_id = resume_session_id
+            manifest.attach_command = self._codex_attach_command(resume_session_id)
+            manifest.resume_command = self._codex_resume_command(resume_session_id, mode=mode)
+            manifest.session_visibility = "visible"
+        if self._mode_uses_controlled_bypass(mode):
             manifest.dangerous_bypass = True
+            manifest.permission_profile = self._permission_profile(mode)
+            manifest.elevated_permissions_reason = self._elevated_permissions_reason(mode)
+            manifest.elevated_permission_scope = self._elevated_permission_scope(mode)
+            manifest.source_modification_boundary = self._source_modification_boundary(mode, workspace_path, project_path)
+        if mode == RunMode.MERGE_TEST:
+            manifest.target_branch = "test"
+            manifest.merge_test_checkpoint = self._prepare_merge_test_checkpoint(workspace_path, task_id)
+        if mode == RunMode.QA:
+            manifest.qa_checkpoint = self._prepare_qa_checkpoint(workspace_path, task_id)
         (run_dir / "run-manifest.json").write_text(
             self._json(manifest.to_dict()),
             encoding="utf-8",
@@ -1209,42 +2509,142 @@ class CodingOrchestrator:
             (
                 TaskPhase.PLANNING.value
                 if mode == RunMode.PLAN_ONLY
+                else TaskPhase.QA_VERIFYING.value
+                if mode == RunMode.QA
                 else TaskPhase.READY_TO_MERGE_TEST.value
                 if mode == RunMode.MERGE_TEST
                 else TaskPhase.IMPLEMENTING.value
             ),
         )
-        result = runner.run(
-            run_id=run_id,
-            run_dir=run_dir,
-            project_path=project_path,
-            workspace_path=workspace_path,
-            mode=mode,
-            timeout_seconds=timeout,
+        checkpoint = (
+            manifest.qa_checkpoint
+            if mode == RunMode.QA
+            else manifest.merge_test_checkpoint
+            if mode == RunMode.MERGE_TEST
+            else None
         )
+        checkpoint_failed = isinstance(checkpoint, dict) and checkpoint.get("status") == "failed"
+        if checkpoint_failed:
+            result = self._checkpoint_failed_result(
+                runner_name=runner.name,
+                run_dir=run_dir,
+                mode=mode,
+                checkpoint=checkpoint or {},
+            )
+        else:
+            try:
+                result = runner.run(
+                    run_id=run_id,
+                    run_dir=run_dir,
+                    project_path=project_path,
+                    workspace_path=workspace_path,
+                    mode=mode,
+                    timeout_seconds=timeout,
+                )
+            except Exception as exc:
+                result = self._runner_failed_result(
+                    runner_name=runner.name,
+                    run_dir=run_dir,
+                    mode=mode,
+                    error=exc,
+                )
 
         changed_files = self.diff_guard.changed_files(execution_root, before)
+        diff_guard_changed_files = self._diff_guard_changed_files_for_mode(mode, changed_files)
         violations = self.diff_guard.find_violations(
-            changed_files=changed_files,
+            changed_files=diff_guard_changed_files,
             allowed_paths=workflow.allowed_paths,
             forbidden_paths=workflow.forbidden_paths,
         )
+        if mode == RunMode.PLAN_ONLY and changed_files:
+            violations.extend(
+                f"plan-only run modified {path}; plan-only may read external context but must not write project files"
+                for path in changed_files
+            )
         self.diff_guard.write_diff_summary(result.artifacts.diff, changed_files, violations)
         report = dict(result.report)
         report["modified_files"] = changed_files
+        qa_artifacts = self._collect_qa_artifacts(workspace_path) if mode == RunMode.QA else {}
+        if qa_artifacts:
+            report["qa_artifacts"] = qa_artifacts
+        qa_tested_commit = self._git_head(workspace_path) if mode == RunMode.QA else ""
+        if qa_tested_commit:
+            report["tested_commit"] = qa_tested_commit
         status = str(result.status)
+        session_id = self._thread_id_from_artifact(result.artifacts.stdout) or self._codex_resume_session_id_for_task(task)
+        if session_id:
+            manifest.session_id = session_id
+            manifest.resume_session_id = manifest.resume_session_id or session_id
+            if self._is_codex_session_runner(runner.name):
+                manifest.attach_command = self._codex_attach_command(session_id)
+                manifest.resume_command = self._codex_resume_command(session_id, mode=mode)
+                manifest.session_visibility = manifest.session_visibility or "visible"
+            self._update_manifest_session_metadata(
+                manifest_path=result.artifacts.manifest,
+                session_id=session_id,
+                runner_name=runner.name,
+            )
         if violations:
             status = "blocked"
             report["status"] = status
             report["human_required"] = True
             report["risks"] = list(report.get("risks") or []) + violations
+            report["verification_limitations"] = list(report.get("verification_limitations") or []) + [
+                {
+                    "reason": "diff_guard_violation",
+                    "impact": "The run modified files outside the allowed workflow boundary, so Hermes cannot mark it safe.",
+                    "recovery_action": "Review diff.patch and rerun after constraining edits to allowed paths or explicitly approving the path change.",
+                    "fallback_evidence": str(result.artifacts.diff),
+                }
+            ]
             report["next_actions"] = list(report.get("next_actions") or []) + [
                 "人工检查越权 diff，确认是否丢弃或重跑。"
             ]
-            result.artifacts.report.write_text(self._json(report), encoding="utf-8")
+        else:
+            status = self._normalize_implementation_run_status(
+                mode=mode,
+                status=status,
+                changed_files=changed_files,
+            )
+            report["status"] = status
+            if mode == RunMode.IMPLEMENTATION and status in {
+                AgentRunStatus.READY_FOR_MERGE_TEST.value,
+                AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+            }:
+                manifest.implementation_checkpoint = self._prepare_implementation_checkpoint(workspace_path, task_id)
+                result.artifacts.manifest.write_text(
+                    self._json(manifest.to_dict()),
+                    encoding="utf-8",
+                )
+                if manifest.implementation_checkpoint.get("status") == "failed":
+                    status = AgentRunStatus.BLOCKED.value
+                    report["status"] = status
+                    report["human_required"] = True
+                    report["risks"] = list(report.get("risks") or []) + [
+                        "implementation 完成后无法创建 checkpoint commit，不能进入自动 QA。"
+                    ]
+                    report["verification_limitations"] = list(report.get("verification_limitations") or []) + [
+                        {
+                            "reason": "checkpoint_commit_failed",
+                            "impact": "Implementation changes were produced but not committed, so QA cannot safely run on a clean source branch.",
+                            "recovery_action": "配置 git user.name/user.email 或手动提交当前 implementation 改动后，重新触发 implementation 或 QA。",
+                            "fallback_evidence": str(manifest.implementation_checkpoint.get("error") or result.artifacts.stderr),
+                        }
+                    ]
+                    report["next_actions"] = list(report.get("next_actions") or []) + [
+                        "修复 implementation checkpoint commit 问题后再继续 QA。"
+                    ]
+        report = self._ensure_verification_limitations(report, status, result.artifacts)
+        result.artifacts.report.write_text(self._json(report), encoding="utf-8")
 
         task_status = self._task_status_for_run_result(mode, status)
         task_phase = self._task_phase_for_run_result(mode, status)
+        if mode == RunMode.MERGE_TEST and bool(report.get("human_required")) and status in {
+            AgentRunStatus.BLOCKED.value,
+            AgentRunStatus.COMPLETED_UNSTRUCTURED.value,
+        }:
+            task_status = TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS
+            task_phase = TaskPhase.READY_TO_MERGE_TEST
         current_task = self.ledger.get_task(task_id) or {}
         current_runner = (current_task.get("task_session") or {}).get("runner") or {}
         observed_active_run_id = str(current_runner.get("active_run_id") or "")
@@ -1265,9 +2665,14 @@ class CodingOrchestrator:
                 "artifact": artifact_record,
                 "workspace_path": str(workspace_path) if workspace_path else None,
                 "source_branch": self._source_branch_for_task(task, project_name)
-                if mode in {RunMode.IMPLEMENTATION, RunMode.MERGE_TEST}
+                if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}
                 else None,
                 "target_branch": "test" if mode == RunMode.MERGE_TEST else None,
+                "implementation_checkpoint": manifest.implementation_checkpoint
+                if mode == RunMode.IMPLEMENTATION
+                else None,
+                "qa_artifacts": qa_artifacts,
+                "tested_commit": qa_tested_commit,
                 "stale_completion": stale_completion,
                 "diff_guard": {
                     "changed_files": changed_files,
@@ -1276,6 +2681,7 @@ class CodingOrchestrator:
             },
         )
         if not stale_completion:
+            usable_session_id = "" if status == AgentRunStatus.RUNNER_FAILED.value else session_id
             self.ledger.update_task_session(
                 task_id,
                 {
@@ -1285,8 +2691,10 @@ class CodingOrchestrator:
                         "last_run_status": status,
                         "active_run_id": None,
                         "active_mode": None,
-                        "thread_id": self._thread_id_from_artifact(result.artifacts.stdout)
-                        or self._codex_resume_session_id_for_task(task),
+                        "resume_session_id": usable_session_id,
+                        "thread_id": usable_session_id,
+                        "session_id": usable_session_id,
+                        "attach_command": self._codex_attach_command(usable_session_id) if usable_session_id else "",
                     }
                 },
             )
@@ -1328,7 +2736,11 @@ class CodingOrchestrator:
     @staticmethod
     def _looks_like_task(text: str) -> bool:
         value = normalize_project_text(text)
-        return bool(_CODING_COMMAND_RE.match(value))
+        return bool(
+            _CODING_COMMAND_RE.match(value)
+            or _CODING_MODE_ENTER_RE.match(value)
+            or _CODING_MODE_EXIT_RE.match(value)
+        )
 
     @staticmethod
     def _gateway_user_is_authorized(gateway: Any, event: Any) -> bool:
@@ -1401,6 +2813,7 @@ class CodingOrchestrator:
             project_path=project_path,
             task_id=task["task_id"],
             run_id=run_id,
+            base_branch=self._source_base_branch_for_task(task),
             branch_name=self._source_branch_for_task(task, str(project_name)),
         )
 
@@ -1417,13 +2830,205 @@ class CodingOrchestrator:
         return None
 
     @staticmethod
+    def _diff_guard_changed_files_for_mode(mode: RunMode, changed_files: list[str]) -> list[str]:
+        if mode != RunMode.QA:
+            return changed_files
+        return [
+            path
+            for path in changed_files
+            if not path.startswith(".gstack/qa-reports/")
+        ]
+
+    @staticmethod
+    def _collect_qa_artifacts(workspace_path: Path | None) -> dict[str, str]:
+        if workspace_path is None:
+            return {}
+        qa_dir = workspace_path / ".gstack" / "qa-reports"
+        if not qa_dir.exists():
+            return {}
+        reports = sorted(qa_dir.glob("qa-report-*.md"), key=lambda path: path.stat().st_mtime, reverse=True)
+        baseline = qa_dir / "baseline.json"
+        screenshots = qa_dir / "screenshots"
+        artifacts: dict[str, str] = {}
+        if reports:
+            artifacts["report"] = str(reports[0])
+        if baseline.exists():
+            artifacts["baseline"] = str(baseline)
+        if screenshots.exists():
+            artifacts["screenshots_dir"] = str(screenshots)
+        return artifacts
+
+    @staticmethod
+    def _prepare_implementation_checkpoint(workspace_path: Path | None, task_id: str) -> dict[str, str]:
+        return CodingOrchestrator._prepare_checkpoint_commit(
+            workspace_path=workspace_path,
+            message=f"Implement {task_id} after implementation",
+        )
+
+    @staticmethod
+    def _prepare_qa_checkpoint(workspace_path: Path | None, task_id: str) -> dict[str, str]:
+        return CodingOrchestrator._prepare_checkpoint_commit(
+            workspace_path=workspace_path,
+            message=f"Implement {task_id} before QA",
+        )
+
+    @staticmethod
+    def _prepare_merge_test_checkpoint(workspace_path: Path | None, task_id: str) -> dict[str, str]:
+        return CodingOrchestrator._prepare_checkpoint_commit(
+            workspace_path=workspace_path,
+            message=f"Implement {task_id} before merge-test",
+        )
+
+    @staticmethod
+    def _prepare_checkpoint_commit(workspace_path: Path | None, message: str) -> dict[str, str]:
+        if workspace_path is None:
+            return {"status": "skipped", "reason": "no_workspace"}
+        if not (workspace_path / ".git").exists():
+            return {"status": "skipped", "reason": "not_git_repo"}
+        try:
+            status = subprocess.run(
+                ["git", "status", "--porcelain"],
+                cwd=workspace_path,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            if not status.stdout.strip():
+                head = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=workspace_path,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                )
+                return {"status": "clean", "head": head.stdout.strip()}
+            subprocess.run(
+                ["git", "add", "--all"],
+                cwd=workspace_path,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            subprocess.run(
+                ["git", "commit", "-m", message],
+                cwd=workspace_path,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=workspace_path,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            return {"status": "committed", "message": message, "head": head.stdout.strip()}
+        except Exception as exc:
+            return {
+                "status": "failed",
+                "reason": "checkpoint_commit_failed",
+                "error": str(exc),
+            }
+
+    @staticmethod
+    def _git_head(workspace_path: Path | None) -> str:
+        if workspace_path is None or not (workspace_path / ".git").exists():
+            return ""
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=workspace_path,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            return result.stdout.strip()
+        except Exception:
+            return ""
+
+    @staticmethod
     def _source_branch_for_task(task: dict[str, Any], project_name: str) -> str:
         session = task.get("task_session") or {}
         existing = session.get("source_branch")
         if existing:
             return str(existing)
-        safe_project = re.sub(r"[^A-Za-z0-9._-]+", "-", project_name.strip() or "project").strip("-")
-        return f"codex/{safe_project}-{task['task_id']}"
+        requirement = str(task.get("requirement_summary") or task.get("source", {}).get("raw_text") or "")
+        slug = CodingOrchestrator._semantic_branch_slug(requirement)
+        if not slug:
+            slug = CodingOrchestrator._slugify_ascii(project_name.strip() or "task")
+        return f"codex/{slug}-{CodingOrchestrator._task_short_id(str(task['task_id']))}"
+
+    @staticmethod
+    def _source_base_branch_for_task(task: dict[str, Any]) -> str:
+        session = task.get("task_session") or {}
+        existing = session.get("source_base_branch")
+        if existing:
+            return str(existing)
+        source = task.get("source") or {}
+        configured = source.get("source_base_branch") or source.get("base_branch")
+        return str(configured or "main")
+
+    @staticmethod
+    def _task_short_id(task_id: str) -> str:
+        return task_id.removeprefix("task_")
+
+    @staticmethod
+    def _semantic_branch_slug(text: str) -> str:
+        mapped_terms = [
+            ("修复", "fix"),
+            ("新增", "add"),
+            ("订单流", "orderflows"),
+            ("订单列表", "orders-list"),
+            ("订单", "orders"),
+            ("发货", "shipping"),
+            ("筛选", "filter"),
+            ("过滤", "filter"),
+            ("状态", "status"),
+            ("操作", "actions"),
+            ("按钮", "button"),
+            ("列表", "list"),
+        ]
+        tokens: list[str] = []
+        lowered = text.lower()
+        stop_words = {
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "to",
+            "of",
+            "for",
+            "with",
+            "task",
+            "project",
+            "system",
+            "需求",
+        }
+        for token in re.findall(r"[A-Za-z0-9]+", lowered):
+            if token in stop_words or len(token) <= 1:
+                continue
+            tokens.append(token)
+        for term, slug in mapped_terms:
+            if term in text:
+                tokens.extend(slug.split("-"))
+        deduped: list[str] = []
+        for token in tokens:
+            safe = CodingOrchestrator._slugify_ascii(token)
+            if safe and safe not in deduped:
+                deduped.append(safe)
+        return "-".join(deduped[:4]).strip("-")
+
+    @staticmethod
+    def _slugify_ascii(text: str) -> str:
+        return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", text.lower())).strip("-")
 
     @staticmethod
     def _latest_existing_implementation_workspace(task: dict[str, Any]) -> Path | None:
@@ -1440,13 +3045,344 @@ class CodingOrchestrator:
 
     def _merge_test_blocker(self, task: dict[str, Any]) -> str:
         task_id = str(task.get("task_id") or "")
-        if task.get("status") != TaskStatus.READY_FOR_REVIEW.value:
-            return f"[{task_id}] 当前状态是 {task.get('status')}，还不能 merge-to-test。"
+        if task.get("status") not in {
+            TaskStatus.READY_FOR_MERGE_TEST.value,
+            TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+        }:
+            if CodingOrchestrator._task_is_cancelled(task):
+                return CodingOrchestrator._cancelled_task_message(task)
+            if task.get("status") == TaskStatus.BLOCKED.value:
+                assessment = self._blocked_task_merge_test_assessment(task)
+                return (
+                    f"[{task_id}] 当前状态是 {task_status_display(task.get('status'))}，不能 merge-to-test。\n"
+                    f"原因：{assessment.get('reason') or 'blocked_task_not_mergeable'}\n"
+                    f"影响：{assessment.get('impact') or 'Hermes 不能证明该 blocked task 已安全完成实现。'}\n"
+                    f"恢复动作：{assessment.get('recovery_action') or '先恢复 implementation，或补齐结构化报告/工作区/session 后重试。'}"
+                )
+            return f"[{task_id}] 当前状态是 {task_status_display(task.get('status'))}，还不能 merge-to-test。"
         if self._merge_test_workspace(task) is None:
             return f"[{task_id}] 未找到 implementation worktree，无法续接 Codex session 执行 merge-to-test。"
-        if not self._codex_resume_session_id_for_task(task):
-            return f"[{task_id}] 未找到上一次 Codex thread_id，无法续接原 Codex session。"
         return ""
+
+    def _release_blocked_task_for_merge_test_if_allowed(
+        self,
+        task: dict[str, Any],
+        *,
+        accept_risk: bool = False,
+    ) -> dict[str, Any]:
+        assessment = self._blocked_task_merge_test_assessment(task)
+        if not assessment.get("mergeable") and not (accept_risk and assessment.get("requires_acceptance")):
+            return {}
+        task_id = str(task.get("task_id") or "")
+        release = {
+            "type": "blocked_merge_test_released",
+            "status": "ready",
+            "target_branch": "test",
+            "known_gaps": True,
+            "accepted_risk": bool(accept_risk and assessment.get("requires_acceptance")),
+            "source_run_id": assessment.get("source_run_id") or "",
+            "reason": assessment.get("reason") or "blocked_with_mergeable_known_gaps",
+            "impact": assessment.get("impact") or "存在已知验证缺口，merge-test 需要人工承担风险。",
+            "recovery_action": assessment.get("recovery_action") or "按 report 中恢复动作补充验证。",
+            "fallback_evidence": assessment.get("fallback_evidence") or "",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.ledger.update_status(task_id, TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value)
+        self.ledger.update_phase(task_id, TaskPhase.READY_TO_MERGE_TEST.value)
+        self.ledger.append_merge_record(task_id, release)
+        self.ledger.append_human_decision(
+            task_id,
+            {
+                "type": "blocked_merge_test_release",
+                "reason": release["reason"],
+                "impact": release["impact"],
+                "recovery_action": release["recovery_action"],
+                "fallback_evidence": release["fallback_evidence"],
+                "accepted_risk": release["accepted_risk"],
+                "created_at": release["created_at"],
+            },
+        )
+        return release
+
+    def _blocked_task_merge_test_assessment(self, task: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(task.get("task_id") or "")
+        if str(task.get("status") or "") != TaskStatus.BLOCKED.value:
+            return {"mergeable": False, "reason": "task_not_blocked"}
+        run = self._latest_implementation_run(task)
+        if not run:
+            return {
+                "mergeable": False,
+                "reason": "missing_implementation_run",
+                "impact": "没有 implementation run，无法证明代码已完成。",
+                "recovery_action": f"先执行 /coding implement {task_id}，或补齐 implementation 运行记录后重试。",
+            }
+        run_status = str(run.get("status") or "")
+        if run_status in {
+            AgentRunStatus.RUNNER_FAILED.value,
+            AgentRunStatus.FAILED.value,
+            TaskStatus.RUNNER_FAILED.value,
+            TaskStatus.FAILED.value,
+        }:
+            return {
+                "mergeable": False,
+                "requires_acceptance": True,
+                "source_run_id": str(run.get("run_id") or ""),
+                "reason": f"implementation_{run_status}",
+                "impact": "最近 implementation 结果不可信，不能直接合入 test。",
+                "recovery_action": "建议先恢复或重跑 implementation；如人工确认 source branch/worktree 已包含目标改动，可使用 --accept-risk 继续 merge-test。",
+                "fallback_evidence": str((run.get("artifact") or {}).get("summary") or (run.get("artifact") or {}).get("stderr") or ""),
+            }
+        if self._merge_test_workspace(task) is None:
+            return {
+                "mergeable": False,
+                "source_run_id": str(run.get("run_id") or ""),
+                "reason": "missing_implementation_worktree",
+                "impact": "没有可用于 merge-test 的 implementation worktree。",
+                "recovery_action": "恢复 source worktree，或重新执行 implementation 后再 merge-test。",
+            }
+        if not self._source_branch_for_blocked_merge_test(task, run):
+            return {
+                "mergeable": False,
+                "source_run_id": str(run.get("run_id") or ""),
+                "reason": "missing_source_branch",
+                "impact": "没有 source branch，Hermes 不知道应把哪条实现分支合入 test。",
+                "recovery_action": "补齐 task_session.source_branch 或重新执行 implementation 创建 source branch。",
+            }
+        if not self._codex_resume_session_id_for_task(task):
+            return {
+                "mergeable": False,
+                "requires_acceptance": True,
+                "source_run_id": str(run.get("run_id") or ""),
+                "reason": "missing_codex_session",
+                "impact": "无法续接原 Codex session，Hermes 将开启新的 Codex session 执行 merge-test，历史上下文可能不完整。",
+                "recovery_action": f"确认 source branch/worktree 正确后，执行 /coding merge-test {task_id} --accept-risk。",
+                "fallback_evidence": str(run.get("workspace_path") or self._merge_test_workspace(task) or ""),
+            }
+        report = self._read_report_json((run.get("artifact") or {}).get("report"))
+        if not report:
+            return {
+                "mergeable": False,
+                "requires_acceptance": True,
+                "source_run_id": str(run.get("run_id") or ""),
+                "reason": "missing_structured_report",
+                "impact": "缺少 report.json，Hermes 只能基于 source branch/worktree 和 run artifact 做人工风险放行。",
+                "recovery_action": f"检查 artifact 后如确认风险可接受，执行 /coding merge-test {task_id} --accept-risk。",
+                "fallback_evidence": str((run.get("artifact") or {}).get("summary") or (run.get("artifact") or {}).get("stdout") or (run.get("artifact") or {}).get("stderr") or run.get("workspace_path") or ""),
+            }
+        report_status = str(report.get("status") or run_status)
+        if report_status in {
+            AgentRunStatus.RUNNER_FAILED.value,
+            AgentRunStatus.FAILED.value,
+            TaskStatus.RUNNER_FAILED.value,
+            TaskStatus.FAILED.value,
+        }:
+            return {
+                "mergeable": False,
+                "requires_acceptance": True,
+                "source_run_id": str(run.get("run_id") or ""),
+                "reason": f"report_{report_status}",
+                "impact": "结构化报告明确运行失败，默认不合入 test；人工可在确认 source branch/worktree 无误后覆盖风险。",
+                "recovery_action": f"建议先修复失败原因并重跑 implementation；如确认可接受，执行 /coding merge-test {task_id} --accept-risk。",
+                "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
+            }
+        limitations = self._structured_verification_limitations(report)
+        if not limitations:
+            return {
+                "mergeable": False,
+                "requires_acceptance": True,
+                "source_run_id": str(run.get("run_id") or ""),
+                "reason": "missing_verification_limitation_details",
+                "impact": "blocked/partial 缺少完整结构化风险字段，默认不合入 test；人工可基于 summary/stdout/stderr 覆盖风险。",
+                "recovery_action": f"补齐验证受限结构化字段，或确认 artifact 后执行 /coding merge-test {task_id} --accept-risk。",
+                "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
+            }
+        disallowed_reason = self._disallowed_blocked_merge_test_reason(run, report, limitations)
+        if disallowed_reason:
+            return {
+                "mergeable": False,
+                "requires_acceptance": True,
+                "source_run_id": str(run.get("run_id") or ""),
+                "reason": disallowed_reason,
+                "impact": "该 blocked 类型风险较高，默认不合入 test；人工可在确认风险可接受后覆盖。",
+                "recovery_action": f"建议先处理阻断原因并重新执行 implementation；如确认可接受，执行 /coding merge-test {task_id} --accept-risk。",
+                "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
+            }
+        summary_text = " ".join(
+            [
+                str(report.get("summary_markdown") or ""),
+                " ".join(str(item) for item in report.get("risks") or []),
+                " ".join(str(item) for item in report.get("next_actions") or []),
+            ]
+        )
+        if self._report_says_no_implementation(summary_text):
+            return {
+                "mergeable": False,
+                "requires_acceptance": True,
+                "source_run_id": str(run.get("run_id") or ""),
+                "reason": "implementation_not_landed",
+                "impact": "报告显示代码未实际落地或无法实现，默认不合入 test；如果人工确认 source branch 已有目标改动，可覆盖风险。",
+                "recovery_action": f"先确认 source branch/worktree 是否确有目标改动；确认后执行 /coding merge-test {task_id} --accept-risk。",
+                "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
+            }
+        first_limitation = limitations[0]
+        return {
+            "mergeable": True,
+            "source_run_id": str(run.get("run_id") or ""),
+            "reason": str(first_limitation.get("reason") or "blocked_with_known_gaps"),
+            "impact": str(first_limitation.get("impact") or "存在已知验证缺口。"),
+            "recovery_action": str(first_limitation.get("recovery_action") or "按报告补充验证。"),
+            "fallback_evidence": str(first_limitation.get("fallback_evidence") or ""),
+        }
+
+    @staticmethod
+    def _latest_implementation_run(task: dict[str, Any]) -> dict[str, Any] | None:
+        for run in reversed(task.get("agent_runs") or []):
+            if run.get("mode") == RunMode.IMPLEMENTATION.value:
+                return run
+        return None
+
+    @staticmethod
+    def _structured_verification_limitations(report: dict[str, Any]) -> list[dict[str, Any]]:
+        required = {"reason", "impact", "recovery_action", "fallback_evidence"}
+        limitations = []
+        for item in report.get("verification_limitations") or []:
+            if not isinstance(item, dict):
+                continue
+            if all(str(item.get(key) or "").strip() for key in required):
+                limitations.append(item)
+        return limitations
+
+    @staticmethod
+    def _source_branch_for_blocked_merge_test(task: dict[str, Any], run: dict[str, Any]) -> str:
+        session = task.get("task_session") or {}
+        return str(session.get("source_branch") or run.get("source_branch") or "").strip()
+
+    @staticmethod
+    def _disallowed_blocked_merge_test_reason(
+        run: dict[str, Any],
+        report: dict[str, Any],
+        limitations: list[dict[str, Any]],
+    ) -> str:
+        diff_guard = run.get("diff_guard") or {}
+        if diff_guard.get("violations"):
+            return "diff_guard_violation"
+        limitation_reasons = {str(item.get("reason") or "") for item in limitations}
+        disallowed = {
+            "diff_guard_violation",
+            "runner_exception",
+            "codex_invalid_output_schema",
+            "checkpoint_commit_failed",
+            "blocked_or_partial_without_details",
+        }
+        matched = sorted(reason for reason in limitation_reasons if reason in disallowed)
+        if matched:
+            return matched[0]
+        if report.get("human_required") and str(report.get("summary_markdown") or "").strip() == "":
+            return "missing_implementation_summary"
+        return ""
+
+    @staticmethod
+    def _report_says_no_implementation(text: str) -> bool:
+        normalized = normalize_project_text(text)
+        negative_markers = (
+            "未实际变更",
+            "未实际修改",
+            "未实际落地",
+            "未落地",
+            "未实现",
+            "无法实现",
+            "不能实现",
+            "没有实际代码改动",
+            "未产生代码改动",
+            "未修改代码",
+        )
+        return any(marker in normalized for marker in negative_markers)
+
+    @staticmethod
+    def _blocked_merge_test_risk_confirmation_message(task_id: str, assessment: dict[str, Any]) -> str:
+        lines = [
+            f"[{task_id}] 当前是 blocked，但该阻断可由人工接受风险后继续 merge-test。",
+            f"风险原因：{assessment.get('reason') or 'unknown'}",
+            f"影响：{assessment.get('impact') or '缺少完整自动验证或结构化证据'}",
+            f"恢复动作：{assessment.get('recovery_action') or '建议补齐证据或重跑 implementation'}",
+        ]
+        fallback = str(assessment.get("fallback_evidence") or "").strip()
+        if fallback:
+            lines.append(f"替代证据：{fallback}")
+        lines.extend(
+            [
+                f"确认继续：/coding merge-test {task_id} --accept-risk",
+                "回复“确认”也会按上述命令继续；回复“取消”放弃。",
+            ]
+        )
+        return "\n".join(lines)
+
+    @staticmethod
+    def _merge_test_qa_risk_confirmation_message(
+        task_id: str,
+        qa_evidence: dict[str, str],
+        *,
+        include_reply_hint: bool = True,
+    ) -> str:
+        lines = [
+            f"[{task_id}] 最近 QA run 状态为 {qa_evidence.get('status')}，仍可由人工确认后继续 merge-test。",
+            f"影响：{qa_evidence.get('impact') or '缺少可信自动 QA 通过证据'}",
+            f"恢复动作：{qa_evidence.get('recovery_action') or '重新运行 QA 或人工确认风险'}",
+            f"确认继续：/coding merge-test {task_id} --confirm-qa-risk",
+        ]
+        if include_reply_hint:
+            lines.append("回复“确认”继续，或回复“取消”放弃。")
+        return "\n".join(lines)
+
+    @staticmethod
+    def _qa_evidence_for_merge_test(task: dict[str, Any]) -> dict[str, str]:
+        qa_run = CodingOrchestrator._latest_qa_run(task)
+        if not qa_run:
+            return {
+                "status": "missing",
+                "message": "未发现自动 QA 证据；本次 merge-test 仍按人工触发继续。",
+            }
+        qa_artifacts = qa_run.get("qa_artifacts") or {}
+        report_path = str(qa_artifacts.get("report") or "")
+        report = CodingOrchestrator._read_report_json((qa_run.get("artifact") or {}).get("report"))
+        limitations = [item for item in report.get("verification_limitations") or [] if isinstance(item, dict)]
+        limitation = limitations[0] if limitations else {}
+        status = str(qa_run.get("status") or "unknown")
+        session = task.get("task_session") or {}
+        current_head = CodingOrchestrator._git_head(
+            Path(str(session.get("worktree_path"))) if session.get("worktree_path") else None
+        )
+        tested_commit = str(qa_run.get("tested_commit") or report.get("tested_commit") or "")
+        evidence = {
+            "status": status,
+            "run_id": str(qa_run.get("run_id") or ""),
+            "report": report_path,
+            "message": f"最近 QA run={qa_run.get('run_id') or 'unknown'}，状态={status}"
+            + (f"，report={report_path}" if report_path else ""),
+        }
+        if tested_commit and current_head and tested_commit != current_head:
+            evidence.update(
+                {
+                    "status": "stale",
+                    "message": f"QA 证据已过期：tested_commit={tested_commit}，当前 HEAD={current_head}",
+                    "impact": "QA run 未覆盖当前 source branch HEAD。",
+                    "recovery_action": "重新运行 QA，或人工确认该提交差异不影响 merge-test。",
+                }
+            )
+        if status in {
+            AgentRunStatus.FAILED.value,
+            AgentRunStatus.RUNNER_FAILED.value,
+            AgentRunStatus.BLOCKED.value,
+            AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+        }:
+            evidence.update(
+                {
+                    "requires_confirmation": "true",
+                    "impact": str(limitation.get("impact") or ""),
+                    "recovery_action": str(limitation.get("recovery_action") or ""),
+                }
+            )
+        return evidence
 
     @staticmethod
     def _thread_id_from_artifact(path_value: Any) -> str:
@@ -1474,15 +3410,66 @@ class CodingOrchestrator:
             if value:
                 return value
         for run in reversed(task.get("agent_runs") or []):
-            if run.get("runner") != RunnerName.CODEX_CLI.value:
-                continue
-            if run.get("mode") != RunMode.IMPLEMENTATION.value:
+            if not self._is_codex_session_runner(str(run.get("runner") or "")):
                 continue
             artifact = run.get("artifact") or {}
             thread_id = self._thread_id_from_artifact(artifact.get("stdout"))
             if thread_id:
                 return thread_id
         return ""
+
+    @staticmethod
+    def _is_codex_session_runner(runner_name: str) -> bool:
+        return runner_name in {
+            RunnerName.CODEX_CLI.value,
+            RunnerName.HERMES_AUTONOMOUS_CODEX.value,
+        }
+
+    @staticmethod
+    def _runner_name_for_manifest(runner_name: str) -> RunnerName | str:
+        if runner_name == RunnerName.CODEX_CLI.value:
+            return RunnerName.CODEX_CLI
+        if runner_name == RunnerName.HERMES_AUTONOMOUS_CODEX.value:
+            return RunnerName.HERMES_AUTONOMOUS_CODEX
+        return runner_name
+
+    @staticmethod
+    def _incremental_context_for_resumed_session(task: dict[str, Any], mode: RunMode) -> str:
+        parts: list[str] = []
+        if mode == RunMode.IMPLEMENTATION:
+            parts.append("人工已确认计划。请基于既有 task session 继续实现已批准的计划。")
+        elif mode == RunMode.QA:
+            parts.append("实现已完成。请基于既有 task session 继续执行 QA，只运行 `$qa` 测试链路，不执行 merge-test。")
+        elif mode == RunMode.MERGE_TEST:
+            parts.append("人工已明确请求 merge-test。请基于既有 task session 继续，只执行 merge-to-test 交接。")
+        elif mode == RunMode.PLAN_ONLY:
+            parts.append("请基于既有 task session 继续规划，只吸收下面的新增反馈；如果包含需求变更，请先输出变更影响分析和短计划，不要直接实现。")
+
+        relevant_by_mode = {
+            RunMode.PLAN_ONLY: {"plan_feedback", "requirement_change", "implementation_confirmation_before_plan_ready"},
+            RunMode.IMPLEMENTATION: {"implementation_confirmed", "implementation_feedback", "requirement_change", "plan_feedback"},
+            RunMode.QA: {"implementation_confirmed", "implementation_feedback", "qa_requested", "requirement_change", "plan_feedback"},
+            RunMode.MERGE_TEST: {"merge_test_prepared", "merge_test_requested", "implementation_confirmed", "implementation_feedback", "requirement_change"},
+        }
+        relevant = relevant_by_mode.get(mode, set())
+        decisions = [
+            decision
+            for decision in task.get("human_decisions") or []
+            if not relevant or decision.get("type") in relevant
+        ]
+        for decision in decisions[-3:]:
+            text = normalize_project_text(str(decision.get("text") or "")).strip()
+            if not text:
+                continue
+            parts.append(f"- 人工反馈 {decision.get('type')}：{text}")
+            parts.extend(CodingOrchestrator._media_prompt_lines(list(decision.get("media") or []), indent="  "))
+        if mode in {RunMode.QA, RunMode.MERGE_TEST}:
+            session = task.get("task_session") or {}
+            if session.get("source_branch"):
+                parts.append(f"- 源分支：{session.get('source_branch')}")
+            if session.get("worktree_path"):
+                parts.append(f"- 实现 worktree：{session.get('worktree_path')}")
+        return "\n".join(parts).strip()
 
     def _wiki_docs_for_task(self, task: dict[str, Any], project_name: str) -> list[dict[str, Any]]:
         refs = self.wiki.search(task["requirement_summary"], {"project": project_name})
@@ -1501,6 +3488,69 @@ class CodingOrchestrator:
                 seen.add(ref_id)
         return docs
 
+    def _write_prompt_context_artifacts(
+        self,
+        *,
+        run_dir: Path,
+        task: dict[str, Any],
+        mode: RunMode,
+        source: dict[str, Any],
+        project_name: str,
+        wiki_docs: list[dict[str, Any]],
+        wiki_refs: list[dict[str, Any]],
+        confirmed_context: str,
+    ) -> dict[str, str]:
+        artifacts: dict[str, str] = {}
+        if wiki_docs:
+            wiki_path = run_dir / "wiki-context.md"
+            wiki_sections = []
+            for doc in wiki_docs:
+                title = str(doc.get("title") or "未命名")
+                ref_id = str(doc.get("id") or "unknown")
+                body = str(doc.get("body") or "").strip() or "无正文"
+                wiki_sections.append(f"## {ref_id}：{title}\n\n{body}")
+            wiki_path.write_text("\n\n".join(wiki_sections), encoding="utf-8")
+            artifacts["wiki_context"] = str(wiki_path)
+
+        if mode == RunMode.IMPLEMENTATION:
+            plan_path = run_dir / "confirmed-plan.md"
+            plan_text = confirmed_context.strip() or (
+                "未找到已确认 plan-only 摘要；如果无法安全实现，请返回 `status=blocked` 并说明需要人工补充什么。"
+            )
+            plan_path.write_text(plan_text, encoding="utf-8")
+            artifacts["confirmed_plan"] = str(plan_path)
+        elif mode in {RunMode.QA, RunMode.MERGE_TEST}:
+            implementation_path = run_dir / "implementation-context.md"
+            implementation_text = confirmed_context.strip() or (
+                "未找到上一次 implementation 上下文；如果无法安全继续，请返回 `status=blocked`。"
+            )
+            implementation_path.write_text(implementation_text, encoding="utf-8")
+            artifacts["implementation_context"] = str(implementation_path)
+
+        instructions_path = run_dir / "run-instructions.md"
+        instructions_path.write_text(self.prompt_builder.build_run_instructions(mode=mode), encoding="utf-8")
+        artifacts["run_instructions"] = str(instructions_path)
+
+        context_index_path = run_dir / "context-index.json"
+        artifacts["context_index"] = str(context_index_path)
+        index = {
+            "task_id": task.get("task_id"),
+            "project_name": project_name,
+            "requirement_summary": task.get("requirement_summary"),
+            "source": {
+                key: source[key]
+                for key in ("type", "title", "url", "project_name", "message_summary", "related_task_id")
+                if source.get(key)
+            },
+            "wiki_refs": [
+                {"id": ref.get("id"), "title": ref.get("title")}
+                for ref in wiki_refs
+            ],
+            "artifacts": dict(artifacts),
+        }
+        context_index_path.write_text(self._json(index), encoding="utf-8")
+        return artifacts
+
     @staticmethod
     def _is_source_doc_for_task(doc: dict[str, Any], task_id: str) -> bool:
         return any(source.get("task_id") == task_id for source in doc.get("source_refs", []))
@@ -1514,15 +3564,15 @@ class CodingOrchestrator:
             summary = CodingOrchestrator._read_text_excerpt(artifact.get("summary"), limit=5000)
             if summary:
                 return (
-                    f"Plan run: {run.get('run_id')}\n"
-                    f"Plan status: {run.get('status')}\n\n"
+                    f"计划 run：{run.get('run_id')}\n"
+                    f"计划状态：{run.get('status')}\n\n"
                     f"{summary}"
                 ).strip()
             report_summary = CodingOrchestrator._report_summary_markdown(artifact.get("report"))
             if report_summary:
                 return (
-                    f"Plan run: {run.get('run_id')}\n"
-                    f"Plan status: {run.get('status')}\n\n"
+                    f"计划 run：{run.get('run_id')}\n"
+                    f"计划状态：{run.get('status')}\n\n"
                     f"{report_summary}"
                 ).strip()
         return ""
@@ -1532,12 +3582,12 @@ class CodingOrchestrator:
         parts: list[str] = []
         session = task.get("task_session") or {}
         if session.get("source_branch"):
-            parts.append(f"Source branch: {session.get('source_branch')}")
+            parts.append(f"源分支：{session.get('source_branch')}")
         if session.get("worktree_path"):
-            parts.append(f"Implementation worktree: {session.get('worktree_path')}")
+            parts.append(f"实现 worktree：{session.get('worktree_path')}")
         for decision in task.get("human_decisions") or []:
             if decision.get("type") in {"implementation_confirmed", "plan_feedback", "implementation_feedback"}:
-                parts.append(f"Human decision {decision.get('type')}: {decision.get('text')}")
+                parts.append(f"人工决策 {decision.get('type')}：{decision.get('text')}")
         for run in reversed(task.get("agent_runs") or []):
             if run.get("mode") != RunMode.IMPLEMENTATION.value:
                 continue
@@ -1547,8 +3597,8 @@ class CodingOrchestrator:
                 summary = CodingOrchestrator._report_summary_markdown(artifact.get("report"))
             if summary:
                 parts.append(
-                    f"Implementation run: {run.get('run_id')}\n"
-                    f"Implementation status: {run.get('status')}\n\n"
+                    f"实现 run：{run.get('run_id')}\n"
+                    f"实现状态：{run.get('status')}\n\n"
                     f"{summary}"
                 )
                 break
@@ -1601,7 +3651,7 @@ class CodingOrchestrator:
             task_id=task["task_id"],
             run_id=run_id,
             mode=mode,
-            runner=runner_name if runner_name != RunnerName.CODEX_CLI.value else RunnerName.CODEX_CLI,
+            runner=self._runner_name_for_manifest(runner_name),
             source=task["source"],
             project_path=str(project_path),
             workspace_path=str(workspace_path) if workspace_path else None,
@@ -1611,14 +3661,30 @@ class CodingOrchestrator:
             forbidden_paths=workflow.forbidden_paths,
             task_phase=str(task.get("phase") or TaskPhase.DRAFT.value),
             source_branch=self._source_branch_for_task(task, self._project_name_for_path(str(project_path)) or project_path.name)
-            if mode in {RunMode.IMPLEMENTATION, RunMode.MERGE_TEST}
+            if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}
+            else None,
+            source_base_branch=self._source_base_branch_for_task(task)
+            if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}
             else None,
             timeout_seconds=timeout_seconds,
             deadline_at=(now + timedelta(seconds=timeout_seconds)).isoformat(),
             heartbeat_interval_seconds=self.heartbeat_interval_seconds,
             output_schema_path=str(run_dir / "report.schema.json"),
             created_at=now.isoformat(),
+            session_visibility="visible" if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST} else "background",
+            permission_profile=self._permission_profile(mode),
         )
+
+    def _timeout_seconds_for_mode(self, mode: RunMode, override: int | None = None) -> int:
+        if override is not None:
+            return override
+        if mode == RunMode.IMPLEMENTATION:
+            return self.implementation_timeout_seconds
+        if mode == RunMode.QA:
+            return self.qa_timeout_seconds
+        if mode == RunMode.MERGE_TEST:
+            return self.merge_test_timeout_seconds
+        return self.default_timeout_seconds
 
     @staticmethod
     def _write_report_schema(path: Path) -> None:
@@ -1636,14 +3702,27 @@ class CodingOrchestrator:
                 "risks",
                 "human_required",
                 "next_actions",
+                "verification_limitations",
+                "qa_artifacts",
+                "tested_commit",
             ],
             "properties": {
                 "runner": {"type": "string"},
                 "status": {
                     "type": "string",
-                    "enum": ["success", "failed", "blocked", "cancelled", "timeout", "completed_unstructured"],
+                    "enum": [
+                        "success",
+                        "failed",
+                        "blocked",
+                        "cancelled",
+                        "timeout",
+                        "completed_unstructured",
+                        "ready_for_merge_test",
+                        "ready_for_merge_test_with_known_gaps",
+                        "runner_failed",
+                    ],
                 },
-                "mode": {"type": "string", "enum": ["plan-only", "implementation", "merge-test"]},
+                "mode": {"type": "string", "enum": ["plan-only", "implementation", "qa", "merge-test"]},
                 "summary_markdown": {
                     "type": "string",
                     "description": "Human-readable Markdown summary or plan to show in Feishu.",
@@ -1667,8 +3746,33 @@ class CodingOrchestrator:
                     },
                 },
                 "risks": {"type": "array", "items": {"type": "string"}},
+                "verification_limitations": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "required": ["reason", "impact", "recovery_action", "fallback_evidence"],
+                        "properties": {
+                            "reason": {"type": "string"},
+                            "impact": {"type": "string"},
+                            "recovery_action": {"type": "string"},
+                            "fallback_evidence": {"type": "string"},
+                        },
+                    },
+                },
                 "human_required": {"type": "boolean"},
                 "next_actions": {"type": "array", "items": {"type": "string"}},
+                "qa_artifacts": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": ["report", "baseline", "screenshots_dir"],
+                    "properties": {
+                        "report": {"type": "string"},
+                        "baseline": {"type": "string"},
+                        "screenshots_dir": {"type": "string"},
+                    },
+                },
+                "tested_commit": {"type": "string"},
             },
         }
         path.write_text(CodingOrchestrator._json(schema), encoding="utf-8")
@@ -1688,11 +3792,290 @@ class CodingOrchestrator:
         }
 
     @staticmethod
+    def _artifact_set_for_run_dir(run_dir: Path) -> ArtifactSet:
+        return ArtifactSet(
+            run_dir=run_dir,
+            input_prompt=run_dir / "input-prompt.md",
+            manifest=run_dir / "run-manifest.json",
+            stdout=run_dir / "stdout.log",
+            stderr=run_dir / "stderr.log",
+            events=run_dir / "events.jsonl",
+            report=run_dir / "report.json",
+            summary=run_dir / "summary.md",
+            diff=run_dir / "diff.patch",
+        )
+
+    def _runner_failed_result(self, *, runner_name: str, run_dir: Path, mode: RunMode, error: Exception) -> RunResult:
+        artifacts = self._artifact_set_for_run_dir(run_dir)
+        artifacts.stdout.touch(exist_ok=True)
+        artifacts.stderr.write_text(str(error), encoding="utf-8")
+        summary = f"Runner failed before producing a structured result: {error}"
+        artifacts.summary.write_text(summary, encoding="utf-8")
+        report = {
+            "runner": runner_name,
+            "status": AgentRunStatus.RUNNER_FAILED.value,
+            "mode": mode.value,
+            "summary_markdown": summary,
+            "modified_files": [],
+            "test_commands": [],
+            "test_results": [],
+            "risks": ["Runner crashed or failed before a structured report was produced."],
+            "verification_limitations": [
+                {
+                    "reason": "runner_exception",
+                    "impact": "The requested run did not execute to completion, so no implementation or verification result can be trusted.",
+                    "recovery_action": "Inspect stderr, fix the runner invocation or environment, then rerun the same task.",
+                    "fallback_evidence": str(artifacts.stderr),
+                }
+            ],
+            "human_required": True,
+            "next_actions": ["Inspect runner stderr and rerun after correcting the runner failure."],
+            "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
+            "tested_commit": "",
+            "raw_stdout_ref": str(artifacts.stdout),
+            "raw_stderr_ref": str(artifacts.stderr),
+            "summary_ref": str(artifacts.summary),
+        }
+        artifacts.report.write_text(self._json(report), encoding="utf-8")
+        return RunResult(
+            status=AgentRunStatus.RUNNER_FAILED.value,
+            exit_code=None,
+            artifacts=artifacts,
+            report=report,
+        )
+
+    def _checkpoint_failed_result(
+        self,
+        *,
+        runner_name: str,
+        run_dir: Path,
+        mode: RunMode,
+        checkpoint: dict[str, Any],
+    ) -> RunResult:
+        artifacts = self._artifact_set_for_run_dir(run_dir)
+        artifacts.stdout.touch(exist_ok=True)
+        error = str(checkpoint.get("error") or "checkpoint commit failed")
+        artifacts.stderr.write_text(error, encoding="utf-8")
+        if mode == RunMode.MERGE_TEST:
+            summary = "merge-test 未启动：merge-test 前 checkpoint commit 失败。"
+            risk = "merge-test 前无法创建 checkpoint commit，不能保证 source branch 已包含本次实现改动。"
+            impact = "merge-test run 未执行，当前 source branch 可能缺少未跟踪实现文件。"
+            recovery_action = "配置 git user.name/user.email 或手动提交当前 implementation 改动后，重新触发 merge-test。"
+            next_actions = ["修复 checkpoint commit 问题后重新触发 merge-test。"]
+        else:
+            summary = "QA 未启动：QA 前 checkpoint commit 失败。"
+            risk = "QA 前无法创建 checkpoint commit，不能保证 `$qa` 在 clean working tree 上运行。"
+            impact = "QA run 未执行，当前缺少自动测试证据。"
+            recovery_action = "配置 git user.name/user.email 或手动提交当前 implementation 改动后，重新运行 QA。"
+            next_actions = ["修复 checkpoint commit 问题后重新触发 QA；也可以人工判断后继续 merge-test。"]
+        artifacts.summary.write_text(summary, encoding="utf-8")
+        report = {
+            "runner": runner_name,
+            "status": AgentRunStatus.BLOCKED.value,
+            "mode": mode.value,
+            "summary_markdown": summary,
+            "modified_files": [],
+            "test_commands": [],
+            "test_results": [],
+            "risks": [risk],
+            "verification_limitations": [
+                {
+                    "reason": "checkpoint_commit_failed",
+                    "impact": impact,
+                    "recovery_action": recovery_action,
+                    "fallback_evidence": str(artifacts.stderr),
+                }
+            ],
+            "human_required": True,
+            "next_actions": next_actions,
+            "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
+            "tested_commit": "",
+        }
+        artifacts.report.write_text(self._json(report), encoding="utf-8")
+        return RunResult(
+            status=AgentRunStatus.BLOCKED.value,
+            exit_code=None,
+            artifacts=artifacts,
+            report=report,
+        )
+
+    @staticmethod
+    def _codex_attach_command(session_id: str) -> str:
+        return f"codex resume {session_id}" if session_id else ""
+
+    @staticmethod
+    def _codex_resume_command(session_id: str, mode: RunMode | str | None = None) -> str:
+        if not session_id:
+            return ""
+        mode_value = mode.value if isinstance(mode, RunMode) else str(mode or "")
+        if mode_value in {
+            RunMode.IMPLEMENTATION.value,
+            RunMode.QA.value,
+            RunMode.MERGE_TEST.value,
+        }:
+            return f"codex exec resume --dangerously-bypass-approvals-and-sandbox {session_id} -"
+        return f'codex exec resume -c sandbox_mode="read-only" -c approval_policy="never" {session_id} -'
+
+    @staticmethod
+    def _mode_uses_controlled_bypass(mode: RunMode) -> bool:
+        return mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}
+
+    @staticmethod
+    def _permission_profile(mode: RunMode) -> str:
+        if mode == RunMode.PLAN_ONLY:
+            return "plan_read_only"
+        if mode == RunMode.IMPLEMENTATION:
+            return "implementation_controlled_elevated"
+        if mode == RunMode.QA:
+            return "qa_controlled_elevated"
+        if mode == RunMode.MERGE_TEST:
+            return "merge_test_git_elevated"
+        return "default"
+
+    @staticmethod
+    def _elevated_permissions_reason(mode: RunMode) -> str:
+        if mode == RunMode.PLAN_ONLY:
+            return (
+                "Plan-only may need to read Feishu/Lark documents, Swagger/OpenAPI specs, "
+                "private API metadata, package metadata, and authenticated context sources before producing a plan."
+            )
+        if mode == RunMode.QA:
+            return (
+                "QA requires dependency install, test execution, dev server/browser automation, "
+                "git metadata writes for QA fix commits, and QA artifact writes."
+            )
+        if mode == RunMode.IMPLEMENTATION:
+            return (
+                "Implementation requires dependency install, test execution, dev server/browser checks, "
+                "and git metadata writes before QA."
+            )
+        return "Merge-test requires git merge and push operations against the test branch."
+
+    @staticmethod
+    def _elevated_permission_scope(mode: RunMode) -> list[str]:
+        if mode == RunMode.PLAN_ONLY:
+            return [
+                "project file reads",
+                "Feishu/Lark document reads",
+                "Swagger/OpenAPI reads",
+                "private API metadata reads",
+                "network reads for planning context",
+                "no project file writes",
+            ]
+        if mode == RunMode.MERGE_TEST:
+            return ["git metadata", "source branch push", "test branch merge and push"]
+        return [
+            "dependency install",
+            "package manager caches",
+            "git metadata",
+            "dev server and browser QA",
+            "QA reports",
+        ]
+
+    @staticmethod
+    def _source_modification_boundary(mode: RunMode, workspace_path: Path | None, project_path: Path | None = None) -> str:
+        if mode == RunMode.PLAN_ONLY:
+            project = str(project_path) if project_path else "project workspace"
+            return (
+                f"plan-only may read project files under {project} and external planning context "
+                "such as Feishu/Lark docs, Swagger/OpenAPI, and API metadata; it must not modify project files."
+            )
+        workspace = str(workspace_path) if workspace_path else "task workspace"
+        return (
+            f"source code changes must stay within {workspace}; writes outside the workspace are limited to "
+            "dependency caches, git metadata, dev server/browser temporary files, and QA artifacts required for verification."
+        )
+
+    def _update_manifest_session_metadata(self, *, manifest_path: Path, session_id: str, runner_name: str) -> None:
+        if not manifest_path.exists():
+            return
+        try:
+            import json
+
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        manifest["session_id"] = session_id
+        manifest["resume_session_id"] = manifest.get("resume_session_id") or session_id
+        if self._is_codex_session_runner(runner_name):
+            manifest["attach_command"] = self._codex_attach_command(session_id)
+            manifest["resume_command"] = self._codex_resume_command(session_id, mode=manifest.get("mode"))
+            manifest["session_visibility"] = manifest.get("session_visibility") or "visible"
+        manifest_path.write_text(self._json(manifest), encoding="utf-8")
+
+    @staticmethod
+    def _status_requires_verification_limitations(status: str) -> bool:
+        return status in {
+            AgentRunStatus.BLOCKED.value,
+            AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+            AgentRunStatus.RUNNER_FAILED.value,
+            AgentRunStatus.TIMEOUT.value,
+        }
+
+    @staticmethod
+    def _normalize_implementation_run_status(
+        *,
+        mode: RunMode,
+        status: str,
+        changed_files: list[str],
+    ) -> str:
+        if mode not in {RunMode.IMPLEMENTATION, RunMode.QA}:
+            return status
+        if status == AgentRunStatus.TIMEOUT.value:
+            return (
+                AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value
+                if changed_files
+                else AgentRunStatus.RUNNER_FAILED.value
+            )
+        if mode != RunMode.IMPLEMENTATION:
+            return status
+        if status in {
+            AgentRunStatus.SUCCESS.value,
+            AgentRunStatus.READY_FOR_MERGE_TEST.value,
+        }:
+            return AgentRunStatus.READY_FOR_MERGE_TEST.value
+        if status in {
+            AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+        }:
+            return AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value
+        if status == AgentRunStatus.BLOCKED.value and changed_files:
+            return AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value
+        return status
+
+    def _ensure_verification_limitations(
+        self,
+        report: dict[str, Any],
+        status: str,
+        artifacts: ArtifactSet,
+    ) -> dict[str, Any]:
+        report = dict(report)
+        report.setdefault("verification_limitations", [])
+        if self._status_requires_verification_limitations(status) and not report["verification_limitations"]:
+            report["verification_limitations"] = [
+                {
+                    "reason": "blocked_or_partial_without_details",
+                    "impact": "The run ended in a blocked or partial state without structured recovery details.",
+                    "recovery_action": "Review report risks and stdout/stderr, then rerun with explicit recovery instructions.",
+                    "fallback_evidence": f"{artifacts.stdout}; {artifacts.stderr}",
+                }
+            ]
+        return report
+
+    @staticmethod
     def _task_status_for_run_result(mode: RunMode, status: str) -> TaskStatus:
         if mode == RunMode.PLAN_ONLY and status == AgentRunStatus.SUCCESS.value:
             return TaskStatus.PLANNED
+        if mode in {RunMode.IMPLEMENTATION, RunMode.QA} and status in {
+            AgentRunStatus.SUCCESS.value,
+            AgentRunStatus.READY_FOR_MERGE_TEST.value,
+        }:
+            return TaskStatus.READY_FOR_MERGE_TEST
+        if mode in {RunMode.IMPLEMENTATION, RunMode.QA} and status in {
+            AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+        }:
+            return TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS
         if mode == RunMode.MERGE_TEST and status == AgentRunStatus.SUCCESS.value:
-            return TaskStatus.DONE
+            return TaskStatus.MERGED_TEST
         return TaskStateMachine.task_status_for_run_status(status)
 
     @staticmethod
@@ -1704,6 +4087,8 @@ class CodingOrchestrator:
                 return TaskPhase.PLAN_READY
             if status == AgentRunStatus.BLOCKED.value:
                 return TaskPhase.BLOCKED
+            if status == AgentRunStatus.RUNNER_FAILED.value:
+                return TaskPhase.RUNNER_FAILED
             return TaskPhase.FAILED
         if mode == RunMode.MERGE_TEST:
             if status == AgentRunStatus.SUCCESS.value:
@@ -1712,13 +4097,35 @@ class CodingOrchestrator:
                 return TaskPhase.BLOCKED
             if status == AgentRunStatus.CANCELLED.value:
                 return TaskPhase.CANCELLED
+            if status == AgentRunStatus.RUNNER_FAILED.value:
+                return TaskPhase.RUNNER_FAILED
             return TaskPhase.FAILED
-        if status == AgentRunStatus.SUCCESS.value:
-            return TaskPhase.HUMAN_REVIEW
+        if mode == RunMode.QA:
+            if status in {
+                AgentRunStatus.SUCCESS.value,
+                AgentRunStatus.READY_FOR_MERGE_TEST.value,
+                AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+            }:
+                return TaskPhase.READY_TO_MERGE_TEST
+            if status == AgentRunStatus.BLOCKED.value:
+                return TaskPhase.BLOCKED
+            if status == AgentRunStatus.CANCELLED.value:
+                return TaskPhase.CANCELLED
+            if status == AgentRunStatus.RUNNER_FAILED.value:
+                return TaskPhase.RUNNER_FAILED
+            return TaskPhase.FAILED
+        if status in {
+            AgentRunStatus.SUCCESS.value,
+            AgentRunStatus.READY_FOR_MERGE_TEST.value,
+            AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+        }:
+            return TaskPhase.READY_TO_MERGE_TEST
         if status == AgentRunStatus.BLOCKED.value:
             return TaskPhase.BLOCKED
         if status == AgentRunStatus.CANCELLED.value:
             return TaskPhase.CANCELLED
+        if status == AgentRunStatus.RUNNER_FAILED.value:
+            return TaskPhase.RUNNER_FAILED
         return TaskPhase.FAILED
 
     @staticmethod
@@ -1768,11 +4175,16 @@ class CodingOrchestrator:
     def _run_implementation_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
         try:
             result = self.start_run(task_id, mode=RunMode.IMPLEMENTATION)
-            message = (
-                self._format_stale_run_completion_message(task_id, result)
-                if result.get("stale_completion")
-                else self._format_implementation_completion_message(task_id, result)
-            )
+            if result.get("stale_completion"):
+                message = self._format_stale_run_completion_message(task_id, result)
+            else:
+                implementation_message = self._format_implementation_completion_message(task_id, result)
+                qa_result = self._start_qa_after_implementation_if_ready(task_id, result)
+                message = (
+                    f"{implementation_message}\n\n---\n\n{self._format_qa_completion_message(task_id, qa_result)}"
+                    if qa_result
+                    else implementation_message
+                )
         except Exception as exc:
             try:
                 self.ledger.update_status(task_id, TaskStatus.FAILED.value)
@@ -1780,6 +4192,16 @@ class CodingOrchestrator:
                 pass
             message = f"[{task_id}] implementation run 启动或执行失败：{exc}\n请人工检查 Hermes 日志和 task ledger。"
         self._reply_if_possible(gateway, event, message, loop=loop)
+
+    def _start_qa_after_implementation_if_ready(self, task_id: str, result: dict[str, Any]) -> dict[str, Any] | None:
+        if result.get("stale_completion"):
+            return None
+        if result.get("task_status") not in {
+            TaskStatus.READY_FOR_MERGE_TEST.value,
+            TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+        }:
+            return None
+        return self.start_run(task_id, mode=RunMode.QA)
 
     def _start_background_merge_test(self, task_id: str, gateway: Any, event: Any) -> None:
         try:
@@ -1797,6 +4219,7 @@ class CodingOrchestrator:
     def _run_merge_test_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
         try:
             result = self.start_run(task_id, mode=RunMode.MERGE_TEST)
+            self._store_pending_action_from_merge_test_result(event, task_id, result)
             message = self._format_merge_test_completion_message(task_id, result)
         except Exception as exc:
             try:
@@ -1806,6 +4229,24 @@ class CodingOrchestrator:
                 pass
             message = f"[{task_id}] merge-test run 启动或执行失败：{exc}\n请人工检查 Hermes 日志和 task ledger。"
         self._reply_if_possible(gateway, event, message, loop=loop)
+
+    def _store_pending_action_from_merge_test_result(self, event: Any | None, task_id: str, result: dict[str, Any]) -> bool:
+        artifacts = result.get("artifacts") or {}
+        report = self._read_report_json(artifacts.get("report"))
+        if not bool(report.get("human_required")):
+            return False
+        task = self.ledger.get_task(task_id) or {}
+        qa_evidence = self._qa_evidence_for_merge_test(task) if task else {}
+        qa_flag = " --confirm-qa-risk" if qa_evidence.get("requires_confirmation") == "true" else ""
+        return self._store_pending_action_for_event(
+            event,
+            task_id=task_id,
+            action="merge_test_retry",
+            command_text=f"/coding merge-test {task_id}{qa_flag}",
+            reason=normalize_project_text(str(report.get("summary_markdown") or "merge-test 需要人工确认")),
+            run_id=str(result.get("run_id") or ""),
+            mode=RunMode.MERGE_TEST.value,
+        )
 
     @staticmethod
     def _format_run_completion_message(task_id: str, result: dict[str, Any]) -> str:
@@ -1822,7 +4263,7 @@ class CodingOrchestrator:
 
         lines = [
             f"[{task_id}] plan-only run 已完成：{result['run_id']}",
-            f"状态：{result['task_status']}",
+            f"状态：{task_status_display(result.get('task_status'))}",
         ]
         summary = CodingOrchestrator._read_text_excerpt(artifacts.get("summary"), limit=1800)
         if summary:
@@ -1862,7 +4303,7 @@ class CodingOrchestrator:
 
         lines = [
             f"[{task_id}] implementation run 已完成：{result['run_id']}",
-            f"状态：{result['task_status']}",
+            f"状态：{task_status_display(result.get('task_status'))}",
         ]
         summary = CodingOrchestrator._read_text_excerpt(artifacts.get("summary"), limit=1600)
         if summary:
@@ -1878,7 +4319,72 @@ class CodingOrchestrator:
             lines.extend(["", "下一步："])
             lines.extend(f"- {item}" for item in next_actions[:5])
 
-        lines.extend(["", "提醒：插件不会自动合并或发布；请人工 review 后再 merge test / 发布测试环境。"])
+        status = str(result.get("task_status") or "")
+        if status == TaskStatus.READY_FOR_MERGE_TEST.value:
+            lines.extend(
+                [
+                    "",
+                    "下一步：",
+                    f"- 开发和验证完成，当前等待人工执行 merge test。确认后发送 /coding merge-test {task_id}。",
+                ]
+            )
+        elif status == TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value:
+            lines.extend(
+                [
+                    "",
+                    "下一步：",
+                    f"- 开发完成但存在已知验证缺口。按恢复动作补验证后，发送 /coding merge-test {task_id}。",
+                ]
+            )
+        lines.extend(["", "提醒：插件不会自动合并或发布测试环境；merge-test 也需要人工触发。"])
+        lines.extend(["", f"artifact：{artifacts.get('run_dir')}"])
+        return "\n".join(lines)
+
+    @staticmethod
+    def _format_qa_completion_message(task_id: str, result: dict[str, Any]) -> str:
+        artifacts = result.get("artifacts") or {}
+        report = {}
+        report_path = Path(str(artifacts.get("report") or ""))
+        if report_path.exists():
+            try:
+                import json
+
+                report = json.loads(report_path.read_text(encoding="utf-8"))
+            except Exception:
+                report = {}
+
+        lines = [
+            f"[{task_id}] QA run 已完成：{result['run_id']}",
+            f"状态：{task_status_display(result.get('task_status'))}",
+        ]
+        summary = CodingOrchestrator._read_text_excerpt(artifacts.get("summary"), limit=1600)
+        if summary:
+            lines.extend(["", "QA 摘要：", summary])
+
+        qa_artifacts = report.get("qa_artifacts") or {}
+        if qa_artifacts.get("report"):
+            lines.extend(["", f"QA report：{qa_artifacts.get('report')}"])
+            health_score = CodingOrchestrator._qa_health_score_from_report_path(qa_artifacts.get("report"))
+            if health_score:
+                lines.append(f"QA health score：{health_score}")
+
+        risks = [str(item) for item in report.get("risks") or [] if str(item).strip()]
+        if risks:
+            lines.extend(["", "风险："])
+            lines.extend(f"- {item}" for item in risks[:5])
+
+        limitations = report.get("verification_limitations") or []
+        if limitations:
+            lines.extend(["", "已知缺口："])
+            for item in limitations[:3]:
+                if isinstance(item, dict):
+                    lines.append(f"- {item.get('reason') or 'unknown'}：{item.get('recovery_action') or ''}")
+
+        next_actions = [str(item) for item in report.get("next_actions") or [] if str(item).strip()]
+        if next_actions:
+            lines.extend(["", "下一步："])
+            lines.extend(f"- {item}" for item in next_actions[:5])
+
         lines.extend(["", f"artifact：{artifacts.get('run_dir')}"])
         return "\n".join(lines)
 
@@ -1888,7 +4394,7 @@ class CodingOrchestrator:
         return "\n".join(
             [
                 f"[{task_id}] 旧 {result.get('mode') or 'agent'} run 已完成但不是当前任务最新 run：{result.get('run_id')}",
-                f"当前任务状态：{result.get('current_task_status') or 'unknown'}",
+                f"当前任务状态：{task_status_display(result.get('current_task_status'))}",
                 f"原因：任务期间已有更新 run：{result.get('observed_active_run_id') or 'unknown'}",
                 "处理：仅保留本次 artifact 用于审计，不用它回退 Task Ledger 状态。",
                 "",
@@ -1911,7 +4417,7 @@ class CodingOrchestrator:
 
         lines = [
             f"[{task_id}] merge-test run 已完成：{result['run_id']}",
-            f"状态：{result['task_status']}",
+            f"状态：{task_status_display(result.get('task_status'))}",
         ]
         summary = CodingOrchestrator._read_text_excerpt(artifacts.get("summary"), limit=1600)
         if summary:
@@ -1927,7 +4433,24 @@ class CodingOrchestrator:
             lines.extend(["", "下一步："])
             lines.extend(f"- {item}" for item in next_actions[:5])
 
-        lines.extend(["", "提醒：已允许 merge/push test；发布测试环境仍需人工。"])
+        if bool(report.get("human_required")):
+            lines.extend(
+                [
+                    "",
+                    "下一步：回复“确认”继续当前 merge-test，或直接发送 /coding merge-test "
+                    f"{task_id}。",
+                    "提醒：本次 merge-test 尚未完成；Hermes 会优先续接待确认动作，不会把确认词交给 LLM rewrite。",
+                ]
+            )
+        else:
+            lines.extend(
+                [
+                    "",
+                    "下一步：确认测试环境符合预期后，发送 /coding complete "
+                    f"{task_id} 手动标记完成。",
+                    "提醒：已允许 merge/push test；发布测试环境仍需人工。merge-test 成功不代表 task 已完成。",
+                ]
+            )
         lines.extend(["", f"artifact：{artifacts.get('run_dir')}"])
         return "\n".join(lines)
 

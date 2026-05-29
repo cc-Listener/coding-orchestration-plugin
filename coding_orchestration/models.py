@@ -13,10 +13,46 @@ class TaskStatus(str, Enum):
     QUEUED = "queued"
     RUNNING = "running"
     BLOCKED = "blocked"
-    READY_FOR_REVIEW = "ready_for_review"
+    READY_FOR_MERGE_TEST = "ready_for_merge_test"
+    READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS = "ready_for_merge_test_with_known_gaps"
+    RUNNER_FAILED = "runner_failed"
     FAILED = "failed"
+    MERGED_TEST = "merged_test"
     DONE = "done"
     CANCELLED = "cancelled"
+
+
+TASK_STATUS_LABELS_ZH: dict[TaskStatus, str] = {
+    TaskStatus.NEW: "新建",
+    TaskStatus.NEEDS_HUMAN: "待人工确认",
+    TaskStatus.PLANNED: "已规划",
+    TaskStatus.QUEUED: "排队中",
+    TaskStatus.RUNNING: "运行中",
+    TaskStatus.BLOCKED: "受阻",
+    TaskStatus.READY_FOR_MERGE_TEST: "等待手动执行 merge test",
+    TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS: "待合并测试（有已知缺口）",
+    TaskStatus.RUNNER_FAILED: "Runner 失败",
+    TaskStatus.FAILED: "失败",
+    TaskStatus.MERGED_TEST: "已合并 test，待人工完成",
+    TaskStatus.DONE: "已完成",
+    TaskStatus.CANCELLED: "已取消",
+}
+
+
+def task_status_label_zh(status: TaskStatus | str | None) -> str:
+    if status is None:
+        return "未知"
+    try:
+        return TASK_STATUS_LABELS_ZH[TaskStatus(status)]
+    except ValueError:
+        return "未知"
+
+
+def task_status_display(status: TaskStatus | str | None) -> str:
+    if status is None:
+        return "未知"
+    value = status.value if isinstance(status, TaskStatus) else str(status)
+    return f"{task_status_label_zh(value)}({value})"
 
 
 class TaskPhase(str, Enum):
@@ -27,8 +63,8 @@ class TaskPhase(str, Enum):
     PLAN_APPROVED = "plan_approved"
     GITOPS_PREPARING = "gitops_preparing"
     IMPLEMENTING = "implementing"
-    IMPLEMENTATION_DONE = "implementation_done"
-    HUMAN_REVIEW = "human_review"
+    QA_VERIFYING = "qa_verifying"
+    RUNNER_FAILED = "runner_failed"
     BUGFIXING = "bugfixing"
     READY_TO_MERGE_TEST = "ready_to_merge_test"
     MERGED_TEST = "merged_test"
@@ -48,16 +84,21 @@ class AgentRunStatus(str, Enum):
     TIMEOUT = "timeout"
     ORPHANED = "orphaned"
     COMPLETED_UNSTRUCTURED = "completed_unstructured"
+    READY_FOR_MERGE_TEST = "ready_for_merge_test"
+    READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS = "ready_for_merge_test_with_known_gaps"
+    RUNNER_FAILED = "runner_failed"
 
 
 class RunMode(str, Enum):
     PLAN_ONLY = "plan-only"
     IMPLEMENTATION = "implementation"
+    QA = "qa"
     MERGE_TEST = "merge-test"
 
 
 class RunnerName(str, Enum):
     CODEX_CLI = "codex_cli"
+    HERMES_AUTONOMOUS_CODEX = "hermes_autonomous_codex"
     CODEX_APP_SERVER = "codex_app_server"
     CLAUDE_CODE = "claude_code"
     GEMINI = "gemini"
@@ -102,6 +143,7 @@ class RunManifest:
     forbidden_paths: list[str]
     task_phase: str
     source_branch: str | None
+    source_base_branch: str | None
     timeout_seconds: int
     deadline_at: str
     heartbeat_interval_seconds: int
@@ -109,9 +151,20 @@ class RunManifest:
     created_at: str
     pid: int | None = None
     process_group_id: int | None = None
+    session_id: str | None = None
+    attach_command: str | None = None
+    resume_command: str | None = None
+    session_visibility: str | None = None
     resume_session_id: str | None = None
     target_branch: str | None = None
+    permission_profile: str | None = None
     dangerous_bypass: bool = False
+    elevated_permissions_reason: str | None = None
+    elevated_permission_scope: list[str] = field(default_factory=list)
+    source_modification_boundary: str | None = None
+    implementation_checkpoint: dict[str, Any] | None = None
+    qa_checkpoint: dict[str, Any] | None = None
+    merge_test_checkpoint: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)

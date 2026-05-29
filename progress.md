@@ -1,0 +1,1397 @@
+# 进度日志
+
+## 会话：2026-05-19
+
+### 阶段 1：复盘与需求收敛
+- **状态：** complete
+- **开始时间：** 2026-05-19
+- 执行的操作：
+  - 查看 Hermes `task_43141b20c03e` 的 llm-wiki、run summary、report、workspace diff。
+  - 提炼出 coding plugin 的主要问题：状态机粗、验证受限无恢复、分支名不可读、非交互 session 不可见。
+- 创建/修改的文件：
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
+### 阶段 2：优化计划整理
+- **状态：** complete
+- 执行的操作：
+  - 将优化项按 P0/P1/P2 分组。
+  - 补充验证受限解决方案。
+  - 补充 Codex session 可见化方案。
+- 创建/修改的文件：
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
+## 测试结果
+| 测试 | 输入 | 预期结果 | 实际结果 | 状态 |
+|------|------|---------|---------|------|
+| 规划文件检查 | `ls task_plan.md findings.md progress.md` | 初始不存在 | 已确认不存在并创建 | passed |
+| session catchup | `session-catchup.py /Users/xiaojing/.hermes` | 无未同步上下文阻断 | 无输出，无阻断 | passed |
+
+## 错误日志
+| 时间戳 | 错误 | 尝试次数 | 解决方案 |
+|--------|------|---------|---------|
+| 2026-05-19 | 初始无规划文件 | 1 | 已创建三份规划文件 |
+
+### 阶段 46：`task_26603ef00507` 真实流程跟踪文档
+- **状态：** complete
+- 执行的操作：
+  - 读取 `task_plan.md`、`progress.md`、`findings.md`，并执行 planning skill 的 session catchup；结果为 Codex 原生 session 解析未实现，无阻断。
+  - 查询 `task_26603ef00507` 的 ledger、source、human decisions、agent runs、active bindings。
+  - 读取 `run_6205d109d808` 的 `input-prompt.md`、`run-instructions.md`、`run-manifest.json`、`report.json`、`summary.md`、`stdout.log` 和 `stderr.log` 关键证据。
+  - 新建真实 task 流程跟踪文档，覆盖飞书输入、项目补充、Coding Mode 绑定、plan-only run、Codex session、Figma 解析和下一步 demo 脚本。
+- 创建/修改的文件：
+  - `docs/task_26603ef00507-flow-trace-20260527.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - `rtk git diff --check`：passed，无输出。
+- 验证结果：
+  - `rtk git diff --check`：passed，无输出。
+
+### 阶段 47：`task_26603ef00507` Demo 文档精简
+- **状态：** complete
+- 执行的操作：
+  - 将 `docs/task_26603ef00507-flow-trace-20260527.md` 改为演示短版。
+  - 保留 task 状态卡片、用户输入、时间线、Codex session、prompt 瘦身、Figma 解析、plan 结论和下一步命令。
+  - 移除现场演示不必展开的细节说明和过长 implementation 预期链路。
+- 创建/修改的文件：
+  - `docs/task_26603ef00507-flow-trace-20260527.md`
+  - `task_plan.md`
+  - `progress.md`
+- 验证结果：
+  - `rtk git diff --check`：passed，无输出。
+- 验证结果：
+  - `rtk git diff --check`：passed，无输出。
+
+### 阶段 48：补充 LLM/Codex 步骤拆解
+- **状态：** complete
+- 执行的操作：
+  - 在 `docs/task_26603ef00507-flow-trace-20260527.md` 中新增“步骤拆解：LLM 与 Codex 做了什么”。
+  - 将流程拆成进入 Coding Mode、需求 rewrite、项目补充、plan-only 启动、Figma 解析、report 生成、状态更新七步。
+  - 更新 `task_plan.md` 记录阶段 48。
+- 创建/修改的文件：
+  - `docs/task_26603ef00507-flow-trace-20260527.md`
+  - `task_plan.md`
+  - `progress.md`
+
+## 五问重启检查
+| 问题 | 答案 |
+|------|------|
+| 我在哪里？ | 阶段 6：P0-A 自然语言 Coding Mode，测试先行 |
+| 我要去哪里？ | 完成 P0-A 到 P0-G 的最小实现和 focused/full unittest 验证 |
+| 目标是什么？ | 实现 Hermes/Codex coding plugin P0 优化 |
+| 我学到了什么？ | 见 `findings.md`，当前入口集中在 orchestrator/runner/model/schema |
+| 我做了什么？ | 恢复上下文，读取仓库结构/git 状态/核心入口，并把 P0 拆成实现与测试阶段 |
+
+### 阶段 6：上下文恢复与代码入口确认
+- **状态：** complete
+- 执行的操作：
+  - 读取 `task_plan.md`、`findings.md`、`progress.md`。
+  - 运行 session catchup；结果为 Codex 原生 session 解析尚未实现，无阻断。
+  - 查看 git 状态：当前 `main...origin/main [ahead 1]`，未跟踪 `.omm/`、`task_plan.md`、`findings.md`、`progress.md`。
+  - 查看仓库结构和核心入口：`orchestrator.py`、`models.py`、`state_machine.py`、`runners/codex_cli.py`、`prompt_builder.py`、相关 tests。
+  - 更新 `task_plan.md`，将 P0 拆成阶段 6-13，每阶段包含测试项和实现项。
+- 创建/修改的文件：
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
+### 阶段 6：P0 RED 测试补充
+- **状态：** complete
+- 执行的操作：
+  - 为 Coding Mode 入口、高/低置信度自然语言、退出模式补充测试。
+  - 为语义分支名、manifest session/attach 元数据、自然语言 prepare merge test、runner_failed fallback、状态机新增状态、verification_limitations 补充测试。
+  - 运行 focused unittest：`rtk python3 -m unittest tests.test_gateway_trigger tests.test_orchestrator_run_flow tests.test_codex_cli_runner tests.test_state_machine`。
+- 测试结果：
+  - **预期失败**：入口短语未触发、mode 事件未处理、分支仍为 `codex/<project>-<task_id>`、manifest 缺 `session_id`、fallback report 缺 `verification_limitations`、runner 启动异常未生成 `runner_failed` report、新状态枚举缺失。
+- 创建/修改的文件：
+  - `tests/test_gateway_trigger.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `tests/test_codex_cli_runner.py`
+  - `tests/test_state_machine.py`
+
+### 阶段 7-12：P0 最小实现
+- **状态：** complete
+- 执行的操作：
+  - 实现 `进入coding` / `退出coding` 会话级 Coding Mode，高置信度自然语言自动创建 task 并启动 plan-only，低置信度进入人工确认。
+  - 实现自然语言 “准备 merge test” 分流到 prepare 阶段，不启动 implementation / merge-test run。
+  - 将 implementation 分支名改为 `codex/<semantic-slug>-<task-short-id>`，并保留已有 `source_branch` 兼容。
+  - 扩展 `RunManifest`，回写 `session_id`、`attach_command`、`resume_command`、`session_visibility`。
+  - 为 runner 启动异常和 orchestrator runner exception 生成 `runner_failed` report.json。
+  - 扩展 `TaskStatus`、`TaskPhase`、`AgentRunStatus` 和状态机映射。
+  - 扩展 report schema / prompt contract / fallback report / diff guard violation，确保 blocked/partial 有 `verification_limitations`。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/models.py`
+  - `coding_orchestration/state_machine.py`
+  - `coding_orchestration/runners/codex_cli.py`
+  - `coding_orchestration/prompt_builder.py`
+
+### 阶段 13：验证
+- **状态：** complete
+- 测试结果：
+  - `rtk python3 -m unittest tests.test_gateway_trigger tests.test_orchestrator_run_flow tests.test_codex_cli_runner tests.test_state_machine`：59 tests passed。
+  - `rtk python3 -m unittest`：未发现测试，返回 `NO TESTS RAN`。
+  - `rtk python3 -m unittest discover`：未发现测试，返回 `NO TESTS RAN`。
+  - `rtk python3 -m unittest discover -s tests`：94 tests passed。
+  - 完成前复验：`rtk python3 -m unittest discover -s tests`：94 tests passed。
+  - 完成前复验：`rtk git diff --check`：passed，无输出。
+- 备注：
+  - Codex CLI 帮助确认可用 `codex resume <session_id>` 打开交互会话、`codex exec resume <session_id> -` 续跑；本实现写入这些命令到 manifest/task_session。
+
+### 阶段 14：加载到 Hermes 并冒烟
+- **状态：** complete
+- 执行的操作：
+  - 使用提升权限执行 `rtk hermes gateway restart`，成功重启 Gateway 并加载当前 symlink 插件。
+  - 执行 `rtk hermes plugins list`，确认 `coding_orchestration` 为 enabled。
+  - 执行 `rtk proxy curl -sS http://127.0.0.1:8642/health`，确认 API server 返回 `{"status":"ok","platform":"hermes-agent"}`。
+  - 查看 `rtk hermes logs --since 2m`，确认 Gateway 连接 `api_server` 和 `feishu`，且不再出现 `unknown hook 'command:commands'`。
+  - 使用 Hermes venv 通过插件管理器加载并调用 `coding` command handler，确认 `coding`、`coding-help` 已注册，coding/codex 相关命令共 21 个，`/coding help` 内容能返回。
+- 测试结果：
+  - `rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - `rtk hermes plugins list`：passed，`coding_orchestration enabled`。
+  - `rtk proxy curl -sS http://127.0.0.1:8642/health`：passed。
+  - `rtk hermes logs --since 2m`：passed，Gateway running with 2 platforms，未见未知 hook 警告。
+  - `rtk /Users/xiaojing/.hermes/hermes-agent/venv/bin/python3 -c ...get_plugin_command_handler("coding")...`：passed。
+  - 加载后复验 `rtk python3 -m unittest discover -s tests`：94 tests passed。
+  - 加载后复验 `rtk git diff --check`：passed，无输出。
+  - 加载后复查 `rtk proxy curl -sS http://127.0.0.1:8642/health`：passed。
+- 验证受限记录：
+  - reason：OpenAI-compatible `POST /v1/chat/completions` 和 `hermes -z "/coding help"` 不触发 plugin slash command handler，而是进入主 agent；这不是插件加载失败。
+  - impact：无法用本地 chat API 证明 Feishu/Gateway slash command 分发会返回 `/coding help`。
+  - recovery_action：使用真实 Feishu 会话发送 `/coding help`、`进入coding`、低置信度需求和 `退出coding` 做端到端验收；或在 Hermes Gateway 测试 harness 中构造 Gateway Event 调用 `pre_gateway_dispatch`。
+  - fallback_evidence：插件管理器中 `coding`/`coding-help` 已注册，handler 可返回新版帮助；Gateway 日志显示插件加载后运行正常，health 正常。
+
+### 阶段 15：Coding Mode 查询误建 task 修复
+- **状态：** complete
+- 问题：
+  - 用户在 Coding Mode 中输入“现在有多少个task”，期望等价于 `/coding list`。
+  - 实际被当成自然语言任务创建，产生新的低置信度 task。
+- 根因：
+  - `_handle_coding_mode_gateway_message` 在 mode 开启后仅分流 `prepare merge test`，其余自然语言无条件进入 `_create_task_from_text`。
+- 已完成：
+  - 增加 RED 回归测试：`test_gateway_coding_mode_list_question_does_not_create_task`，确认查询不会创建 task。
+  - 调整低置信度测试：Coding Mode 下低置信度需求只回复确认，不写入 ledger。
+  - 实现 list 查询意图分流，命中后调用 `_format_task_list_for_event`。
+  - 实现明确任务意图判断；不明确输入回复“未创建 task”，不会落 ledger。
+  - 实现创建前低置信度项目确认；项目识别不足时只提示补项目或显式 `/coding task --project ...`。
+- 验证结果：
+  - RED：新增/调整的两个 focused tests 在修复前失败，分别暴露低置信度落 ledger、list 查询未分流。
+  - GREEN：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_low_confidence_natural_language_asks_confirmation tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_list_question_does_not_create_task`：passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_gateway_trigger`：45 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：95 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health`：passed。
+  - Hermes 插件状态：`rtk hermes plugins list`：`coding_orchestration enabled`。
+  - Hermes 日志：Gateway 连接 `api_server` 和 `feishu`，`Gateway running with 2 platform(s)`。
+
+### 阶段 16：task list 输出字段优化
+- **状态：** complete
+- 问题：
+  - 当前列表输出为 `task_id | phase=... | status=... | project_path`。
+  - 用户期望返回状态、id、项目名称、任务简单描述。
+- 已完成：
+  - 增加 RED 回归测试：`test_gateway_task_list_shows_status_id_project_and_description`，要求列表包含 `状态=...`、`id=...`、`项目=...`、`任务=...`，且不直接展示项目路径。
+  - 将 `command_coding_list` 和 Gateway/Coding Mode list 统一到同一个 formatter。
+  - 新格式：`- 状态=<status> | id=<task_id> | 项目=<project_name> | 任务=<requirement_summary>`；当前 active task 仍用 `*` 标记。
+- 验证结果：
+  - RED：新增测试在修复前失败，实际输出仍为 `phase/status/path`。
+  - GREEN：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_task_list_shows_status_id_project_and_description`：passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_gateway_trigger tests.test_plugin_registration`：47 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：96 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health`：passed。
+  - Hermes 插件状态：`rtk hermes plugins list`：`coding_orchestration enabled`。
+  - Hermes 日志：Gateway 连接 `api_server` 和 `feishu`，`Gateway running with 2 platform(s)`。
+
+### 阶段 17：移除 `/coding-*` 与 `/codex-*` 兼容别名
+- **状态：** complete
+- 问题：
+  - 帮助文案仍展示“兼容别名”，且插件注册层仍注册 `/coding-*` 与 `/codex-*` 旧命令。
+  - 用户要求只保留 `/coding <action>`。
+- 已完成：
+  - 增加/调整 RED 测试：旧 `/coding-task`、`/codex-task` 不再触发 Gateway hook，不再进入 plugin。
+  - 调整插件注册测试：只允许注册 `coding` 一个 slash command。
+  - 调整帮助测试：帮助不再包含“兼容别名”、`/codex`、`/coding-`。
+  - 修改 `_CODING_COMMAND_RE`，要求 `/coding` 后必须是空白或结束，避免 `/coding-task` 被单词边界误匹配。
+  - 移除 `coding_orchestration/__init__.py` 中所有旧别名注册，只保留 `coding`。
+  - 删除未注册的 `command_codex_task` 旧 helper。
+  - 更新 `README.md`、`PLUGIN_TECHNICAL_SOLUTION.md` 中旧兼容说明。
+- 验证结果：
+  - RED：targeted tests 在实现前失败，暴露旧别名仍匹配、旧命令仍注册、帮助仍含兼容别名。
+  - GREEN：`rtk python3 -m unittest tests.test_gateway_trigger tests.test_plugin_registration tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_help_lists_commands_and_usage tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_legacy_coding_aliases_do_not_enter_plugin tests.test_docs_and_install_entry`：8 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：97 tests passed。
+  - 旧别名残留扫描：`rtk rg -n "兼容别名|/coding-\\*|/codex-\\*|旧命令仍兼容|Compatibility alias|codex-task|codex-list|codex-use|codex-cancel|codex-delete|codex-status|command_codex" ...`：仅剩“不再兼容”的文档说明和负向测试。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health`：passed。
+  - Hermes 插件状态：`rtk hermes plugins list`：`coding_orchestration enabled`。
+  - 插件管理器验证：Hermes venv 中 `get_plugin_commands()` 对 `coding_orchestration` 只返回 `['coding']`。
+
+### 阶段 18：已完成 task 从 blocked 收敛到 prepare merge test
+- **状态：** complete
+- 问题：
+  - 真实 `task_43141b20c03e` 已经由人工确认完成，但 ledger 仍是 `status=blocked`、`phase=blocked`。
+  - 最新 run 的 blocked 主要来自 diff guard / 验证受限，不代表实现仍未完成。
+- 根因：
+  - `command_prepare_merge_test` 原先只允许旧评审/实现完成状态和 `ready_for_merge_test_with_known_gaps`。
+  - 对已有 implementation run 的 `blocked` 状态没有人工收敛路径。
+- 已完成：
+  - 增加 RED 回归测试：blocked implementation task 经人工 prepare 后应转为 `ready_for_merge_test_with_known_gaps`。
+  - 实现 `_status_update_for_prepare_merge_test`：已有 implementation run 的 `blocked` task，可在人工 prepare 时转入 `ready_for_merge_test_with_known_gaps`。
+  - prepare merge record 增加 `known_gaps` 标记。
+  - 使用新逻辑更新真实 `task_43141b20c03e`。
+- 验证结果：
+  - RED：修复前 targeted test 失败，返回“当前状态是 blocked，还不能准备 merge-to-test”。
+  - GREEN：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_prepare_merge_test_turns_blocked_implementation_into_ready_with_known_gaps tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_prepare_merge_to_test_is_manual_interface_only tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_mode_prepare_merge_test_natural_language_does_not_start_implementation`：3 tests passed。
+  - 真实 ledger 更新：`task_43141b20c03e` 已变为 `status=ready_for_merge_test_with_known_gaps`、`phase=ready_to_merge_test`，最新 merge record 为 `known_gaps=True`。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：98 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+
+### 阶段 19：merge-test 耗时排查
+- **状态：** complete
+- 问题：
+  - 用户执行 `/coding merge-test task_43141b20c03e` 体感耗时接近 4 分钟，需要确认是否有阻塞。
+- 证据：
+  - Gateway 在 2026-05-19 18:19:51 收到命令，ledger 在 18:23:43 更新为 `status=done`、`phase=merged_test`，总耗时约 3 分 52 秒。
+  - 最新 run 为 `/Users/xiaojing/.hermes/coding-orchestration/runs/task_43141b20c03e/run_cc72448ac5b1`，`report.json` 为 `status=success`、`mode=merge-test`。
+  - `run-manifest.json` 记录 visible session：`session_id=019e3f3e-04bf-7ec3-85df-8cbb5a2a4184`，`attach_command=codex resume 019e3f3e-04bf-7ec3-85df-8cbb5a2a4184`。
+- 根因：
+  - runner 没有卡死；耗时主要来自完整 merge-to-test Git 流程：读取 skill、检查并提交 source 分支改动、push source、切换/更新 `test`、执行 merge、解析冲突、创建 merge commit、push `test`、最终核对本地/远端提交。
+  - merge 阶段出现内容冲突：`src/components/order/orderFlowFilterPresetUtils.test.ts`。runner 保留双方测试覆盖后完成 merge commit。
+  - stderr 中两条 Codex models manager `missing field models` 刷新错误是噪声，未导致 run 失败。
+- 结果：
+  - source 提交：`c5019ffe070ad19fc9eea84d008bf4deb96b02b5`。
+  - merge commit：`cdd6e91a562b12bb7933b8ef286ee73914d1503b`。
+  - `origin/test` 已指向 merge commit，task 台账为 `done/merged_test`。
+
+### 阶段 20：TaskStatus 中文标识与对外单状态展示
+- **状态：** complete
+- 决策：
+  - 用户侧只展示 `TaskStatus`；`TaskPhase` 先保留为内部过程字段，不直接删除。
+  - 理由：`TaskPhase` 当前还写入 ledger、run manifest、run-result phase 映射和测试，立即删除需要 schema/历史数据迁移，超出本轮最小改动。
+- 已完成：
+  - 在 `models.py` 增加 `TASK_STATUS_LABELS_ZH`、`task_status_label_zh`、`task_status_display`。
+  - `/coding list`、`/coding status`、`/coding use` 和 run 完成消息统一显示 `中文标签(英文code)`，例如 `受阻(blocked)`、`已规划(planned)`。
+  - 标准用户可见状态输出不再显示 `phase`。
+- 验证结果：
+  - `rtk python3 -m unittest tests.test_state_machine`：8 tests passed。
+  - `rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_task_list_shows_status_id_project_and_description tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_group_status_command_dispatches tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_unstructured_completion_reply_includes_stderr_excerpt`：3 tests passed。
+  - `rtk python3 -m unittest discover -s tests`：99 tests passed。
+  - `rtk git diff --check`：passed，无输出。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health`：passed。
+  - Hermes 插件状态：`rtk hermes plugins list`：`coding_orchestration enabled`。
+
+### 阶段 21：implementation 完成后默认等待 merge-test
+- **状态：** complete
+- 问题：
+  - 开发完成后不应再落入 `blocked`；正常完成并验证成功后应默认进入“等待手动执行 merge test”的状态。
+- 已完成：
+  - 新增 `TaskStatus.READY_FOR_MERGE_TEST` / `AgentRunStatus.READY_FOR_MERGE_TEST`，中文显示为 `等待手动执行 merge test(ready_for_merge_test)`。
+  - implementation run 的 `success` 归一为 `ready_for_merge_test`，phase 内部写为 `ready_to_merge_test`。
+  - implementation run 若返回 `blocked` 但检测到允许范围内已有改动，归一为 `ready_for_merge_test_with_known_gaps`，避免实现已产出却停在 blocked。
+  - diff guard 越权、runner_failed、缺少人工输入、未产生实现改动的 blocked 仍保留阻断状态。
+  - 更新 prompt contract，要求 Codex 在实现完成且仅验证受限时返回 `ready_for_merge_test_with_known_gaps`，不要返回 `blocked`。
+- 验证结果：
+  - RED：新增回归测试先失败，分别暴露缺少 `ready_for_merge_test` 状态，以及 implementation blocked 后仍落 ledger blocked。
+  - GREEN：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_success_enters_ready_for_merge_test_status tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_blocked_after_changes_enters_known_gaps_ready_status`：2 tests passed。
+  - `rtk python3 -m unittest tests.test_state_machine`：9 tests passed。
+  - `rtk python3 -m unittest discover -s tests`：102 tests passed。
+  - `rtk git diff --check`：passed，无输出。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health`：passed。
+  - Hermes 插件状态：`rtk hermes plugins list`：`coding_orchestration enabled`。
+
+### 阶段 22：移除旧兼容 task status
+- **状态：** complete
+- 问题：
+  - 旧的实现完成、验证部分完成、待评审兼容状态仍存在，导致状态体系不统一。
+- 已完成：
+  - 从 `TaskStatus`、`AgentRunStatus`、中文 label、状态机转移、run status 映射中移除旧兼容状态。
+  - report schema 和 prompt contract 不再允许/提示旧兼容状态。
+  - `/coding prepare-merge-test` 和 `/coding merge-test` 只接受 `ready_for_merge_test` / `ready_for_merge_test_with_known_gaps` 作为可合并状态；`blocked` 仍只能通过已有 implementation run 的人工收敛路径转入 known gaps。
+  - 内部 `TaskPhase` 也移除了未使用的旧阶段常量，避免状态命名残留。
+  - 文档和规划文件同步移除旧状态描述。
+- 验证结果：
+  - RED：新增 `test_legacy_compat_task_statuses_are_removed` 先失败，暴露旧状态仍存在于 enum。
+  - GREEN：`rtk python3 -m unittest tests.test_state_machine`：9 tests passed。
+  - 定向 orchestration：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_prepare_merge_to_test_is_manual_interface_only tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_merge_test_resumes_codex_session_and_marks_done tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_success_enters_ready_for_merge_test_status tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_blocked_after_changes_enters_known_gaps_ready_status tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_mode_prepare_merge_test_natural_language_does_not_start_implementation`：5 tests passed。
+  - `rtk python3 -m unittest discover -s tests`：102 tests passed。
+  - `rtk git diff --check`：passed，无输出。
+  - 旧兼容状态关键字残留扫描：生产代码和用户文档无结果。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health`：passed。
+  - Hermes 插件状态：`rtk hermes plugins list`：`coding_orchestration enabled`。
+
+### 阶段 23：ready_for_merge_test 语义收敛
+- **状态：** complete
+- 用户口径：
+  - 开发完成且验证成功后进入 `ready_for_merge_test`。
+  - Hermes 告知人工执行 `/coding merge-test <task_id>`，再进入 merge-test run。
+- 已完成：
+  - 将 `ready_for_merge_test` 中文标识改为 `等待手动执行 merge test(ready_for_merge_test)`。
+  - implementation 完成消息中明确输出 `/coding merge-test <task_id>`。
+  - `TaskStateMachine` 允许 `ready_for_merge_test -> queued` 和 `running -> done`，匹配人工触发 merge-test 的 TaskStatus 流程。
+  - 更新 prompt contract、README 和技术方案状态推进描述。
+- 验证结果：
+  - RED：新增 targeted tests 先失败，暴露旧中文标识和 completion message 未提示具体 merge-test 命令。
+  - GREEN：`rtk python3 -m unittest tests.test_state_machine`：11 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：105 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 旧中文语义扫描：`rtk rg -n "等待合并到 test|等待合并" ...`：无残留。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health`：passed。
+  - Hermes 插件状态：`rtk hermes plugins list`：`coding_orchestration enabled`。
+
+### 阶段 24：task 级 Codex session 复用
+- **状态：** complete
+- 问题：
+  - 用户以 `task_52725d8d6ff5` 为例反馈：每次 plan、bugfix、coding 开始都会新起 Codex session，需要重复塞入很大的上下文。
+- 发现：
+  - 当前 runner 只有 `merge-test` 会读取 `run-manifest.json` 的 `resume_session_id` 并执行 `codex exec resume`。
+  - `task_52725d8d6ff5` 的 ledger 当前已有 `resume_session_id=019e48a9-4fa0-7bd3-9fde-338b9d50e116`，但历史 plan/implementation 已经产生多个 run/session；本次不迁移历史 artifact，只保证后续 run 复用 task 级 session。
+  - `codex exec resume --help` 未提供 `--output-schema`、`--sandbox`、`-C`，因此 resumed run 通过增量 prompt 继续要求结构化 JSON，并保留 report fallback 兜底。
+- 已完成：
+  - `CodexCliRunner` 在任何 mode 发现 manifest 中有 `resume_session_id` 时，都使用 `codex exec resume <session_id> -`；merge-test 仍额外带 bypass。
+  - `start_run` 在启动前从 `task_session.runner.resume_session_id` / `thread_id` 或历史 run stdout 解析 task 级 session，并预写入本次 manifest。
+  - 首个 run 解析到 thread/session 后，同时写入 `resume_session_id`、`thread_id`、`session_id`、`attach_command`。
+  - 有既有 session 的后续 run 使用 `PromptBuilder.build_incremental`，只包含本轮新增反馈、mode、workspace/source 信息和输出契约，不再重复注入完整 LLM Wiki / confirmed plan。
+- 验证结果：
+  - RED：新增 targeted tests 先失败，分别暴露 implementation 仍走新 `codex exec`、后续 manifest 启动前没有 `resume_session_id`。
+  - GREEN：`rtk python3 -m unittest tests.test_codex_cli_runner.CodexCliRunnerTest.test_implementation_command_resumes_task_session_when_manifest_has_resume_id tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_task_reuses_one_codex_session_with_incremental_prompt`：2 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_codex_cli_runner tests.test_orchestrator_run_flow`：59 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：107 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health`：passed。
+  - Hermes 插件状态：`rtk hermes plugins list`：`coding_orchestration enabled`。
+
+### 阶段 25：Codex prompt 中文化
+- **状态：** complete
+- 问题：
+  - 用户要求把交给 Codex 的每段 prompt 转化为中文。
+- 已完成：
+  - 完整 prompt 中文化：`编码任务`、`需求`、`来源`、`项目`、`工作流`、`LLM Wiki 引用`、`必需输出`。
+  - 增量 prompt 中文化：`编码任务增量`、`复用任务 Session 的本轮增量`、`本轮新增信息`。
+  - mode contract 中文化：`计划阶段契约`、`GitOps 实现阶段契约`、`Merge-to-test 阶段契约`、检查清单。
+  - orchestrator 注入的 plan / implementation / merge-test 上下文标签中文化。
+  - 保留机器契约英文：JSON 字段名、status code、命令、skill 名、branch 名。
+- 验证结果：
+  - RED：新增/调整 targeted tests 先失败，暴露旧英文标题仍在 prompt 中。
+  - GREEN：`rtk python3 -m unittest tests.test_router_prompt_summary.RouterPromptSummaryTest.test_prompt_builder_includes_workflow_and_wiki_refs tests.test_router_prompt_summary.RouterPromptSummaryTest.test_prompt_builder_makes_plan_only_and_gitops_contracts_explicit tests.test_router_prompt_summary.RouterPromptSummaryTest.test_prompt_builder_incremental_prompt_is_chinese tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_task_reuses_one_codex_session_with_incremental_prompt tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_prompt_hands_confirmed_plan_to_codex_superpowers_worktree_flow`：5 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_router_prompt_summary tests.test_orchestrator_run_flow`：56 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：108 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 旧英文 prompt 标题扫描：`rtk rg -n "Coding Task|Required Outputs|Plan-only Contract|GitOps Implementation Contract|Merge-to-test Contract|..." coding_orchestration README.md PLUGIN_TECHNICAL_SOLUTION.md`：实际 prompt 生成路径无残留。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health`：passed。
+  - Hermes 插件状态：`rtk hermes plugins list`：`coding_orchestration enabled`。
+
+### 阶段 26：首次 Codex prompt 极简化
+- **状态：** complete
+- 用户口径：
+  - 首次 prompt 不需要给当前阶段。
+  - 工作目录不需要给，Codex session 本身已在该目录打开。
+  - 测试命令和禁止范围不需要给，项目内已有规则和约束。
+- 执行计划：
+  - 先调整 prompt builder / orchestrator 测试，锁定极简 prompt 和 context artifact 引用。
+  - 再最小改动 `PromptBuilder.build()` 与 `CodingOrchestrator.start_run()`，把大上下文写入 run 级 artifact。
+  - 最后运行定向测试、全量测试、空白检查，并重启 Hermes 验证加载。
+- 已完成：
+  - 首次 `plan-only` prompt 改为目标、来源、相关上下文、执行要求、输出要求。
+  - 首次 `implementation` prompt 只引用 `confirmed-plan.md`，不再内联完整 plan 正文。
+  - 首次 `merge-test` prompt 只引用 `implementation-context.md`，不再给工作目录、测试命令、禁止范围或完整 GitOps 契约。
+  - 每个 run 写入 `context-index.json`；按需写入 `wiki-context.md`、`confirmed-plan.md`、`implementation-context.md`。
+  - 增量 prompt 保留 task session 复用说明和本轮新增信息，但去掉原始项目目录、当前 workspace、模式等字段。
+  - README 和技术方案同步更新为 artifact 引用式 prompt。
+- 验证结果：
+  - RED：新测试先失败，暴露 `PromptBuilder.build()` 不支持 `context_artifacts`、首次 prompt 仍内联 workflow/wiki/plan，增量 prompt 仍包含工作目录。
+  - GREEN：`rtk python3 -m unittest tests.test_router_prompt_summary tests.test_orchestrator_run_flow`：57 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：109 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 旧 prompt 关键词扫描：生产代码和用户文档无旧 GitOps/LLM Wiki 正文注入描述残留。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health`：passed。
+  - Hermes 插件状态：`rtk hermes plugins list`：`coding_orchestration enabled`。
+- 验证受限记录：
+  - reason：本轮验证确认了插件加载和单元/集成测试，没有通过真实飞书消息创建新 task 来检查实际 Codex 首次 prompt。
+  - impact：真实 Feishu Gateway 到 Codex CLI 的端到端 prompt 仍需在用户会话中抽样确认。
+  - recovery_action：在飞书中发送一个新 coding 任务，检查 run 目录下 `input-prompt.md`、`context-index.json`、`wiki-context.md` 是否符合极简格式。
+  - fallback_evidence：109 个测试通过，Hermes health 正常，`coding_orchestration` 插件为 enabled，旧关键词扫描无生产路径残留。
+
+### 阶段 27：`task_52725d8d6ff5` 耗时分析
+- **状态：** complete
+- 执行的操作：
+  - 查询 Hermes ledger 中 `task_52725d8d6ff5` 的 task_session、agent_runs、human_decisions、merge_records。
+  - 读取 6 个 run artifact：`run_22c6884d9d6f`、`run_536692c88c2b`、`run_b3856ecdc32c`、`run_d8d8997b8a35`、`run_0e5da707dc2a`、`run_a58942d664f3`。
+  - 用 run artifact 文件时间还原耗时，用 stdout command events 统计每轮命令数量，用 report/stderr 提取 blocked/验证受限原因。
+- 结论：
+  - plan-only 三轮分别约 3m57s、3m55s、4m14s；主要由大 prompt、新 session、重复读取项目/接口/代码上下文造成。
+  - implementation 首轮约 16m36s；主要由复杂 UI/API 实现、TDD/skill 强制流程、缺 `.api-spec.json`、缺 `node_modules`、验证重试造成。
+  - bugfix/返工轮约 8m29s；主要由完整上下文重复注入、用户 UI 反馈二次实现、全量 lint/build:test 与 Sentry fallback、`dist/` diff_guard violation 造成。
+  - merge-test 约 8m22s；主要由 commit/push、test worktree 占用、merge 冲突解析和 push 校验造成。
+- 验证受限记录：
+  - reason：Codex stdout events 没有逐命令时间戳，本轮只能用 `input-prompt.md` 创建时间到 `report.json` 修改时间估算每个 run 总耗时。
+  - impact：无法精确拆分“模型思考时间”和“单条 shell 命令执行时间”的比例。
+  - recovery_action：在 runner 中记录 timeline events（run_started、prompt_ready、command_started/completed、report_written），并把每条 command 的 duration 写入 report/manifest。
+  - fallback_evidence：run artifact 文件时间、stdout command 数量、report test_results / verification_limitations、stderr 错误已能支撑阶段级耗时判断。
+
+### 阶段 28：Codex QA Run 编排计划整理
+- **状态：** complete
+- 用户口径：
+  - 自动测试链路交给 Codex 的 `$qa` skill，Hermes 不自研测试执行器。
+  - Hermes 负责 QA run 调度、task session 复用、QA artifact 回收、状态归一和 merge-test gate。
+- 执行的操作：
+  - 读取 `task_plan.md`、`findings.md`、`progress.md` 并运行 session catchup。
+  - 读取 `$qa` skill 的关键约束：clean working tree、diff-aware mode、浏览器测试、截图留证、报告输出、atomic fix commits。
+  - 在 `task_plan.md` 追加阶段 28-31：QA run 编排、QA 前 checkpoint commit、QA merge-test gate、run timeline / merge-test preflight。
+  - 在 `findings.md` 记录 QA 职责边界和 `$qa` 对 Hermes 编排的约束。
+- 创建/修改的文件：
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - `rtk git diff --check`：passed，无输出。
+
+### 阶段 49：补充 implementation 已启动后的真实步骤
+- **状态：** complete
+- 执行的操作：
+  - 查询 `task_26603ef00507` 最新 ledger，确认状态为 `running / implementing`，active run 为 `run_75079e08c896`。
+  - 读取 `run_a5bfa1e45703` 和 `run_87699d118884` 的 manifest、input prompt、summary，确认两次 plan revision 分别来自需求变更和计划反馈。
+  - 读取 `run_75079e08c896` 的 manifest、input prompt、run instructions、confirmed plan 和 stdout，确认 implementation workspace、source branch、session 复用、高权限边界和 Codex 当前执行进展。
+  - 更新 demo trace 文档，补充需求变更、计划反馈、确认实现、TDD/依赖安装/测试推进等未记录步骤。
+- 创建/修改的文件：
+  - `docs/task_26603ef00507-flow-trace-20260527.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 备注：
+  - 本轮只整理计划和发现，不改生产代码，不运行全量 unittest。
+
+### 阶段 30：QA merge-test gate 口径调整
+- **状态：** complete
+- 用户口径：
+  - QA run 不能作为 `/coding merge-test` 的硬性前置条件，应是可选证据。
+- 执行的操作：
+  - 将 `task_plan.md` 的阶段 30 改为“QA merge-test 可选证据 gate”。
+  - 调整测试/实现计划：没有 QA run 时允许 merge-test，但提示缺少自动 QA 证据；有 QA run 时才校验 tested commit、status、known gaps。
+  - 更新 `findings.md`，把“强制 QA gate”改为“可选 QA 证据提示”。
+- 验证结果：
+  - `rtk git diff --check`：passed，无输出。
+
+### 阶段 50：implementation 长时间无反馈诊断
+- **状态：** complete
+- 执行的操作：
+  - 查询 `task_26603ef00507` ledger，确认仍为 `running / implementing`，active run 为 `run_75079e08c896`。
+  - 读取 active run stdout/stderr 和 artifact 目录，确认尚未生成 `report.json`，但 stdout 持续有 Codex 进展。
+  - 使用进程检查确认 `codex exec resume`、dev server 和验证相关进程仍存在。
+  - 查看 worktree 状态，确认已产生路由、`order-list-2` 逻辑、页面和组件等改动。
+  - 将“长时间无反馈”的根因记录为 Hermes 编排层缺少 heartbeat/progress/timeline，而不是 Codex 完全无执行。
+- 关键状态：
+  - `order-list-2/logic.test.ts`：4 tests passed。
+  - `SearchForm/search-tag-state.test.ts`：10 tests passed。
+  - `@vben/web-ele typecheck`：失败，但错误集中在仓库既有类型问题。
+  - 浏览器可达性：dev server 可打开 `/order-management/order-list-2`，但未登录时重定向到登录页。
+- 创建/修改的文件：
+  - `docs/task_26603ef00507-flow-trace-20260527.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
+### 阶段 51：implementation timeout 被映射为 failed 的根因
+- **状态：** complete
+- 执行的操作：
+  - 读取 `run_75079e08c896/report.json`，确认 fallback report 的 `status=timeout`、`verification_limitations.reason=runner_timeout`。
+  - 读取 run manifest，确认 `created_at=2026-05-27T02:48:21Z`、`deadline_at=2026-05-27T03:48:21Z`、`timeout_seconds=3600`。
+  - 查询 ledger，确认 task 已为 `failed / failed`，`last_run_status=timeout`。
+  - 查看 `CodexCliRunner.run_subprocess()` 和 `TaskStateMachine`，确认 timeout fallback 与状态映射路径。
+- 根因：
+  - Codex implementation 超过一小时默认 timeout，未能在 deadline 前输出最终结构化 JSON。
+  - runner 生成 status=`timeout` 的 fallback report。
+  - 状态机把 `timeout` 映射为 task `failed`。
+  - fallback risk 文案过于泛化，误导为 schema/report 问题。
+- 创建/修改的文件：
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+
+### 阶段 28-30：QA run 编排实现
+- **状态：** complete
+- 执行的操作：
+  - 新增 `RunMode.QA = "qa"`，Codex runner 支持 QA mode 和 resumed QA session。
+  - 新增 QA prompt wrapper：明确要求使用 `$qa` skill、优先 diff-aware mode、不 merge-test、不发布、不部署。
+  - implementation 完成并进入 ready 状态后，自动追加 QA run；同步命令和后台通知保留 implementation 摘要并追加 QA 摘要。
+  - QA run 使用 implementation worktree，复用 task 级 Codex session，并回收 `.gstack/qa-reports/qa-report-*.md`、`baseline.json`、`screenshots/`。
+  - `/coding status` 展示最近 QA report、QA health score、known gaps 和恢复动作。
+  - QA 前创建 checkpoint commit：`Implement <task_id> before QA`；checkpoint 失败时跳过 runner，生成 `blocked` report 和结构化恢复动作。
+  - `/coding merge-test` 不强制要求 QA run；缺少 QA evidence 时继续但提示。最近 QA failed / runner_failed / blocked / known gaps 时要求 `--confirm-qa-risk`。
+  - QA run 记录 tested commit；如果 merge-test 时 source branch HEAD 已变化，会提示 QA 证据过期。
+- 创建/修改的文件：
+  - `coding_orchestration/models.py`
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/prompt_builder.py`
+  - `coding_orchestration/runners/codex_cli.py`
+  - `tests/test_router_prompt_summary.py`
+  - `tests/test_codex_cli_runner.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - RED：新增 QA mode / QA prompt / QA artifact / checkpoint / QA evidence 测试先失败，暴露缺少 `RunMode.QA`、status 不展示 QA、QA 前未 checkpoint、merge-test 未提示 QA evidence。
+  - GREEN：`rtk python3 -m unittest tests.test_router_prompt_summary tests.test_codex_cli_runner tests.test_orchestrator_run_flow`：74 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：117 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+- 剩余：
+  - 阶段 31 的 run timeline 和 merge-test preflight 仍未实现。
+  - 本轮未重启 Hermes；需要加载到 Hermes 时再执行 gateway restart / health / plugin list 验证。
+
+### 阶段 31：merge-test 成功后等待人工完成
+- **状态：** complete
+- 用户口径：
+  - merge-test 成功只代表已经合入 test，不代表 task 完成。
+  - 合入 test 后仍需要出现在 `/coding list`，直到用户手动标记完成。
+- 执行的操作：
+  - 新增 `TaskStatus.MERGED_TEST = "merged_test"`，中文标识为“已合并 test，待人工完成”。
+  - 调整状态机：`running -> merged_test -> done`，人工完成才进入 `done`。
+  - 调整 merge-test run 映射：`RunMode.MERGE_TEST + success` 不再返回 `done`，改为 `merged_test`。
+  - 将 `merged_test` 加入 `/coding list` 的 active status，确保已合 test 待完成的任务仍显示。
+  - 新增 `/coding complete <task_id>`，只允许 `merged_test` task 标记 `done`，并写入 `human_decisions` 审计记录。
+  - 更新 `/coding help`、`/commands` 列表、README 和技术方案。
+- 创建/修改的文件：
+  - `coding_orchestration/models.py`
+  - `coding_orchestration/state_machine.py`
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/__init__.py`
+  - `tests/test_state_machine.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `README.md`
+  - `PLUGIN_TECHNICAL_SOLUTION.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - RED：新增状态机和 orchestration focused tests 先失败，暴露缺少 `merged_test`、merge-test 成功仍标 `done`、list 不输出 `merged_test`、`/coding complete` 未注册。
+  - GREEN：`rtk python3 -m unittest tests.test_state_machine`：12 tests passed。
+  - GREEN：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_merge_test_resumes_codex_session_and_marks_merged_test tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_list_includes_merged_test_tasks_until_manual_completion tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_complete_marks_merged_test_task_done tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_complete_rejects_non_merged_test_task`：4 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_state_machine tests.test_plugin_registration tests.test_docs_and_install_entry`：75 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：121 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 加载：首次 `rtk hermes gateway restart` 因沙箱无法写 `~/.hermes/gateway.lock` 失败；提升权限后重启成功，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - Hermes 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+- 剩余：
+  - 阶段 32 的 run timeline 和 merge-test preflight 仍未实现。
+  - 尚未通过真实 Feishu 会话发送 `/coding merge-test` / `/coding list` / `/coding complete` 做端到端人工验证；当前证据来自单元测试、Hermes 重启和插件 enabled 状态。
+
+### 阶段 33：`/coding list` 输出格式优化
+- **状态：** complete
+- 用户口径：
+  - 列表不要再用一行 `状态=... | id=... | 项目=... | 任务=...`。
+  - 每个 task 输出多行：`id:`、`状态:`、`项目:`、`任务描述:`。
+  - `任务描述` 要一句话总结，不要把完整需求或编号列表塞进列表。
+  - 会话绑定和切换命令合并为一行 `tip`。
+- 执行的操作：
+  - 更新 list formatter，单个 task 输出多行字段。
+  - Gateway/Coding Mode list 的尾部提示改为 `tip: 当前会话绑定：无;使用 /coding use <task_id> 切换当前任务。`。
+  - 长需求摘要逻辑会去掉人工反馈、编号列表和“需要支持以下功能”等噪音，提取第一条核心目标。
+  - 用真实 Hermes ledger 中 `task_52725d8d6ff5` 验证输出为一句话摘要。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - RED：focused list tests 先失败，暴露旧单行格式和长描述截断。
+  - GREEN：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_task_list_shows_status_id_project_and_description tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_list_includes_merged_test_tasks_until_manual_completion tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_list_summarizes_long_task_description_in_one_line`：3 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_gateway_trigger tests.test_plugin_registration`：63 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：122 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 真实 ledger 验证：`task_52725d8d6ff5` 列表输出包含 `任务描述: BPS运营后台订单列表批量绑定商品弹窗支持变体ID/商品名称搜索`。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - Hermes 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 34：`/coding change` 需求变更入口
+- **状态：** complete
+- 用户口径：
+  - bugfix 不应该补 plan；需求改动需要独立动作。
+  - 使用 `/coding change <反馈>` 表达需求变更。
+- 执行的操作：
+  - 新增 `/coding change <反馈>` command dispatch 和 Gateway dispatch。
+  - 新增 `requirement_change` human decision，写入 Task Ledger 和 LLM Wiki draft。
+  - `/coding change` 会把 task phase 置为 `plan_revision`，启动 plan-only 做变更影响分析和短计划，不启动 implementation。
+  - 如果 task 正在 queued/running，则只记录需求变更，不并发启动新的 plan-only。
+  - plan-only 增量 prompt 对 `requirement_change` 明确要求“先输出变更影响分析和短计划，不要直接实现”。
+  - 更新 `/coding help`、`/commands`、README 和技术方案。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/__init__.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `README.md`
+  - `PLUGIN_TECHNICAL_SOLUTION.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - RED：focused tests 先失败，暴露 help/commands 缺少 `/coding change`，Gateway change 未写入 task。
+  - GREEN：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_help_lists_commands_and_usage tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_commands_listing_includes_coding_plugin_commands tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_change_feedback_replans_without_starting_implementation`：3 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_gateway_trigger tests.test_plugin_registration tests.test_docs_and_install_entry`：67 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：123 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - Hermes 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 35：图片反馈传递给 Codex
+- **状态：** complete
+- 用户口径：
+  - bugfix/change/continue 的图片反馈不能只留下 `[Image]`，需要让 Codex 能理解图片是本轮反馈的一部分。
+- 执行的操作：
+  - 为 `/coding bugfix` 带图片补回归测试：human decision 保存 `media`，复用 task session 的 implementation prompt 输出图片附件说明。
+  - 为 `/coding change` 带图片补回归测试：`requirement_change` 保存 `media`，plan-only 增量 prompt 输出图片附件说明。
+  - 为只有 `[Image]` 但没有 media 的反馈补回归测试：不启动 Codex，提示图片未捕获并要求重发图片或链接。
+  - 实现反馈媒体保存：`event.media_urls/media_types` 写入 human decision、requirement summary 和 LLM Wiki draft。
+  - 实现增量 prompt 图片说明：输出 `图片附件`、`media_type`、URL/路径，并要求 Codex 无法访问图片时报告 blocked 和恢复动作。
+  - 对 `/coding continue`、`/coding change`、`/coding bugfix` 增加缺媒体拦截。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - RED：新增 focused tests 先失败，暴露 human decision 没有 `media`，以及只有 `[Image]` 时仍启动 implementation。
+  - GREEN：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_bugfix_with_image_adds_media_to_incremental_prompt tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_bugfix_with_image_placeholder_without_media_does_not_start_codex tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_change_with_image_adds_media_to_plan_prompt`：3 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_gateway_trigger tests.test_plugin_registration`：67 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：126 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - Hermes 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 36：Coding Mode LLM rewrite 实装
+- **状态：** complete
+- 用户口径：
+  - 只有发送“进入coding”后，同会话自然语言才进入 rewrite。
+  - rewrite 要由 LLM 根据完整操作清单输出候选 `/coding <action>`，不能继续依赖本地关键词匹配。
+  - 高置信度且信息完整的 rewrite 直接执行；低置信度或缺信息不执行、不创建 task。
+- 执行的操作：
+  - 新增可注入 `command_rewriter` 和默认 `HermesCommandRewriter`，默认运行时通过 Hermes auxiliary LLM 输出 JSON 候选命令。
+  - Coding Mode 入口改为统一 LLM rewrite：高置信度直接把 canonical command 交给现有 `/coding` handler。
+  - 新增 pending rewrite binding，仅在 LLM 显式要求确认或 destructive 风险时支持“确认”执行、“取消”放弃。
+  - 移除 Coding Mode 自然语言的 list/task/prepare 关键词直连分支。
+  - 补齐完整自然语言测试用例：active task 下“查看最近对话记录，自然语言的rewrite表现不符合预期”应 rewrite 为 `/coding bugfix <反馈>`，高置信度时直接记录 `implementation_feedback` 并启动 implementation。
+- 创建/修改的文件：
+  - `coding_orchestration/command_rewriter.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 当前验证结果：
+  - RED：focused rewrite tests 起初全部失败，原因是 `CodingOrchestrator` 尚不接受 `command_rewriter`，且旧入口仍直接执行关键词分流。
+  - GREEN：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_natural_language_does_not_enter_plugin tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_high_confidence_natural_language_creates_task tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_low_confidence_natural_language_asks_confirmation tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_list_question_does_not_create_task tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_task_list_shows_status_id_project_and_description tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_natural_language_bugfix_rewrite_uses_active_task_after_confirmation`：6 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_gateway_trigger tests.test_plugin_registration`：68 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：127 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 加载：普通 `rtk hermes gateway restart` 因沙箱无法写 `~/.hermes/gateway.lock` 失败；提升权限后重启成功，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - Hermes 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 37：高置信度 rewrite 直接执行
+- **状态：** complete
+- 用户口径：
+  - 如果是高置信度 rewrite，可以直接执行，例如“最近的记录/现在有多少 task”这类明确查询。
+- 执行的操作：
+  - 调整测试：高置信度 task/list/bugfix/prepare-merge-test rewrite 预期从 pending 确认改为直接执行。
+  - 增加测试：高置信度但 `needs_confirmation=true` 或 destructive 风险的 `/coding delete` 仍需用户确认。
+  - 修改 `orchestrator.py`：通过 `_rewrite_requires_confirmation` 判断是否保存 pending；否则直接调用 `_handle_explicit_gateway_command`。
+  - 修改 `command_rewriter.py` prompt：高置信度完整信息输出 `needs_confirmation=false`；`delete/cancel` 输出 `needs_confirmation=true`。
+- 当前验证结果：
+  - RED：focused tests 起初失败，原因是旧实现仍返回 `coding_rewrite_confirmation`。
+  - GREEN：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_high_confidence_natural_language_creates_task tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_list_question_does_not_create_task tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_task_list_shows_status_id_project_and_description tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_natural_language_bugfix_rewrite_uses_active_task_and_executes_directly tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_high_confidence_rewrite_with_confirmation_flag_waits_for_confirmation tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_mode_prepare_merge_test_natural_language_does_not_start_implementation`：6 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_gateway_trigger tests.test_plugin_registration tests.test_docs_and_install_entry`：72 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：128 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - Hermes 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 38：needs_human 项目补充回填
+- **状态：** complete
+- 问题：
+  - 真实 `task_f758ed7b9d99` 初始需求为 “oms后台订单2.0需求改版...”，当前项目注册表没有 OMS 项目，task 进入 `needs_human`。
+  - 用户后续补充“项目为oms后台，文件夹名称为`oms_operation_web`”，但系统只把内容写入 human_clarification 和 LLM Wiki draft，没有更新 task 的 `project_path`、`source.project_name` 或 `task_session.project_name`。
+- 根因：
+  - `_record_human_clarification` 只追加反馈，不会重新解析项目，也没有把人工确认的本地项目文件夹沉淀成 project_profile。
+- 执行的操作：
+  - 新增 `TaskLedger.update_project_context`，用于原子回填 `source_json.project_name/project_confidence/match_evidence`、`project_path` 和 `task_session.project_name`。
+  - 在 needs_human 的 `/coding continue` 流程中，补充后重新解析项目；若文本包含本地项目文件夹名，会在已知项目父目录和 `~/Desktop/project` 下定位项目。
+  - 人工确认的项目文件夹会写入 LLM Wiki `project_profile`，aliases 包含用户说的中文项目名，例如 `oms后台`。
+  - 项目回填成功后，task 从 `needs_human` 推进到 `planned/planning`，并启动 plan-only。
+- 创建/修改的文件：
+  - `coding_orchestration/ledger.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_human_clarification_with_project_folder_updates_task_and_starts_plan`：passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_project_resolver tests.test_project_knowledge_resolver tests.test_ledger_wiki_orchestrator`：85 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：133 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - 真实 task 回填：`task_f758ed7b9d99` 已 no-run 更新为 `status=planned`、`phase=draft`、`project_path=/Users/xiaojing/Desktop/project/oms_operation_web`。
+  - 真实 list 输出：`项目: oms_operation_web`，`任务描述: oms后台订单`。
+
+### 阶段 39：Codex structured output schema 修复
+- **状态：** complete
+- 问题：
+  - 真实 `task_41c786eddf54` 的 plan-only run `run_b8c47b4f3a5b` 返回 `blocked`，Feishu 消息只展示 “Structured report was not produced or failed schema validation.”
+  - stderr 里有 Codex model refresh warning，容易误导排查。
+- 根因：
+  - stdout 明确显示 OpenAI API 拒绝请求：`Invalid schema for response_format 'codex_output_schema' ... qa_artifacts ... required ... Missing 'report'`。
+  - Hermes 生成的 `report.schema.json` 不满足 strict structured output：有 properties 的 object 必须把所有属性列入 `required`。
+- 执行的操作：
+  - 为 schema strict 规则补回归测试，递归检查每个 object 的 `required == properties.keys()`。
+  - 为 stdout `invalid_json_schema` 补回归测试，要求 runner report 归类为 `runner_failed`，reason 为 `codex_invalid_output_schema`。
+  - 修复 report schema：top-level required 包含 `qa_artifacts`、`tested_commit`；`qa_artifacts.required` 包含 `report`、`baseline`、`screenshots_dir`。
+  - fallback report 和 report contract 默认补齐 `qa_artifacts`、`tested_commit`。
+  - prompt 输出要求补充：没有 QA 产物时仍输出空字符串对象。
+  - runner_failed 不再写入可复用 Codex session，避免后续 run 复用失败 session。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/runners/codex_cli.py`
+  - `coding_orchestration/prompt_builder.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `tests/test_codex_cli_runner.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_report_schema_requires_every_declared_property_for_strict_structured_output tests.test_codex_cli_runner.CodexCliRunnerTest.test_invalid_output_schema_stdout_is_runner_failed`：2 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_report_schema_disallows_additional_properties_for_structured_output tests.test_codex_cli_runner.CodexCliRunnerTest.test_valid_report_generates_summary_markdown tests.test_codex_cli_runner.CodexCliRunnerTest.test_fallback_report_is_completed_unstructured`：3 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：135 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - 真实 task 恢复：`task_41c786eddf54` 已 no-run 更新为 `status=planned`、`phase=draft`，失败的 `resume_session_id` 已清空，`last_run_status=runner_failed` 保留为故障证据。
+
+### 阶段 40：`/coding run` 即时 ACK 与防重复启动
+- **状态：** complete
+- 问题：
+  - 用户重新执行 `/coding run task_41c786eddf54` 后，飞书侧长时间没有输出。
+- 根因：
+  - task 实际已启动并进入 `running/planning`，active run 为 `run_1455df26606a`；但 Gateway `/coding run` 分支同步调用 `command_coding_run()`，必须等 Codex 完成后才回复。
+- 执行的操作：
+  - 保留命令模式 `command_coding_run()` 的同步语义。
+  - Gateway 显式 `/coding run` 改为先回复“已开始 plan-only”，再调用 `_start_background_plan_only`。
+  - 对 `queued/running` task 增加防重复启动提示，返回 `active_run_id`、`mode` 和恢复动作。
+  - 调整 Coding Mode 高置信度 rewrite 到 `/coding run` 的测试预期，保持同样的异步 ACK 行为。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_run_replies_immediately_and_starts_background_plan tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_run_does_not_start_duplicate_when_task_is_running tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_natural_language_rewrite_covers_runner_and_completion_commands tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_command_coding_run_starts_plan_only_for_existing_task`：4 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_gateway_trigger tests.test_plugin_registration`：77 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：137 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 真实 run 状态：`task_41c786eddf54/run_1455df26606a` 已完成，最终 `status=blocked`；report 表示 plan-only 需要人工确认路由策略、Figma 子节点拆解和未覆盖弹窗兜底规则。
+
+### 阶段 41：resume implementation/QA 写权限修复
+- **状态：** complete
+- 问题：
+  - `task_41c786eddf54` 的 implementation run `run_cf9f3582af41` 被 Codex 判定为 `blocked`，原因是运行环境为只读沙箱且 approval policy 为 `never`，无法修改仓库文件。
+- 根因：
+  - implementation 复用 task 级 Codex session；该 session 首次由 plan-only 创建，plan-only 使用 `read-only`。
+  - `codex exec resume` 没有 `--sandbox` 参数，旧实现也没有通过 `-c sandbox_mode=...` 覆盖，导致实现轮继承只读语义。
+- 执行的操作：
+  - `CodexCliRunner._build_resume_command` 在 implementation/QA 模式下增加 `-c sandbox_mode="workspace-write"`，并保留 `approval_policy="never"`。
+  - merge-test 继续使用 `--dangerously-bypass-approvals-and-sandbox`，不改变已有合并策略。
+  - `run-manifest.json` 的 `resume_command` 改为展示可写 sandbox override，方便人工按 manifest 续跑时不再回到只读。
+  - 已有 implementation 记录或人工确认过实现的 blocked task，允许直接重试 `/coding implement <task_id>`。
+- 创建/修改的文件：
+  - `coding_orchestration/runners/codex_cli.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_codex_cli_runner.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - `rtk codex exec resume --help`：确认 resume 无 `--sandbox`，但支持 `-c key=value` 配置覆盖。
+  - focused：`rtk python3 -m unittest tests.test_codex_cli_runner.CodexCliRunnerTest.test_implementation_command_resumes_task_session_when_manifest_has_resume_id tests.test_codex_cli_runner.CodexCliRunnerTest.test_qa_command_resumes_task_session_without_bypass tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_manifest_records_visible_session_attach_metadata tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_task_reuses_one_codex_session_with_incremental_prompt tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_qa_run_reuses_task_session_collects_qa_artifacts_and_marks_ready`：5 tests passed。
+  - retry focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_command_coding_implement_can_retry_after_blocked_implementation tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_command_coding_implement_requires_plan_ready_then_starts_implementation`：2 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_codex_cli_runner tests.test_orchestrator_run_flow tests.test_gateway_trigger tests.test_plugin_registration`：89 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：138 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+
+### 阶段 42：resume 子进程工作目录限定到任务 worktree
+- **状态：** complete
+- 问题：
+  - `task_41c786eddf54` 的 implementation run `run_12dec1860a6a` 仍然被 Codex 判定为 `blocked`。
+  - 本轮不再是只读 sandbox，而是 `apply_patch` 报 `writing outside of the project; rejected by user approval settings`。
+- 根因：
+  - stdout 证据显示 resumed Codex turn 的 `pwd` 是 `/Users/xiaojing/.hermes/hermes-agent`。
+  - `codex exec resume` 的帮助中没有 `-C/--cd` 参数；因此即使命令里设置 `sandbox_mode="workspace-write"`，Codex 的 project scope 仍来自子进程 cwd。
+- 执行的操作：
+  - `CodexCliRunner.run()` 新增 `subprocess_cwd` 计算。
+  - implementation/QA/merge-test 的子进程 cwd 使用任务 `workspace_path`；plan-only 继续使用 `project_path`。
+  - 保持 implementation/QA 的 `workspace-write` 模式，不启用全盘 bypass；写权限限制由 Codex 当前 workspace 和 Hermes diff guard 双重保证。
+- 创建/修改的文件：
+  - `coding_orchestration/runners/codex_cli.py`
+  - `tests/test_codex_cli_runner.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - focused：`rtk python3 -m unittest tests.test_codex_cli_runner.CodexCliRunnerTest.test_resume_implementation_subprocess_runs_from_workspace_path tests.test_codex_cli_runner.CodexCliRunnerTest.test_plan_only_subprocess_runs_from_project_path tests.test_codex_cli_runner.CodexCliRunnerTest.test_implementation_command_resumes_task_session_when_manifest_has_resume_id tests.test_codex_cli_runner.CodexCliRunnerTest.test_qa_command_resumes_task_session_without_bypass`：4 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_codex_cli_runner tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_task_reuses_one_codex_session_with_incremental_prompt tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_qa_run_reuses_task_session_collects_qa_artifacts_and_marks_ready`：15 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：140 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+
+### 阶段 43：implementation/QA 受控高权限测试链路
+- **状态：** complete
+- 问题：
+  - `task_41c786eddf54` 的最新 implementation 已能写入项目 worktree，但 QA 报告显示自动测试链路仍被环境限制阻断。
+  - 具体阻断包括：缺 `node_modules`、需要私有源/联网安装依赖、QA 修复后 `git add` 写 `.git/worktrees/.../index.lock` 失败、dev server/browser QA 没跑起来。
+- 根因：
+  - 阶段 42 只把 Codex 子进程 cwd 切到 task worktree，并保持 `workspace-write`。
+  - 这个权限足够修改项目文件，但不足以处理依赖缓存、git worktree 元数据、`.gstack` 测试产物、浏览器/dev server 等自动 QA 必要资源。
+- 当前执行计划：
+  - 保留 plan-only read-only。
+  - implementation/QA 的 Codex CLI 新 session 和 resume session 改为 `--dangerously-bypass-approvals-and-sandbox`，但仍从 task `workspace_path` 启动。
+  - run-manifest 写清 `dangerous_bypass=true`、权限原因、允许的项目外写入类型和源码修改边界。
+  - prompt 明确缺依赖时先安装并继续跑测试/QA；安装或测试失败时必须输出结构化 `verification_limitations`。
+  - 继续依赖 Hermes diff guard 检查 task worktree 内源码 diff，避免把无关项目改动标为可合并。
+- 已完成：
+  - `CodexCliRunner` 对 implementation/QA 的新 session 和 resume session 使用 `--dangerously-bypass-approvals-and-sandbox`；plan-only 继续 read-only。
+  - implementation/QA 子进程 cwd 仍使用 task `workspace_path`，不回退到 Hermes agent 目录。
+  - `RunManifest` 新增 `elevated_permissions_reason`、`elevated_permission_scope`、`source_modification_boundary`，并对 implementation/QA 写入 `dangerous_bypass=true`。
+  - implementation/QA prompt 明确：缺少依赖时先安装依赖并继续验证；源码修改只限当前 task workspace；项目外只允许依赖缓存、git metadata、dev server/browser 临时文件和 `.gstack` QA 产物。
+  - README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION 同步记录新的受控高权限模型。
+- 创建/修改的文件：
+  - `coding_orchestration/runners/codex_cli.py`
+  - `coding_orchestration/models.py`
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/prompt_builder.py`
+  - `tests/test_codex_cli_runner.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `tests/test_router_prompt_summary.py`
+  - `README.md`
+  - `PLUGIN_USAGE.md`
+  - `PLUGIN_TECHNICAL_SOLUTION.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - focused：`rtk python3 -m unittest tests.test_codex_cli_runner tests.test_router_prompt_summary`：22 tests passed。
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_manifest_records_visible_session_attach_metadata tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_task_reuses_one_codex_session_with_incremental_prompt tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_qa_run_reuses_task_session_collects_qa_artifacts_and_marks_ready`：3 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow`：75 tests passed。
+  - 合并相关 focused：`rtk python3 -m unittest tests.test_codex_cli_runner tests.test_router_prompt_summary tests.test_orchestrator_run_flow`：97 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：141 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 加载：提升权限执行 `rtk hermes gateway restart` 成功，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - Hermes 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+- 剩余风险：
+  - 本轮没有真实重跑 `task_41c786eddf54` 的 implementation/QA；需要下一次真实任务验证依赖安装、私有源、dev server 和浏览器 QA 是否能跑通。
+  - bypass 允许项目外写依赖缓存和 git metadata；源码改动边界由 prompt、manifest 和 Hermes diff guard 兜底，不能替代 OS 级强制隔离。
+
+### 阶段 44：Codex visible session prompt 瘦身
+- **状态：** complete
+- 问题：
+  - 同一个 task 可以有多个 run，这是审计需要；但用户进入 Codex session 时，看到的每轮输入仍混入大量插件规范。
+  - 当前 prompt 会内联执行契约、report JSON 字段、状态机状态和权限边界，不适合作为人类可读的 Codex session 对话。
+- 执行计划：
+  - 新增 `run-instructions.md` artifact 保存详细执行/报告契约。
+  - `input-prompt.md` 只保留本轮动作、必要上下文引用、人工 delta 和 `run-instructions.md` 路径。
+  - 对首次 prompt 和 resume 增量 prompt 都做瘦身，避免后续 QA/bugfix 继续污染 session。
+- 已完成：
+  - `PromptBuilder.build()` 改为 visible prompt，只输出目标、来源、上下文 artifact 和本轮动作。
+  - `PromptBuilder.build_incremental()` 改为只输出 task/session、本轮 delta、本轮动作和 `run-instructions.md` 引用。
+  - 新增 `PromptBuilder.build_run_instructions()`，保留详细执行契约、状态返回规则和 report 输出要求。
+  - `CodingOrchestrator._write_prompt_context_artifacts()` 为每个 run 写入 `run-instructions.md`，并加入 `context-index.json`。
+  - README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION 同步记录 visible prompt 与 run instructions 分离。
+- 创建/修改的文件：
+  - `coding_orchestration/prompt_builder.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_router_prompt_summary.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `README.md`
+  - `PLUGIN_USAGE.md`
+  - `PLUGIN_TECHNICAL_SOLUTION.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - focused：`rtk python3 -m unittest tests.test_router_prompt_summary`：8 tests passed。
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_task_reuses_one_codex_session_with_incremental_prompt tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_prompt_hands_confirmed_plan_to_codex_superpowers_worktree_flow tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_qa_run_reuses_task_session_collects_qa_artifacts_and_marks_ready`：3 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_codex_cli_runner tests.test_router_prompt_summary tests.test_orchestrator_run_flow`：97 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：141 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 加载：提升权限执行 `rtk hermes gateway restart` 成功，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - Hermes 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 45：分享 Demo 逻辑文档
+- **状态：** complete
+- 用户口径：
+  - 现在已经开始新的 task，并已做项目补充、进入 plan。
+  - 需要新起一个 Markdown 文档，把本轮对话产生的所有 coding plugin 逻辑记录下来，方便分享 demo。
+- 已完成：
+  - 新建 `docs/coding-plugin-demo-logic-20260527.md`。
+  - 文档覆盖：Demo 目标、Hermes/Codex/人的分工、命令体系、Coding Mode rewrite、Task/Run/Session 关系、run artifacts、prompt 瘦身策略、状态机、自动 QA、权限模型、项目补充、Figma/图片附件、list 输出、reset、推荐 demo 脚本、讲解重点和当前缺口。
+- 创建/修改的文件：
+  - `docs/coding-plugin-demo-logic-20260527.md`
+  - `task_plan.md`
+  - `progress.md`
+- 验证：
+  - 已确认文档创建。
+  - `rtk git diff --check`：passed。
+
+### 阶段 52：implementation timeout 修复与继续任务恢复
+- **状态：** complete
+- 问题：
+  - `task_26603ef00507/run_75079e08c896` 达到 3600 秒 deadline 后被 runner 取消，fallback report 为 `timeout`。
+  - 状态机将 `AgentRunStatus.TIMEOUT` 映射为 `TaskStatus.FAILED`，导致用户看到失败；但 stdout 证明 Codex 已完成大量实现和验证，接近最终 report。
+  - timeout fallback report 仍使用“Structured report was not produced or failed schema validation.”，误导为 schema/report 问题。
+- 已完成：
+  - 新增按 run mode 的默认 timeout：plan-only 3600 秒、implementation 10800 秒、QA 10800 秒、merge-test 5400 秒。
+  - `AgentRunStatus.TIMEOUT` 全局映射调整为 `runner_failed`，避免继续使用笼统 `failed`。
+  - implementation/QA timeout 且有允许范围内代码改动时，归一为 `ready_for_merge_test_with_known_gaps`；无改动时归一为 `runner_failed`。
+  - timeout fallback report 改成 timeout 专用风险、影响和恢复动作。
+  - 补测试确认历史 timeout/failed task 可以继续 `/coding implement <task_id>`，并复用原 workspace/session。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/runners/codex_cli.py`
+  - `coding_orchestration/state_machine.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `tests/test_codex_cli_runner.py`
+  - `tests/test_state_machine.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_default_timeout_is_longer_than_plan_only tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_timeout_after_changes_enters_known_gaps_ready_status tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_timeout_without_changes_becomes_runner_failed tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_failed_timeout_task_can_continue_implementation_in_existing_workspace tests.test_codex_cli_runner.CodexCliRunnerTest.test_timeout_fallback_report_uses_timeout_specific_recovery tests.test_state_machine.TaskStateMachineTest.test_maps_runner_timeout_to_runner_failed_task`：6 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_codex_cli_runner tests.test_state_machine`：106 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：146 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+- 继续当前 task：
+  - 插件修复加载后，在 Hermes/飞书发送 `/coding implement task_26603ef00507`。
+  - 该命令会复用 task 的 Codex session `019e6725-4153-7df2-9fd5-48d1ccf94842` 和 implementation workspace `/Users/xiaojing/.hermes/coding-orchestration/workspaces/task_26603ef00507/run_75079e08c896`。
+  - 如果只想人工查看/接管 Codex 真实交互，可运行 `codex resume 019e6725-4153-7df2-9fd5-48d1ccf94842`。
+
+### 阶段 53：半结构化 implementation report 容错恢复
+- **状态：** complete
+- 问题：
+  - `task_26603ef00507/run_8781c841e264` 的 stdout 最后一条 Codex agent message 已明确返回 `status=ready_for_merge_test_with_known_gaps`。
+  - 该 JSON 缺少 strict report schema 的部分字段，并使用 `changed_files` 而不是 `modified_files`。
+  - 旧 runner 只恢复了 `summary_markdown`，把状态降级为 `completed_unstructured`，导致 task 变成 `blocked`，下一步还误提示“确认计划后进入 implementation”。
+- 已完成：
+  - `CodexCliRunner.load_or_build_report()` 在 fallback 前新增半结构化 report recovery。
+  - 从 raw `report.json` 和 stdout JSONL 的 agent message 中提取候选 JSON，补齐 `runner/mode/modified_files/test_commands/risks/human_required/next_actions/qa_artifacts/tested_commit/raw refs`。
+  - `changed_files` 自动归一为 `modified_files`，`test_commands` 从 `test_results[].command` 派生。
+  - implementation fallback 只恢复摘要时，不再输出 plan-only 的确认计划文案。
+  - 已回写真实 `task_26603ef00507/run_8781c841e264`：report、task status、phase、latest agent run status 均为 `ready_for_merge_test_with_known_gaps` / `ready_to_merge_test`。
+- 创建/修改的文件：
+  - `coding_orchestration/runners/codex_cli.py`
+  - `tests/test_codex_cli_runner.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - focused：`rtk python3 -m unittest tests.test_codex_cli_runner.CodexCliRunnerTest.test_partial_structured_stdout_report_is_normalized tests.test_codex_cli_runner.CodexCliRunnerTest.test_implementation_fallback_summary_does_not_ask_to_confirm_plan tests.test_codex_cli_runner.CodexCliRunnerTest.test_invalid_report_recovers_plan_from_json_stdout`：3 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_codex_cli_runner tests.test_orchestrator_run_flow tests.test_state_machine`：108 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：148 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+- 当前 task 状态：
+  - `task_26603ef00507`：`status=ready_for_merge_test_with_known_gaps`，`phase=ready_to_merge_test`。
+  - 下一步：确认已知验证缺口后发送 `/coding merge-test task_26603ef00507`。
+
+### 阶段 54：Coding Mode 确认/续接链路重构
+- **状态：** complete
+- 问题：
+  - 最近真实对话中，用户自然语言触发 merge-test 后，Codex `merge-to-test` skill 因未跟踪文件要求二次确认。
+  - 用户回复“确定”后，Hermes 没有把它路由回当前 merge-test 上下文，而是进入 LLM rewrite，误触发新的 implementation。
+- 根因：
+  - “待确认动作”没有作为 Hermes 会话状态存在；确认词只服务 pending rewrite，无法续接 Codex run 的 `human_required`。
+  - merge-test 前 source worktree 的 tracked/untracked 实现文件没有由 Hermes 统一 checkpoint，导致 Codex skill 自己追问。
+- 已完成：
+  - 新增会话级 pending action binding，优先级高于 pending rewrite 和 LLM rewrite。
+  - Gateway `/coding merge-test` 遇到 QA 风险确认时写入 pending action；用户回复“确认/继续/可以”会续接 `/coding merge-test <task_id> --confirm-qa-risk`。
+  - merge-test run 返回 `human_required=true` 时，Hermes 写入 pending action，task 保持 `ready_for_merge_test_with_known_gaps` / `ready_to_merge_test`，不会长期 blocked。
+  - Coding Mode 中没有 pending action 但当前 task 有 active run 时，确认词只返回 run 正在执行，不再 rewrite 或重复启动。
+  - 最近一次 merge-test `human_required` 可作为兼容恢复信号；用户补充“未跟踪文件确定可以提交”会重试 merge-test。
+  - merge-test prompt/run-instructions 明确：不要在 Codex session 内直接追问用户；需要人工确认必须返回结构化 report 并设置 `human_required=true`。
+  - merge-test 启动前由 Hermes checkpoint source worktree，tracked/untracked 实现文件进入 source branch commit，避免 Codex skill 再因未跟踪文件确认。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/prompt_builder.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_pending_action_confirmation_preempts_rewrite tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_confirmation_uses_latest_merge_test_human_required_run tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_confirmation_does_not_rewrite_while_task_run_is_active tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_merge_test_qa_risk_confirmation_uses_pending_action`：4 tests passed。
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_merge_test_human_required_keeps_task_ready_and_stores_pending_action`：passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_router_prompt_summary tests.test_codex_cli_runner tests.test_state_machine`：122 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：154 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes 加载：默认沙箱下 `rtk hermes gateway restart` 因 `/Users/xiaojing/.hermes/gateway.lock` 权限被拒；提升权限重试成功，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+- 历史任务检查：
+  - `task_26603ef00507` 仍有旧逻辑误触发的 `run_8a47b78b35b7` Codex 进程存在，stdout 只有 `thread.started` / `turn.started`，stderr 是模型列表 refresh warning。
+  - 本轮未擅自 kill 该进程，也未手动改真实 task ledger；后续清理该历史 run 应单独确认，避免误杀仍在运行的 Codex 任务。
+
+### 阶段 55：cancelled 终态保护
+- **状态：** complete
+- 问题：
+  - 用户明确：已经被人工标记 cancel 的 task 不可以再被操作。
+  - 阶段 54 新增的 pending action 续接链路如果不检查 cancelled，理论上仍可能把历史待确认动作续接到已取消 task。
+- 已完成：
+  - pending action 确认时，如果目标 task 已 `cancelled`，清除 pending action 并返回终态提示，不调用 LLM rewrite、不启动 merge-test。
+  - `/coding run`、`/coding implement`、`/coding prepare-merge-test`、`/coding merge-test` 对 cancelled task 直接拒绝。
+  - active task 为 cancelled 时，`/coding continue`、`/coding change`、`/coding bugfix` 只返回终态提示，不记录反馈、不启动 Codex。
+  - `start_run()` 增加底层 gate；即使被内部代码直接调用，也会拒绝 cancelled task。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_pending_action_confirmation_rejects_cancelled_task tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_cancelled_task_rejects_runner_commands tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_start_run_rejects_cancelled_task tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_cancelled_active_task_rejects_continue_change_and_bugfix`：4 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_router_prompt_summary tests.test_codex_cli_runner tests.test_state_machine`：126 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：158 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+
+### 阶段 56：误取消 task 显式恢复
+- **状态：** complete
+- 问题：
+  - 用户澄清：`task_26603ef00507` 是误操作 cancel，不是希望永久不可操作。
+  - 需要保留 cancelled 的普通动作保护，同时给明确的人工作废恢复入口。
+- 已完成：
+  - 新增 `/coding restore <task_id>`。
+  - restore 只允许作用于 `cancelled` task；非 cancelled task 返回“不需要 restore”。
+  - restore 根据最近 run 推断恢复状态：最近 merge-test 未完成时恢复为 `ready_for_merge_test_with_known_gaps` / `ready_to_merge_test`；最近成功 merge-test 恢复为 `merged_test`；最近 implementation/QA ready 恢复到对应 merge-test 等待态；最近 plan-only 成功恢复为 `planned`。
+  - restore 会清理 stale `active_run_id/active_mode`，不会自动启动 Codex。
+  - 已恢复真实 `task_26603ef00507`：`cancelled` -> `ready_for_merge_test_with_known_gaps` / `ready_to_merge_test`。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_restore_cancelled_task_recovers_latest_actionable_state tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_restore_rejects_task_that_is_not_cancelled tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_cancelled_task_rejects_runner_commands tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_pending_action_confirmation_rejects_cancelled_task`：4 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_gateway_trigger tests.test_plugin_registration tests.test_router_prompt_summary tests.test_codex_cli_runner tests.test_state_machine`：131 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：160 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 真实 ledger 校验：`task_26603ef00507` 当前 `status=ready_for_merge_test_with_known_gaps`，`phase=ready_to_merge_test`，runner `active_run_id=null`。
+  - Hermes 加载：默认沙箱下 `rtk hermes gateway restart` 因 `/Users/xiaojing/.hermes/gateway.lock` 权限被拒；提升权限重试成功，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 57：飞书工作流分享文档更新
+- **状态：** complete
+- 执行的操作：
+  - 更新 `docs/feishu-workflow-update-20260526.md`，补齐最新 Coding Mode rewrite、pending action 优先级、active run 确认保护、merge-test checkpoint、QA 可选证据、TaskStatus 状态口径、Codex session/prompt 瘦身、`cancelled` 保护和 `/coding restore` 恢复流程。
+  - 保持文档面向分享/demo，避免写成过细实现清单；重点解释 Hermes、Codex Runner、Task Ledger、LLM Wiki 和人的职责边界。
+  - 更新 `task_plan.md` 记录阶段 57。
+- 创建/修改的文件：
+  - `docs/feishu-workflow-update-20260526.md`
+  - `task_plan.md`
+  - `progress.md`
+  - `findings.md`
+- 验证结果：
+  - `rtk git diff --check`：passed，无输出。
+  - `rtk rg -n "[ \\t]+$" docs/feishu-workflow-update-20260526.md task_plan.md progress.md findings.md`：passed，未发现尾随空白。
+
+### 阶段 58：飞书 Wiki/Doc 链接读取修复
+- **状态：** complete
+- 问题：
+  - 真实 task `task_f9eae60e8f1a` 的需求包含 `https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe`。
+  - Task Ledger 中 `source_context={}`，说明 Hermes 创建 task 前没有读取 Wiki 文档。
+  - Codex plan-only 只能从 prompt 看到 URL，随后自己调用 `rtk lark-cli docs +fetch ...`，失败为 `hermes context detected but lark-cli is not bound to it`，最终 blocked。
+- 根因：
+  - 现有 `FeishuProjectReader` 只支持 `project.feishu.cn/<project>/<type>/detail/<id>`，不识别 `*.feishu.cn/wiki/<token>` 或 `/docx/<token>`。
+  - 飞书文档读取属于 Hermes source enrichment，应在 task 创建前完成，不应让 Codex session 自己处理认证和读取。
+- 已完成：
+  - 新增 `/wiki/`、`/docx/` 链接识别。
+  - 文档读取优先走 Gateway adapter，兜底 `lark-cli docs +fetch --api-version v2 --doc <url> --doc-format markdown --format json`。
+  - 成功读取后 source type 为 `feishu_wiki` / `feishu_docx`，内容合并进 requirement summary 和 LLM Wiki draft。
+  - source refs/ledger source context 记录 `document_kind`、`document_token`、`document_id`、`revision_id`。
+  - 文档读取失败时 task 进入 `needs_human` 并提示绑定 lark-cli 或粘贴文档内容，不再启动 Codex 后 blocked。
+- 创建/修改的文件：
+  - `coding_orchestration/feishu_project_reader.py`
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/feishu_messages.py`
+  - `tests/test_feishu_project_reader.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `progress.md`
+  - `findings.md`
+- 验证结果：
+  - focused：`rtk python3 -m unittest tests.test_feishu_project_reader`：5 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_feishu_project_reader tests.test_orchestrator_run_flow tests.test_gateway_trigger tests.test_router_prompt_summary`：106 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：164 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+- 运行环境验证：
+  - 默认沙箱下直接跑 `rtk lark-cli docs +fetch ...` 因 macOS Keychain 不可达失败。
+  - 提升权限后同一链接可读，返回 `document_id=Amt4d85oXoHvVTxqkiqcmmLTnBe`、`revision_id=212`，说明文档权限本身可用。
+  - Hermes Gateway 若仍提示 `lark-cli is not bound to it`，需要按提示执行 `lark-cli config bind --source hermes --identity user-default`，该配置变更需用户显式确认。
+  - 尝试请求执行 `rtk lark-cli config bind --source hermes --identity user-default` 被安全审查拒绝；原因是该操作会持久化扩大 Hermes 的飞书用户身份读取范围，需要用户先明确批准这一具体绑定动作。
+
+### 阶段 59：implementation worktree 显式 base branch
+- **状态：** complete
+- 问题：
+  - 用户发现当前项目分支是从 `test` checkout 出来的；排查后确认真实项目工作区当前停在 `test`。
+  - 旧 workspace 创建逻辑没有显式 base branch，Git 会用当前 HEAD 作为新 source branch 起点，导致 coding branch 继承 `test`。
+- 根因：
+  - `WorkspaceManager._create_git_worktree()` 支持 `base_branch`，但 orchestrator 创建 implementation workspace 时没有传入。
+  - 当命令形态是 `git worktree add -b <source_branch> <target>` 时，Git 默认从当前工作区 HEAD 创建新分支。
+- 已完成：
+  - `RunManifest` 增加 `source_base_branch`。
+  - implementation/QA/merge-test 的 `task_session` 与 run manifest 写入 `source_base_branch`。
+  - implementation workspace 创建改为显式传入 `base_branch=self._source_base_branch_for_task(task)`。
+  - `_source_base_branch_for_task()` 读取优先级：已有 `task_session.source_base_branch`、`source.source_base_branch/source.base_branch`、默认 `main`。
+  - 新增回归测试覆盖：项目当前在 `test` 时，新 implementation worktree 仍从 `main` 创建。
+- 创建/修改的文件：
+  - `coding_orchestration/models.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `progress.md`
+  - `findings.md`
+- 验证结果：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_worktree_defaults_to_main_even_when_project_on_test tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_branch_uses_semantic_slug_and_short_task_id tests.test_workflow_and_workspace`：5 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_workflow_and_workspace tests.test_state_machine tests.test_codex_cli_runner`：125 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：165 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 文档尾随空白检查：`rtk rg -n "[ \\t]+$" task_plan.md progress.md findings.md coding_orchestration/models.py coding_orchestration/orchestrator.py tests/test_orchestrator_run_flow.py`：passed，未发现匹配。
+  - Hermes 加载：`rtk hermes gateway restart` 提升权限执行成功，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 60：implementation 完成后强制 checkpoint commit
+- **状态：** complete
+- 问题：
+  - 原逻辑不是在 implementation 完成时提交，而是在 QA 启动前做第一次 checkpoint commit。
+  - 用户要求 implementation 完成后就强制 commit，避免实现改动长期停留在未提交工作树里。
+- 已完成：
+  - `RunManifest` 增加 `implementation_checkpoint`。
+  - implementation run 在 runner 返回、diff guard 通过、状态归一为 `ready_for_merge_test` 或 `ready_for_merge_test_with_known_gaps` 后，立即执行 checkpoint commit。
+  - commit message 为 `Implement <task_id> after implementation`。
+  - checkpoint 结果写入 run manifest 和 agent run 记录。
+  - 如果 checkpoint commit 失败，implementation 状态改为 `blocked`，补充 `verification_limitations`，并且不会自动进入 QA。
+  - QA 前 checkpoint 与 merge-test 前 checkpoint 保留为二次兜底；如果工作树已经 clean，会记录 `clean`。
+- 创建/修改的文件：
+  - `coding_orchestration/models.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `progress.md`
+  - `findings.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_run_commits_changes_after_runner_completes tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_qa_run_creates_checkpoint_commit_before_runner_starts tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_merge_test_checkpoints_untracked_implementation_files_before_runner`：3 tests passed。
+  - 回归修复：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_manifest_records_visible_session_attach_metadata tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_implementation_run_commits_changes_after_runner_completes`：2 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_workflow_and_workspace tests.test_state_machine tests.test_codex_cli_runner`：126 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：166 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 尾随空白检查：`rtk rg -n '[ \\t]+$' task_plan.md progress.md findings.md coding_orchestration/models.py coding_orchestration/orchestrator.py tests/test_orchestrator_run_flow.py`：passed，未发现匹配。
+  - Hermes 加载：`rtk hermes gateway restart` 提升权限执行成功，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 61：按阶段补齐权限 profile
+- **状态：** complete
+- 问题：
+  - plan-only 之前使用 `read-only + approval never`，虽然能防止写文件，但会阻断飞书/Lark 文档、Swagger/OpenAPI、私有 API 元数据、Keychain/认证上下文和网络读取。
+  - 规划阶段如果读不到这些上下文，会提前 blocked，后续 implementation 再拿权限已经太晚。
+- 已完成：
+  - Codex CLI plan-only 新 session 改为 `--dangerously-bypass-approvals-and-sandbox`，但仍从项目目录启动，继续输出结构化 report。
+  - Codex CLI plan-only resume session 同样改为 bypass，不再使用 `sandbox_mode=read-only` 和 `approval_policy=never`。
+  - `RunManifest` 增加 `permission_profile`；plan-only 为 `context_read_elevated`，implementation/QA/merge-test 分别为受控实现、受控 QA、Git 合并权限 profile。
+  - plan-only manifest 写入权限原因、允许读取范围和“不得修改项目文件”的边界。
+  - plan-only 增加后置写入门禁：只要 diff guard 发现项目文件变化，即使路径在 allowed paths 内，也会把 run 标记为 `blocked`。
+  - prompt 的 plan-only contract 补充：允许读取 Swagger/OpenAPI、飞书/Lark 文档、API 元数据和依赖元信息；读取失败必须给恢复动作。
+- 创建/修改的文件：
+  - `coding_orchestration/models.py`
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/prompt_builder.py`
+  - `coding_orchestration/runners/codex_cli.py`
+  - `tests/test_codex_cli_runner.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `progress.md`
+  - `findings.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_codex_cli_runner.CodexCliRunnerTest.test_plan_only_command_uses_context_read_bypass_and_stdin_prompt tests.test_codex_cli_runner.CodexCliRunnerTest.test_plan_only_resume_uses_context_read_bypass tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_plan_only_blocks_if_runner_modifies_project_files tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_plan_only_run_generates_artifacts_updates_ledger_and_writes_run_summary`：4 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_codex_cli_runner tests.test_orchestrator_run_flow tests.test_router_prompt_summary tests.test_plugin_registration`：122 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：168 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 尾随空白检查：`rtk rg -n '[ \\t]+$' task_plan.md progress.md findings.md coding_orchestration/models.py coding_orchestration/orchestrator.py coding_orchestration/prompt_builder.py coding_orchestration/runners/codex_cli.py tests/test_codex_cli_runner.py tests/test_orchestrator_run_flow.py`：passed，未发现匹配。
+  - Hermes 加载：`rtk hermes gateway restart` 提升权限执行成功，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 62：分享文档同步权限 profile
+- **状态：** complete
+- 执行的操作：
+  - 更新 `docs/feishu-workflow-update-20260526.md` 的核心原则、安全门禁、Runner 角色和当前版本能力清单。
+  - 明确 plan-only 使用 `context_read_elevated`，可以读取飞书/Lark 文档、Swagger/OpenAPI、私有 API 元数据、依赖元信息和必要网络上下文。
+  - 明确 plan-only 仍然不能修改项目文件，出现项目 diff 直接 blocked。
+  - 补充 implementation、QA、merge-test 的权限 profile、开放能力和硬边界。
+  - 说明 `permission_profile` 会写入 run manifest，方便排查权限问题。
+- 创建/修改的文件：
+  - `docs/feishu-workflow-update-20260526.md`
+  - `task_plan.md`
+  - `progress.md`
+- 验证结果：
+  - Markdown 片段核对：`rtk sed -n '1,235p' docs/feishu-workflow-update-20260526.md` 和 `rtk sed -n '213,245p' docs/feishu-workflow-update-20260526.md` 已确认权限说明落在核心原则、安全门禁、Runner 角色和当前版本能力清单。
+  - 空白检查：`rtk git diff --check -- docs/feishu-workflow-update-20260526.md task_plan.md progress.md`：passed，无输出。
+  - 尾随空白检查：`rtk rg -n '[ \\t]+$' docs/feishu-workflow-update-20260526.md task_plan.md progress.md`：passed，未发现匹配。
+
+### 阶段 63：接入 Hermes autonomous Codex runner 后端
+- **状态：** complete
+- 问题：
+  - Hermes 内置 `skills/autonomous-ai-agents/codex` 提供了 Codex terminal/process 使用约定，包括 `pty=true`、background、poll/log/submit/kill。
+  - 当前 plugin register context 没有暴露可直接调用 Hermes terminal/process 的 Python API；直接替换执行层会丢失 Task Ledger、状态机、manifest、report fallback、checkpoint commit 和 diff guard。
+- 已完成：
+  - 新增 `HermesAutonomousCodexRunner`，runner name 为 `hermes_autonomous_codex`。
+  - 新 runner 继承现有 Codex CLI 执行与 report fallback 能力，额外写入 `autonomous-codex-backend.json`，记录 Hermes skill 路径和当前后端策略。
+  - RunnerRouter 默认注册 `hermes_autonomous_codex`，可通过 `default_runner: hermes_autonomous_codex` 或 `--runner hermes_autonomous_codex` 使用。
+  - 新增 `RunnerName.HERMES_AUTONOMOUS_CODEX`。
+  - orchestrator 把 `hermes_autonomous_codex` 纳入 Codex session 型 runner，支持从历史 stdout 解析 thread id，并写入 attach/resume command。
+  - 保留现有状态机、Task Ledger、run manifest、report.json 兜底、implementation checkpoint commit、QA/merge-test gate 和 diff guard。
+  - 补充校正 README/使用文档中的旧口径：Coding Mode 是自然语言到 `/coding <action>` 的 rewrite 层；plan-only 使用 `context_read_elevated` 权限 profile，不再描述为普通 read-only。
+- 创建/修改的文件：
+  - `coding_orchestration/models.py`
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/runner_router.py`
+  - `coding_orchestration/runners/__init__.py`
+  - `coding_orchestration/runners/hermes_autonomous_codex.py`
+  - `tests/test_router_prompt_summary.py`
+  - `tests/test_codex_cli_runner.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `README.md`
+  - `PLUGIN_USAGE.md`
+  - `PLUGIN_TECHNICAL_SOLUTION.md`
+  - `task_plan.md`
+  - `progress.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_router_prompt_summary.RouterPromptSummaryTest.test_runner_router_selects_hermes_autonomous_codex tests.test_codex_cli_runner.CodexCliRunnerTest.test_hermes_autonomous_codex_runner_writes_backend_metadata tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_hermes_autonomous_codex_runner_reuses_codex_session`：3 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_router_prompt_summary tests.test_codex_cli_runner tests.test_orchestrator_run_flow tests.test_docs_and_install_entry tests.test_plugin_registration`：128 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：171 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 尾随空白检查：`rtk rg -n '[ \\t]+$' coding_orchestration/models.py coding_orchestration/orchestrator.py coding_orchestration/runner_router.py coding_orchestration/runners/__init__.py coding_orchestration/runners/hermes_autonomous_codex.py tests/test_router_prompt_summary.py tests/test_codex_cli_runner.py tests/test_orchestrator_run_flow.py README.md PLUGIN_USAGE.md PLUGIN_TECHNICAL_SOLUTION.md task_plan.md progress.md findings.md`：passed，未发现匹配。
+  - Hermes 加载：`rtk hermes gateway restart` 提升权限执行成功，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 64：blocked task 人工放行 merge-test
+- **状态：** complete
+- 问题：
+  - 用户希望风险可接受的 `blocked` task 也能人工合到 test，旧评估把缺 report、缺 session、diff guard 越权、runner_failed 等都限制得过死。
+  - 需要从整个链路上区分“无法执行的硬阻断”和“可由人工接受的风险”。
+- 已完成：
+  - 新增 blocked merge-test assessment：硬阻断只保留缺 implementation run、缺 source branch、缺 worktree、task cancelled。
+  - 缺 Codex session、缺 report、report 不完整、diff guard 越权、runner_failed/failed、checkpoint commit failed、报告显示未落地代码等改为风险确认。
+  - `/coding merge-test <task_id>` 遇到可接受风险时不启动 runner，返回 `/coding merge-test <task_id> --accept-risk` 确认命令。
+  - `/coding merge-test <task_id> --accept-risk` 会记录 `accepted_risk`、`blocked_merge_test_released` 和 human decision，再归一为 `ready_for_merge_test_with_known_gaps` 继续 merge-test。
+  - Gateway 异步 `/coding merge-test` 复用同一套评估逻辑，风险确认会写 pending action；用户回复“确认”会按 `--accept-risk` 继续。
+  - 状态机允许 `blocked -> ready_for_merge_test_with_known_gaps`，但该转换只由 Hermes 风险评估触发。
+  - README、使用文档、技术方案和分享文档已补充该规则。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/state_machine.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `tests/test_state_machine.py`
+  - `README.md`
+  - `PLUGIN_USAGE.md`
+  - `PLUGIN_TECHNICAL_SOLUTION.md`
+  - `docs/feishu-workflow-update-20260526.md`
+  - `task_plan.md`
+  - `progress.md`
+  - `findings.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_state_machine tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_prepare_merge_test_turns_blocked_implementation_into_ready_with_known_gaps tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_merge_test_releases_mergeable_blocked_task_with_known_gaps tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_merge_test_rejects_blocked_diff_guard_violation tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_merge_test_releases_blocked_task_before_background_run tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_merge_test_resumes_codex_session_and_marks_merged_test`：18 tests passed。
+  - focused 补充：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_merge_test_releases_mergeable_blocked_task_with_known_gaps tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_merge_test_rejects_blocked_diff_guard_violation tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_merge_test_rejects_blocked_without_structured_report tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_merge_test_releases_blocked_task_before_background_run tests.test_state_machine.TaskStateMachineTest.test_allows_blocked_task_to_be_released_with_known_gaps`：5 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_state_machine`：113 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：176 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+
+### 阶段 65：blocked 风险接受快速放宽
+- **状态：** complete
+- 问题：
+  - 阶段 64 仍把缺 report、缺 Codex session、diff guard 越权、runner_failed/failed、结构化字段不完整等风险限制得过死。
+  - 用户希望自己判断风险没问题时可以继续合 test。
+- 已完成：
+  - `/coding merge-test <task_id>` 遇到可接受 blocked 风险时返回风险确认，不直接拒绝。
+  - 新增 `/coding merge-test <task_id> --accept-risk`，用于人工接受风险后继续。
+  - Gateway 路径会把风险确认保存为 pending action；用户回复“确认”会按 `--accept-risk` 续接。
+  - 缺 Codex session 不再阻断 merge-test；Hermes 可以开启新 Codex session 执行。
+  - 硬阻断收敛为：缺 implementation run、缺 worktree、缺 source branch、task cancelled。
+  - accepted risk 会写入 `merge_records[].accepted_risk` 和 human decision，便于审计。
+  - README、使用文档、技术方案、分享文档、task_plan 和 findings 已同步。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `README.md`
+  - `PLUGIN_USAGE.md`
+  - `PLUGIN_TECHNICAL_SOLUTION.md`
+  - `docs/feishu-workflow-update-20260526.md`
+  - `task_plan.md`
+  - `progress.md`
+  - `findings.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_merge_test_rejects_blocked_without_structured_report tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_coding_merge_test_accepts_risk_for_blocked_without_structured_report tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_merge_test_blocked_risk_confirmation_uses_pending_accept_risk tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_merge_test_releases_blocked_task_before_background_run`：4 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_state_machine`：115 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：178 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 最终复验：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_state_machine`：115 tests passed。
+  - 最终复验：`rtk python3 -m unittest discover -s tests`：178 tests passed。
+  - 最终复验：`rtk git diff --check`：passed，无输出。
+  - 尾随空白检查：`rtk rg -n '[ \\t]+$' coding_orchestration/orchestrator.py tests/test_orchestrator_run_flow.py README.md PLUGIN_USAGE.md PLUGIN_TECHNICAL_SOLUTION.md docs/feishu-workflow-update-20260526.md task_plan.md progress.md findings.md`：passed，未发现匹配。
+  - Hermes 加载：`rtk hermes gateway restart` 提升权限执行成功，输出 `Service restarted`。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 `{"status": "ok", "platform": "hermes-agent"}`。
+  - 插件状态：`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 66：code review 问题修复
+- **状态：** complete
+- 问题：
+  - `command_rewriter.py` 与 `runners/hermes_autonomous_codex.py` 被无条件 import，但新增文件未进入 `git diff`。
+  - plan-only 使用 `--dangerously-bypass-approvals-and-sandbox`，项目外写入无法被 diff guard 审计。
+  - orchestrator runner failed / checkpoint failed 兜底 report 缺少 `qa_artifacts` 和 `tested_commit`。
+- 已完成：
+  - `coding_orchestration/command_rewriter.py` 和 `coding_orchestration/runners/hermes_autonomous_codex.py` 已标记 intent-to-add，确保 `git diff <base>` 可见新增文件。
+  - Codex CLI plan-only 新 session 改回 `--sandbox read-only` + `approval_policy="never"`。
+  - Codex CLI plan-only resume session 和 manifest `resume_command` 改回 `sandbox_mode="read-only"` + `approval_policy="never"`，implementation/QA/merge-test 继续 bypass。
+  - plan-only manifest 改为 `permission_profile=plan_read_only` 且 `dangerous_bypass=false`。
+  - `_runner_failed_result` 和 `_checkpoint_failed_result` 补齐 `qa_artifacts` 与 `tested_commit`。
+  - README、使用文档、技术方案、task_plan 和 findings 已同步 plan-only 权限口径。
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_codex_cli_runner tests.test_router_prompt_summary tests.test_plugin_registration tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_plan_only_resume_command_uses_read_only_sandbox tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_plan_only_run_generates_artifacts_updates_ledger_and_writes_run_summary tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_qa_run_blocks_when_checkpoint_commit_fails`：32 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_codex_cli_runner tests.test_router_prompt_summary tests.test_plugin_registration tests.test_orchestrator_run_flow tests.test_state_machine`：145 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：179 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 尾随空白检查：`rtk rg -n '[ \\t]+$' coding_orchestration/orchestrator.py coding_orchestration/runners/codex_cli.py coding_orchestration/command_rewriter.py coding_orchestration/runners/hermes_autonomous_codex.py tests/test_codex_cli_runner.py tests/test_orchestrator_run_flow.py README.md PLUGIN_USAGE.md PLUGIN_TECHNICAL_SOLUTION.md task_plan.md progress.md findings.md`：passed，未发现匹配。
+  - base diff 可见新增文件：`rtk git diff --name-status b29e6b281cecc6a480ee54978409d8b6efe53e20 -- coding_orchestration/command_rewriter.py coding_orchestration/runners/hermes_autonomous_codex.py` 显示两个文件均为 `A`。
+
+---
+*每个阶段完成后或遇到错误时更新此文件*

@@ -4,6 +4,7 @@ import inspect
 import json
 import os
 import re
+import subprocess
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -17,6 +18,13 @@ _PROJECT_LINK_RE = re.compile(
     r"(?P<work_item_id>[A-Za-z0-9_-]+))"
 )
 
+_DOCUMENT_LINK_RE = re.compile(
+    r"(?P<url>https?://[^\s<>)\"']+/"
+    r"(?P<document_kind>wiki|docx)/"
+    r"(?P<document_token>[A-Za-z0-9_-]+)"
+    r"(?:[^\s<>)\"']*)?)"
+)
+
 
 @dataclass(frozen=True)
 class FeishuProjectLink:
@@ -26,25 +34,47 @@ class FeishuProjectLink:
     work_item_id: str
 
 
+@dataclass(frozen=True)
+class FeishuDocumentLink:
+    url: str
+    document_kind: str
+    document_token: str
+
+
 class FeishuProjectReader:
-    """Read Feishu Project work items before handing context to coding runners."""
+    """Read Feishu source links before handing context to coding runners."""
 
     def read_from_text(self, text: str, gateway: Any = None) -> dict[str, Any] | None:
         link = self.extract_first_link(text)
-        if link is None:
+        if link is not None:
+            context = self._read_via_gateway(link, gateway)
+            if context:
+                return context
+
+            context = self._read_via_open_api_env(link)
+            if context:
+                return context
+
+            return self._failed_context(
+                link,
+                "Feishu Project reader is not configured. Set FEISHU_PROJECT_PLUGIN_TOKEN and, if required, FEISHU_PROJECT_USER_KEY.",
+            )
+
+        document_link = self.extract_first_document_link(text)
+        if document_link is None:
             return None
 
-        context = self._read_via_gateway(link, gateway)
+        context = self._read_document_via_gateway(document_link, gateway)
         if context:
             return context
 
-        context = self._read_via_open_api_env(link)
+        context = self._read_document_via_lark_cli(document_link)
         if context:
             return context
 
-        return self._failed_context(
-            link,
-            "Feishu Project reader is not configured. Set FEISHU_PROJECT_PLUGIN_TOKEN and, if required, FEISHU_PROJECT_USER_KEY.",
+        return self._failed_document_context(
+            document_link,
+            "Feishu document reader is not configured. Bind lark-cli to Hermes with user identity, or paste the document content into the task.",
         )
 
     @staticmethod
@@ -57,6 +87,17 @@ class FeishuProjectReader:
             project_key=match.group("project_key"),
             work_item_type_key=match.group("work_item_type_key"),
             work_item_id=match.group("work_item_id"),
+        )
+
+    @staticmethod
+    def extract_first_document_link(text: str) -> FeishuDocumentLink | None:
+        match = _DOCUMENT_LINK_RE.search(text or "")
+        if not match:
+            return None
+        return FeishuDocumentLink(
+            url=match.group("url"),
+            document_kind=match.group("document_kind"),
+            document_token=match.group("document_token"),
         )
 
     def normalize_payload(self, link: FeishuProjectLink, payload: dict[str, Any]) -> dict[str, Any]:
@@ -149,6 +190,86 @@ class FeishuProjectReader:
             "Feishu Project API returned an empty or unsupported response.",
         )
 
+    def _read_document_via_gateway(self, link: FeishuDocumentLink, gateway: Any) -> dict[str, Any] | None:
+        if gateway is None:
+            return None
+        targets = [gateway]
+        adapters = getattr(gateway, "adapters", None)
+        if isinstance(adapters, dict) and adapters.get("feishu") is not None:
+            targets.append(adapters["feishu"])
+        for target in targets:
+            for method_name in (
+                "read_feishu_document",
+                "fetch_feishu_document",
+                "read_lark_document",
+                "fetch_lark_document",
+                "read_feishu_doc",
+                "fetch_feishu_doc",
+            ):
+                method = getattr(target, method_name, None)
+                if not callable(method):
+                    continue
+                try:
+                    result = method(
+                        url=link.url,
+                        document_kind=link.document_kind,
+                        document_token=link.document_token,
+                    )
+                except TypeError:
+                    result = method(link.url)
+                if inspect.isawaitable(result):
+                    continue
+                context = self._coerce_document_context(link, result)
+                if context:
+                    return context
+        return None
+
+    def _read_document_via_lark_cli(self, link: FeishuDocumentLink) -> dict[str, Any] | None:
+        command = [
+            os.getenv("FEISHU_DOC_LARK_CLI", "lark-cli"),
+            "docs",
+            "+fetch",
+            "--api-version",
+            "v2",
+            "--doc",
+            link.url,
+            "--doc-format",
+            "markdown",
+            "--format",
+            "json",
+        ]
+        try:
+            result = subprocess.run(
+                command,
+                text=True,
+                capture_output=True,
+                timeout=int(os.getenv("FEISHU_DOC_FETCH_TIMEOUT_SECONDS", "20")),
+                check=False,
+            )
+        except (OSError, TimeoutError, subprocess.TimeoutExpired) as exc:
+            return self._failed_document_context(link, f"Failed to run lark-cli docs +fetch: {exc}")
+        raw = (result.stdout or result.stderr or "").strip()
+        if not raw:
+            return self._failed_document_context(
+                link,
+                f"lark-cli docs +fetch exited with code {result.returncode} and no output.",
+            )
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return self._failed_document_context(
+                link,
+                f"lark-cli docs +fetch returned non-JSON output: {self._truncate(raw, 1000)}",
+            )
+        context = self._coerce_document_context(link, payload)
+        if context:
+            return context
+        message = self._text(payload.get("error")) if isinstance(payload, dict) else ""
+        return self._failed_document_context(
+            link,
+            message or f"lark-cli docs +fetch returned unsupported output, exit_code={result.returncode}.",
+        )
+
     def _coerce_context(self, link: FeishuProjectLink, value: Any) -> dict[str, Any] | None:
         if not value:
             return None
@@ -178,6 +299,59 @@ class FeishuProjectReader:
         if code not in (None, 0):
             return self._failed_context(link, f"Feishu Project API returned code={code}: {value.get('msg') or value.get('message') or 'unknown error'}")
         return self.normalize_payload(link, value)
+
+    def _coerce_document_context(self, link: FeishuDocumentLink, value: Any) -> dict[str, Any] | None:
+        if not value:
+            return None
+        if isinstance(value, str):
+            return self._document_success_context(link, value)
+        if not isinstance(value, dict):
+            return None
+        if value.get("read_status") == "success" and value.get("summary_markdown"):
+            return {
+                "source_type": self._document_source_type(link),
+                "url": link.url,
+                "document_kind": link.document_kind,
+                "document_token": link.document_token,
+                **value,
+            }
+        if value.get("ok") is False:
+            return self._failed_document_context(link, self._text(value.get("error")) or "lark-cli docs +fetch failed.")
+        data = value.get("data") if isinstance(value.get("data"), dict) else value
+        document = data.get("document") if isinstance(data.get("document"), dict) else None
+        if document is None:
+            return None
+        content = self._text(document.get("content"))
+        if not content:
+            return self._failed_document_context(link, "Feishu document API returned empty content.")
+        return self._document_success_context(
+            link,
+            content,
+            document_id=self._text(document.get("document_id")),
+            revision_id=self._text(document.get("revision_id")),
+        )
+
+    def _document_success_context(
+        self,
+        link: FeishuDocumentLink,
+        content: str,
+        *,
+        document_id: str = "",
+        revision_id: str = "",
+    ) -> dict[str, Any]:
+        title = self._document_title(content) or f"飞书 {link.document_kind} 文档 {link.document_token}"
+        summary = self._format_document_summary(link, title, content, document_id=document_id, revision_id=revision_id)
+        return {
+            "read_status": "success",
+            "source_type": self._document_source_type(link),
+            "url": link.url,
+            "document_kind": link.document_kind,
+            "document_token": link.document_token,
+            "document_id": document_id,
+            "revision_id": revision_id,
+            "title": title,
+            "summary_markdown": summary,
+        }
 
     @staticmethod
     def _payload_data(payload: dict[str, Any]) -> dict[str, Any]:
@@ -241,6 +415,46 @@ class FeishuProjectReader:
                 parts.append(f"- {field['name']}：{self._truncate(field['value'], 800)}")
         return "\n".join(parts).strip()
 
+    def _format_document_summary(
+        self,
+        link: FeishuDocumentLink,
+        title: str,
+        content: str,
+        *,
+        document_id: str = "",
+        revision_id: str = "",
+    ) -> str:
+        parts = [
+            f"## 飞书 {link.document_kind} 文档",
+            "",
+            f"- 链接：{link.url}",
+            f"- Token：{link.document_token}",
+            f"- 标题：{title}",
+        ]
+        if document_id:
+            parts.append(f"- Document ID：{document_id}")
+        if revision_id:
+            parts.append(f"- Revision：{revision_id}")
+        parts.extend(["", "### 文档内容", self._truncate(content, 12000)])
+        return "\n".join(parts).strip()
+
+    @staticmethod
+    def _document_source_type(link: FeishuDocumentLink) -> str:
+        return "feishu_wiki" if link.document_kind == "wiki" else "feishu_docx"
+
+    @staticmethod
+    def _document_title(content: str) -> str:
+        for line in content.splitlines():
+            text = line.strip()
+            if not text:
+                continue
+            if text.startswith("#"):
+                return text.lstrip("#").strip()[:120]
+            if text.startswith("<title>") and text.endswith("</title>"):
+                return text.removeprefix("<title>").removesuffix("</title>").strip()[:120]
+            return text[:120]
+        return ""
+
     def _first_string(self, value: Any, keys: tuple[str, ...]) -> str:
         if not isinstance(value, dict):
             return ""
@@ -283,6 +497,17 @@ class FeishuProjectReader:
             "project_key": link.project_key,
             "work_item_type_key": link.work_item_type_key,
             "work_item_id": link.work_item_id,
+            "error": error,
+            "requires_human_context": True,
+        }
+
+    def _failed_document_context(self, link: FeishuDocumentLink, error: str) -> dict[str, Any]:
+        return {
+            "read_status": "failed",
+            "source_type": self._document_source_type(link),
+            "url": link.url,
+            "document_kind": link.document_kind,
+            "document_token": link.document_token,
             "error": error,
             "requires_human_context": True,
         }

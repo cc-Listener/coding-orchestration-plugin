@@ -39,35 +39,35 @@ class CodexCliRunner(CodingAgentRunner):
         workspace_path: Path | None,
         mode: RunMode,
     ) -> list[str]:
-        if mode == RunMode.MERGE_TEST:
-            session_id = self._resume_session_id(run_dir)
-            if session_id:
-                return [
-                    self.command,
-                    "exec",
-                    "resume",
-                    "--json",
-                    "--dangerously-bypass-approvals-and-sandbox",
-                    "--output-last-message",
-                    str(run_dir / "report.json"),
-                    session_id,
-                    "-",
-                ]
+        session_id = self._resume_session_id(run_dir)
+        if session_id:
+            return self._build_resume_command(run_dir=run_dir, mode=mode, session_id=session_id)
+        if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}:
             cwd = workspace_path or project_path
-            return [
+            command = [
                 self.command,
                 "exec",
                 "--json",
                 "--dangerously-bypass-approvals-and-sandbox",
-                "--output-last-message",
-                str(run_dir / "report.json"),
-                "-C",
-                str(cwd),
-                "-",
             ]
+            if mode != RunMode.MERGE_TEST:
+                command.extend(
+                    [
+                        "--output-schema",
+                        str(run_dir / "report.schema.json"),
+                    ]
+                )
+            command.extend(
+                [
+                    "--output-last-message",
+                    str(run_dir / "report.json"),
+                    "-C",
+                    str(cwd),
+                    "-",
+                ]
+            )
+            return command
 
-        cwd = workspace_path if mode == RunMode.IMPLEMENTATION else project_path
-        sandbox = "workspace-write" if mode == RunMode.IMPLEMENTATION else "read-only"
         return [
             self.command,
             "exec",
@@ -77,13 +77,41 @@ class CodexCliRunner(CodingAgentRunner):
             "--output-last-message",
             str(run_dir / "report.json"),
             "--sandbox",
-            sandbox,
+            "read-only",
             "-c",
             'approval_policy="never"',
             "-C",
-            str(cwd),
+            str(project_path),
             "-",
         ]
+
+    def _build_resume_command(self, *, run_dir: Path, mode: RunMode, session_id: str) -> list[str]:
+        command = [
+            self.command,
+            "exec",
+            "resume",
+            "--json",
+        ]
+        if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}:
+            command.append("--dangerously-bypass-approvals-and-sandbox")
+        else:
+            command.extend(
+                [
+                    "-c",
+                    'sandbox_mode="read-only"',
+                    "-c",
+                    'approval_policy="never"',
+                ]
+            )
+        command.extend(
+            [
+                "--output-last-message",
+                str(run_dir / "report.json"),
+                session_id,
+                "-",
+            ]
+        )
+        return command
 
     def run(
         self,
@@ -101,6 +129,11 @@ class CodexCliRunner(CodingAgentRunner):
             workspace_path=workspace_path,
             mode=mode,
         )
+        subprocess_cwd = self.subprocess_cwd(
+            project_path=project_path,
+            workspace_path=workspace_path,
+            mode=mode,
+        )
         return self.run_subprocess(
             run_id=run_id,
             command=command,
@@ -108,7 +141,14 @@ class CodexCliRunner(CodingAgentRunner):
             stdin_path=run_dir / "input-prompt.md",
             timeout_seconds=timeout_seconds,
             mode=mode,
+            cwd=subprocess_cwd,
         )
+
+    @staticmethod
+    def subprocess_cwd(*, project_path: Path, workspace_path: Path | None, mode: RunMode) -> Path:
+        if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST} and workspace_path is not None:
+            return workspace_path
+        return project_path
 
     def run_subprocess(
         self,
@@ -119,28 +159,43 @@ class CodexCliRunner(CodingAgentRunner):
         stdin_path: Path,
         timeout_seconds: int,
         mode: RunMode = RunMode.PLAN_ONLY,
+        cwd: Path | None = None,
     ) -> RunResult:
         run_dir.mkdir(parents=True, exist_ok=True)
         stdout_path = run_dir / "stdout.log"
         stderr_path = run_dir / "stderr.log"
-        with stdin_path.open("rb") as stdin, stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
-            proc = subprocess.Popen(
-                command,
-                stdin=stdin,
-                stdout=stdout,
-                stderr=stderr,
-                start_new_session=True,
+        try:
+            with stdin_path.open("rb") as stdin, stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
+                proc = subprocess.Popen(
+                    command,
+                    stdin=stdin,
+                    stdout=stdout,
+                    stderr=stderr,
+                    cwd=str(cwd) if cwd else None,
+                    start_new_session=True,
+                )
+                self._processes[run_id] = proc
+                try:
+                    exit_code = proc.wait(timeout=timeout_seconds)
+                except subprocess.TimeoutExpired:
+                    self.cancel(run_id)
+                    exit_code = proc.wait(timeout=5)
+                    report = self.build_fallback_report(run_dir, mode, status=AgentRunStatus.TIMEOUT)
+                    return RunResult(AgentRunStatus.TIMEOUT.value, exit_code, self.collect_artifacts(run_dir), report)
+                finally:
+                    self._processes.pop(run_id, None)
+        except Exception as exc:
+            stderr_path.write_text(str(exc), encoding="utf-8")
+            report = self.build_fallback_report(
+                run_dir,
+                mode,
+                status=AgentRunStatus.RUNNER_FAILED,
+                limitation_reason="process_start_failed",
+                limitation_impact="Codex runner did not start, so no implementation or verification ran.",
+                limitation_recovery_action="Verify the Codex CLI command/path and rerun this task.",
+                limitation_fallback_evidence=str(stderr_path),
             )
-            self._processes[run_id] = proc
-            try:
-                exit_code = proc.wait(timeout=timeout_seconds)
-            except subprocess.TimeoutExpired:
-                self.cancel(run_id)
-                exit_code = proc.wait(timeout=5)
-                report = self.build_fallback_report(run_dir, mode, status=AgentRunStatus.TIMEOUT)
-                return RunResult(AgentRunStatus.TIMEOUT.value, exit_code, self.collect_artifacts(run_dir), report)
-            finally:
-                self._processes.pop(run_id, None)
+            return RunResult(AgentRunStatus.RUNNER_FAILED.value, None, self.collect_artifacts(run_dir), report)
 
         report = self.load_or_build_report(run_dir=run_dir, mode=mode)
         return RunResult(str(report.get("status", AgentRunStatus.FAILED.value)), exit_code, self.collect_artifacts(run_dir), report)
@@ -176,10 +231,27 @@ class CodexCliRunner(CodingAgentRunner):
                 raw_report = report_path.read_text(encoding="utf-8")
                 report = json.loads(raw_report)
                 if self._is_valid_report(report):
+                    report = self.ensure_report_contract(run_dir, mode, report)
                     self.ensure_summary(run_dir, report)
                     return report
             except json.JSONDecodeError:
                 pass
+        runner_failure = self._runner_failure_from_stdout(run_dir / "stdout.log")
+        if runner_failure:
+            return self.build_fallback_report(
+                run_dir=run_dir,
+                mode=mode,
+                status=AgentRunStatus.RUNNER_FAILED,
+                limitation_reason=runner_failure["reason"],
+                limitation_impact=runner_failure["impact"],
+                limitation_recovery_action=runner_failure["recovery_action"],
+                limitation_fallback_evidence=runner_failure["fallback_evidence"],
+            )
+        recovered_report = self.recover_partial_structured_report(run_dir=run_dir, raw_report=raw_report, mode=mode)
+        if recovered_report:
+            recovered_report = self.ensure_report_contract(run_dir, mode, recovered_report)
+            self.ensure_summary(run_dir, recovered_report)
+            return recovered_report
         recovered_summary = self.recover_summary_markdown(run_dir=run_dir, raw_report=raw_report)
         return self.build_fallback_report(
             run_dir=run_dir,
@@ -209,31 +281,258 @@ class CodexCliRunner(CodingAgentRunner):
         mode: RunMode,
         status: AgentRunStatus = AgentRunStatus.COMPLETED_UNSTRUCTURED,
         recovered_summary: str = "",
+        limitation_reason: str = "",
+        limitation_impact: str = "",
+        limitation_recovery_action: str = "",
+        limitation_fallback_evidence: str = "",
     ) -> dict[str, Any]:
-        risks = ["Structured report was not produced or failed schema validation."]
-        next_actions = ["Review stdout/stderr and decide whether to rerun or continue manually."]
+        if status == AgentRunStatus.TIMEOUT:
+            risks = ["Codex runner reached the configured timeout before producing the final structured report."]
+            next_actions = [
+                "Review stdout/stderr to confirm the latest implementation and verification state.",
+                "If code changes are present, continue the same task or proceed with known verification gaps.",
+            ]
+            default_impact = "The runner may have completed useful implementation work, but Hermes cannot trust the final state without reviewing partial output."
+            default_recovery_action = "Resume the same Codex session or rerun the task with a longer timeout after reviewing stdout/stderr."
+        else:
+            risks = ["Structured report was not produced or failed schema validation."]
+            next_actions = ["Review stdout/stderr and decide whether to rerun or continue manually."]
+            default_impact = "Hermes cannot fully trust this run result without human review."
+            default_recovery_action = "Review stdout/stderr and rerun or continue manually."
         if recovered_summary:
             (run_dir / "summary.md").write_text(recovered_summary, encoding="utf-8")
-            risks.append("已从非结构化输出中恢复可读计划；仍需人工确认完整度和正确性。")
-            next_actions = ["请人工确认计划完整度和正确性；确认后再进入 implementation。"]
+            risks.append("已从非结构化输出中恢复可读摘要；仍需人工确认完整度和正确性。")
+            next_actions = self._next_actions_for_recovered_summary(mode, run_dir)
+        limitation = self._verification_limitation(
+            reason=limitation_reason or self._fallback_limitation_reason(status),
+            impact=limitation_impact or default_impact,
+            recovery_action=limitation_recovery_action or default_recovery_action,
+            fallback_evidence=limitation_fallback_evidence or f"{run_dir / 'stdout.log'}; {run_dir / 'stderr.log'}",
+        )
         report = {
             "runner": self.name,
             "status": status.value,
             "mode": mode.value,
+            "summary_markdown": recovered_summary,
             "modified_files": [],
             "test_commands": [],
             "test_results": [],
             "risks": risks,
+            "verification_limitations": [limitation],
             "human_required": True,
             "next_actions": next_actions,
+            "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
+            "tested_commit": "",
             "raw_stdout_ref": str(run_dir / "stdout.log"),
             "raw_stderr_ref": str(run_dir / "stderr.log"),
             "summary_ref": str(run_dir / "summary.md"),
         }
-        if recovered_summary:
-            report["summary_markdown"] = recovered_summary
         (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return report
+
+    def recover_partial_structured_report(
+        self,
+        *,
+        run_dir: Path,
+        raw_report: str,
+        mode: RunMode,
+    ) -> dict[str, Any]:
+        candidates: list[dict[str, Any]] = []
+        parsed_raw = self._try_parse_json(raw_report.strip()) if raw_report.strip() else None
+        if isinstance(parsed_raw, dict):
+            candidates.append(parsed_raw)
+        candidates.extend(self._report_candidates_from_stdout(run_dir / "stdout.log"))
+        for candidate in candidates:
+            report = self._normalize_partial_structured_report(candidate, run_dir=run_dir, mode=mode)
+            if report:
+                return report
+        return {}
+
+    def _report_candidates_from_stdout(self, path: Path) -> list[dict[str, Any]]:
+        if not path.exists():
+            return []
+        candidates: list[dict[str, Any]] = []
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        for line in reversed(lines):
+            parsed = self._try_parse_json(line.strip())
+            if not isinstance(parsed, dict):
+                continue
+            text = self._event_text(parsed)
+            if not text:
+                continue
+            candidates.extend(self._report_candidates_from_text(text))
+        return candidates
+
+    def _report_candidates_from_text(self, text: str) -> list[dict[str, Any]]:
+        value = text.strip()
+        if not value:
+            return []
+        candidates: list[dict[str, Any]] = []
+        parsed = self._try_parse_json(value)
+        if isinstance(parsed, dict):
+            candidates.append(parsed)
+        for block in re.findall(r"```(?:json)?\s*(.*?)```", value, flags=re.S | re.I):
+            parsed_block = self._try_parse_json(block.strip())
+            if isinstance(parsed_block, dict):
+                candidates.append(parsed_block)
+        return candidates
+
+    def _normalize_partial_structured_report(
+        self,
+        candidate: dict[str, Any],
+        *,
+        run_dir: Path,
+        mode: RunMode,
+    ) -> dict[str, Any]:
+        if not any(
+            key in candidate
+            for key in (
+                "status",
+                "summary_markdown",
+                "modified_files",
+                "changed_files",
+                "test_results",
+                "verification_limitations",
+            )
+        ):
+            return {}
+        status = str(candidate.get("status") or AgentRunStatus.COMPLETED_UNSTRUCTURED.value)
+        try:
+            AgentRunStatus(status)
+        except ValueError:
+            status = AgentRunStatus.COMPLETED_UNSTRUCTURED.value
+        modified_files = candidate.get("modified_files", candidate.get("changed_files", []))
+        test_results = candidate.get("test_results") if isinstance(candidate.get("test_results"), list) else []
+        test_commands = candidate.get("test_commands") if isinstance(candidate.get("test_commands"), list) else []
+        if not test_commands:
+            test_commands = [
+                str(item.get("command"))
+                for item in test_results
+                if isinstance(item, dict) and str(item.get("command") or "").strip()
+            ]
+        limitations = (
+            candidate.get("verification_limitations")
+            if isinstance(candidate.get("verification_limitations"), list)
+            else []
+        )
+        risks = candidate.get("risks") if isinstance(candidate.get("risks"), list) else []
+        next_actions = (
+            candidate.get("next_actions")
+            if isinstance(candidate.get("next_actions"), list)
+            else self._default_next_actions_for_status(status, mode, run_dir)
+        )
+        return {
+            "runner": str(candidate.get("runner") or self.name),
+            "status": status,
+            "mode": str(candidate.get("mode") or mode.value),
+            "summary_markdown": str(candidate.get("summary_markdown") or ""),
+            "modified_files": modified_files if isinstance(modified_files, list) else [],
+            "test_commands": test_commands,
+            "test_results": test_results,
+            "risks": risks,
+            "verification_limitations": limitations,
+            "human_required": bool(
+                candidate.get(
+                    "human_required",
+                    self._status_requires_limitation(status)
+                    or status
+                    in {
+                        AgentRunStatus.BLOCKED.value,
+                        AgentRunStatus.FAILED.value,
+                        AgentRunStatus.TIMEOUT.value,
+                    },
+                )
+            ),
+            "next_actions": next_actions,
+            "qa_artifacts": candidate.get("qa_artifacts")
+            if isinstance(candidate.get("qa_artifacts"), dict)
+            else {"report": "", "baseline": "", "screenshots_dir": ""},
+            "tested_commit": str(candidate.get("tested_commit") or ""),
+            "raw_stdout_ref": str(run_dir / "stdout.log"),
+            "raw_stderr_ref": str(run_dir / "stderr.log"),
+            "summary_ref": str(run_dir / "summary.md"),
+        }
+
+    @staticmethod
+    def _default_next_actions_for_status(status: str, mode: RunMode, run_dir: Path) -> list[str]:
+        task_id = run_dir.parent.name
+        if mode == RunMode.PLAN_ONLY:
+            return [f"人工确认计划后发送 /coding implement {task_id}。"]
+        if mode == RunMode.IMPLEMENTATION:
+            if status == AgentRunStatus.READY_FOR_MERGE_TEST.value:
+                return [f"开发和验证完成，确认后发送 /coding merge-test {task_id}。"]
+            if status == AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value:
+                return [f"开发完成但存在已知验证缺口；确认风险或补验证后发送 /coding merge-test {task_id}。"]
+            return [f"查看 stdout/stderr 和恢复动作后，继续发送 /coding implement {task_id}。"]
+        if mode == RunMode.QA:
+            return [f"查看 QA 结果；确认后发送 /coding merge-test {task_id}。"]
+        if mode == RunMode.MERGE_TEST:
+            return [f"测试环境确认后发送 /coding complete {task_id}。"]
+        return ["Review stdout/stderr and decide whether to rerun or continue manually."]
+
+    @classmethod
+    def _next_actions_for_recovered_summary(cls, mode: RunMode, run_dir: Path) -> list[str]:
+        task_id = run_dir.parent.name
+        if mode == RunMode.PLAN_ONLY:
+            return [f"请人工确认计划完整度和正确性；确认后发送 /coding implement {task_id}。"]
+        if mode == RunMode.IMPLEMENTATION:
+            return [f"请人工确认实现摘要和 stdout/stderr；如实现可接受，发送 /coding prepare-merge-test {task_id} 或继续 /coding implement {task_id}。"]
+        if mode == RunMode.QA:
+            return [f"请人工确认 QA 摘要和 stdout/stderr；如风险可接受，发送 /coding merge-test {task_id}。"]
+        if mode == RunMode.MERGE_TEST:
+            return [f"请人工确认 merge-test 摘要和 stdout/stderr；测试环境确认后发送 /coding complete {task_id}。"]
+        return ["Review stdout/stderr and decide whether to rerun or continue manually."]
+
+    def ensure_report_contract(self, run_dir: Path, mode: RunMode, report: dict[str, Any]) -> dict[str, Any]:
+        report = dict(report)
+        report.setdefault("mode", mode.value)
+        report.setdefault("summary_markdown", "")
+        report.setdefault("verification_limitations", [])
+        report.setdefault("qa_artifacts", {"report": "", "baseline": "", "screenshots_dir": ""})
+        report.setdefault("tested_commit", "")
+        if self._status_requires_limitation(str(report.get("status") or "")) and not report["verification_limitations"]:
+            report["verification_limitations"] = [
+                self._verification_limitation(
+                    reason="blocked_or_partial_without_details",
+                    impact="The runner reported a blocked or partial result without structured recovery details.",
+                    recovery_action="Review risks, stdout/stderr, and rerun with explicit recovery instructions.",
+                    fallback_evidence=f"{run_dir / 'stdout.log'}; {run_dir / 'stderr.log'}",
+                )
+            ]
+        (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        return report
+
+    @staticmethod
+    def _status_requires_limitation(status: str) -> bool:
+        return status in {
+            AgentRunStatus.BLOCKED.value,
+            AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+            AgentRunStatus.RUNNER_FAILED.value,
+            AgentRunStatus.TIMEOUT.value,
+        }
+
+    @staticmethod
+    def _fallback_limitation_reason(status: AgentRunStatus) -> str:
+        if status == AgentRunStatus.TIMEOUT:
+            return "runner_timeout"
+        if status == AgentRunStatus.RUNNER_FAILED:
+            return "runner_failed"
+        return "structured_report_missing"
+
+    @staticmethod
+    def _verification_limitation(
+        *,
+        reason: str,
+        impact: str,
+        recovery_action: str,
+        fallback_evidence: str,
+    ) -> dict[str, str]:
+        return {
+            "reason": reason,
+            "impact": impact,
+            "recovery_action": recovery_action,
+            "fallback_evidence": fallback_evidence,
+        }
 
     def recover_summary_markdown(self, *, run_dir: Path, raw_report: str = "") -> str:
         candidates = [
@@ -325,6 +624,20 @@ class CodexCliRunner(CodingAgentRunner):
         return path.read_text(encoding="utf-8", errors="replace")
 
     @staticmethod
+    def _runner_failure_from_stdout(path: Path) -> dict[str, str] | None:
+        if not path.exists():
+            return None
+        text = path.read_text(encoding="utf-8", errors="replace")
+        if "invalid_json_schema" in text or "Invalid schema for response_format" in text:
+            return {
+                "reason": "codex_invalid_output_schema",
+                "impact": "Codex rejected Hermes' report.schema.json before running the planning turn, so no plan or verification result was produced.",
+                "recovery_action": "Fix report.schema.json generation so every object property is listed in required, then rerun the same task.",
+                "fallback_evidence": str(path),
+            }
+        return None
+
+    @staticmethod
     def _looks_like_plan(text: str) -> bool:
         value = text.strip()
         if len(value) < 12:
@@ -346,12 +659,14 @@ class CodexCliRunner(CodingAgentRunner):
             "runner",
             "status",
             "mode",
+            "summary_markdown",
             "modified_files",
             "test_commands",
             "test_results",
             "risks",
             "human_required",
             "next_actions",
+            "verification_limitations",
         }
         return required.issubset(report.keys())
 
