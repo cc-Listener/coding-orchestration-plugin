@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 71：runner status / task status 边界统一归一化（complete）
+阶段 73：Project-First 与低置信度 Skill 化（complete）
 
 ## 各阶段
 
@@ -492,6 +492,30 @@
 - [x] 实现：新增 `normalize_agent_run_status()`，在 runner、orchestrator 收尾、report 写回、schema enum 和状态机 helper 中统一使用。
 - [x] 实现：prompt contract 明确 plan-only 成功必须返回 `status=success`，不要返回 Hermes 内部 task 状态。
 - [x] 验证：状态扫描只剩合法 TaskStatus/TaskPhase 文档、测试断言和 prompt 禁止项；focused/full unittest、py_compile、`git diff --check` 通过。
+- **状态：** complete
+
+### 阶段 72：Coding Mode 低置信度 Hermes fallback
+- [x] 测试：Coding Mode 中 LLM rewrite 低置信度时不发送插件二次确认、不创建 task、不启动 runner，而是把消息交给 Hermes 主 agent。
+- [x] 测试：`intent=unknown` / `canonical_command=null` 时带插件上下文 handoff 给 Hermes 主 agent。
+- [x] 测试：高置信度 destructive 候选仍保存 pending rewrite 并等待人工确认，不走 Hermes fallback。
+- [x] 实现：在 rewrite rejection 分支返回 `pre_gateway_dispatch` 的 `rewrite` action，给 Hermes 主 agent 注入原话、拒绝原因、候选结果、active task 和 allowed commands。
+- [x] 实现：补齐 command rewriter system prompt 的 `/coding restore <task_id>`，并明确非 coding 意图返回 unknown 交主 agent。
+- [x] 验证：focused/full unittest、py_compile、`git diff --check`，并同步到 Hermes 实际插件目录后重启 Gateway。
+- **状态：** complete
+
+### 阶段 73：Project-First 与低置信度 Skill 化
+- [x] 测试：新增 command catalog，覆盖 `/coding` 全量 action，并包含 `project list/init/use/status/clear`。
+- [x] 测试：`/coding help`、`/commands`、rewriter prompt 和 handoff allowed commands 均从 catalog 生成。
+- [x] 测试：`/coding project init <path>` 扫描项目并写入或刷新 LLM Wiki，绑定 active_project，不创建 task。
+- [x] 测试：`/coding project list/use/status/clear` 正确读写当前会话 active_project。
+- [x] 测试：active_project 存在时，Coding Mode 高置信度新需求可创建 task 并注入项目上下文。
+- [x] 测试：低置信度 handoff 包含 recommended skill、active_project、known_projects 和 command catalog。
+- [x] 测试：插件注册 `hermes-coding-operator` skill，skill 内容覆盖 project-first workflow 和“不默认使用插件仓库”的约束。
+- [x] 实现：新增 `coding_orchestration/command_catalog.py`，作为命令单一事实源。
+- [x] 实现：新增会话级 active_project binding，和 active task binding 分离，不写入 Task Ledger。
+- [x] 实现：新增 plugin 内置 skill `coding_orchestration/skills/hermes-coding-operator/SKILL.md`，并在 plugin register 中注册。
+- [x] 实现：扩展 handoff prompt，明确低置信度不创建 task、不启动 runner、不写 LLM Wiki。
+- [x] 验证：全量 unittest、py_compile、`git diff --check`、尾随空白检查，并按需同步 Hermes 实际插件目录。
 - **状态：** complete
 
 ## 关键问题

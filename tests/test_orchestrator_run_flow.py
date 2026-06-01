@@ -6,6 +6,7 @@ from pathlib import Path
 
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
+from coding_orchestration.command_rewriter import HermesCommandRewriter
 from coding_orchestration.models import AgentRunStatus, ArtifactSet, RunMode, RunnerCapabilities, TaskPhase, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_knowledge_resolver import ProjectKnowledgeResolver
@@ -227,6 +228,17 @@ manual_only
 
 
 class OrchestratorRunFlowTest(unittest.TestCase):
+    def test_command_rewriter_prompt_lists_restore_and_hermes_fallback(self):
+        prompt = HermesCommandRewriter._system_prompt()
+
+        self.assertIn("/coding project list", prompt)
+        self.assertIn("/coding project init <project_path_or_name>", prompt)
+        self.assertIn("/coding project use <project_name>", prompt)
+        self.assertIn("/coding restore <task_id>", prompt)
+        self.assertIn("active_project", prompt)
+        self.assertIn("intent=unknown", prompt)
+        self.assertIn("Hermes 主 agent", prompt)
+
     def test_plan_only_resume_command_uses_read_only_sandbox(self):
         command = CodingOrchestrator._codex_resume_command("019e-plan-thread", mode=RunMode.PLAN_ONLY)
 
@@ -344,7 +356,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["source"]["raw_text"], "订单系统新增发货状态筛选")
             self.assertIn("已创建编码任务", gateway.messages[-1])
 
-    def test_gateway_coding_mode_low_confidence_natural_language_asks_confirmation(self):
+    def test_gateway_coding_mode_low_confidence_natural_language_hands_off_to_hermes(self):
         class RecordingOrchestrator(CodingOrchestrator):
             def __post_init__(self):
                 super().__post_init__()
@@ -380,13 +392,121 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             orchestrator.handle_gateway_event(FakeGatewayEvent("进入coding"), gateway=gateway)
             result = orchestrator.handle_gateway_event(FakeGatewayEvent("帮我看一下"), gateway=gateway)
 
-            self.assertEqual(result["action"], "skip")
-            self.assertEqual(result["reason"], "coding_rewrite_needs_human_confirmation")
+            self.assertEqual(result["action"], "rewrite")
+            self.assertEqual(result["reason"], "coding_rewrite_handoff_to_hermes")
+            self.assertIn("Hermes 主 agent 接管", result["text"])
+            self.assertIn("帮我看一下", result["text"])
+            self.assertIn("intent", result["text"])
+            self.assertIn("allowed_commands", result["text"])
             self.assertEqual(orchestrator.auto_started, [])
             tasks = ledger.list_recent_tasks(limit=5)
             self.assertEqual(tasks, [])
             self.assertEqual(len(rewriter.calls), 1)
-            self.assertIn("需要人工二次确认", gateway.messages[-1])
+            self.assertNotIn("需要人工二次确认", gateway.messages[-1])
+
+    def test_gateway_coding_mode_unknown_null_rewrite_hands_context_to_hermes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            ledger.create_task(
+                task_id="task_active",
+                source={"type": "manual", "project_name": "bps-admin"},
+                requirement_summary="优化订单列表查询",
+                project_path=str(root),
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.PLAN_READY.value,
+            )
+            rewriter = FakeCommandRewriter(
+                _rewrite_response(
+                    None,
+                    intent="unknown",
+                    confidence=0.11,
+                    risk_level="unknown",
+                    needs_human_review=True,
+                )
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+                command_rewriter=rewriter,
+            )
+            gateway = FakeGateway()
+
+            orchestrator.handle_gateway_event(FakeGatewayEvent("进入coding"), gateway=gateway)
+            orchestrator.handle_gateway_event(FakeGatewayEvent("/coding use task_active"), gateway=gateway)
+            result = orchestrator.handle_gateway_event(FakeGatewayEvent("这个先讨论下"), gateway=gateway)
+
+            self.assertEqual(result["action"], "rewrite")
+            self.assertEqual(result["reason"], "coding_rewrite_handoff_to_hermes")
+            self.assertIn("未执行任何 coding 操作", result["text"])
+            self.assertIn("task_active", result["text"])
+            self.assertIn("优化订单列表查询", result["text"])
+            self.assertEqual(ledger.get_task("task_active")["status"], TaskStatus.PLANNED.value)
+
+    def test_gateway_coding_mode_low_confidence_handoff_includes_operator_skill_and_project_context(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            wiki.upsert(
+                {
+                    "kind": "project_profile",
+                    "title": "bps-admin 项目画像",
+                    "body": "BPS运营后台 订单列表",
+                    "project": "bps-admin",
+                    "project_id": "bps-admin",
+                    "name": "bps-admin",
+                    "aliases": ["BPS运营后台"],
+                    "local_paths": [str(project)],
+                    "status": "verified",
+                },
+                options={"dedupe_key": "project:bps-admin"},
+            )
+            resolver = ProjectKnowledgeResolver(
+                wiki=wiki,
+                fallback=ProjectResolver(ProjectRegistry([])),
+            )
+            rewriter = FakeCommandRewriter(
+                _rewrite_response(
+                    None,
+                    intent="unknown",
+                    confidence=0.2,
+                    risk_level="unknown",
+                    needs_human_review=True,
+                )
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+                command_rewriter=rewriter,
+            )
+            gateway = FakeGateway()
+
+            orchestrator.handle_gateway_event(FakeGatewayEvent("/coding project use bps-admin"), gateway=gateway)
+            orchestrator.handle_gateway_event(FakeGatewayEvent("进入coding"), gateway=gateway)
+            result = orchestrator.handle_gateway_event(FakeGatewayEvent("这个怎么处理"), gateway=gateway)
+
+            self.assertEqual(result["action"], "rewrite")
+            self.assertIn('skill_view(name="coding_orchestration:hermes-coding-operator")', result["text"])
+            self.assertIn("recommended_skill", result["text"])
+            self.assertIn("active_project", result["text"])
+            self.assertIn("known_projects", result["text"])
+            self.assertIn("bps-admin", result["text"])
+            self.assertIn("不要默认使用插件仓库", result["text"])
 
     def test_gateway_coding_mode_high_confidence_rewrite_with_confirmation_flag_waits_for_confirmation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1270,6 +1390,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIn("/coding task <需求>", gateway.messages[0])
             self.assertIn("/coding status <task_id>", gateway.messages[0])
             self.assertIn("/coding change <反馈>", gateway.messages[0])
+            self.assertIn("/coding project list", gateway.messages[0])
+            self.assertIn("/coding project init <project_path_or_name>", gateway.messages[0])
             self.assertIn("/coding merge-test <task_id>", gateway.messages[0])
             self.assertNotIn("兼容别名", gateway.messages[0])
             self.assertNotIn("/codex", gateway.messages[0])
@@ -1318,8 +1440,105 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIn("/coding task <需求>", text)
             self.assertIn("/coding status <task_id>", text)
             self.assertIn("/coding change <反馈>", text)
+            self.assertIn("/coding project list", text)
+            self.assertIn("/coding project clear", text)
             self.assertIn("/coding delete <task_id>", text)
             self.assertIn("普通自然语言不会进入 plugin", text)
+
+    def test_gateway_project_commands_manage_active_project_without_creating_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectKnowledgeResolver(
+                wiki=wiki,
+                fallback=ProjectResolver(ProjectRegistry([])),
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            init_result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(f"/coding project init {project}"),
+                gateway=gateway,
+            )
+            status_result = orchestrator.handle_gateway_event(FakeGatewayEvent("/coding project status"), gateway=gateway)
+            list_result = orchestrator.handle_gateway_event(FakeGatewayEvent("/coding project list"), gateway=gateway)
+            clear_result = orchestrator.handle_gateway_event(FakeGatewayEvent("/coding project clear"), gateway=gateway)
+            status_after_clear = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("/coding project status"),
+                gateway=gateway,
+            )
+
+            self.assertEqual(init_result["action"], "skip")
+            self.assertEqual(status_result["action"], "skip")
+            self.assertEqual(list_result["action"], "skip")
+            self.assertEqual(clear_result["action"], "skip")
+            self.assertEqual(status_after_clear["action"], "skip")
+            self.assertIn("已初始化项目", gateway.messages[-5])
+            self.assertIn("active_project", gateway.messages[-5])
+            self.assertIn("bps-admin", gateway.messages[-4])
+            self.assertIn(str(project.resolve()), gateway.messages[-4])
+            self.assertIn("当前已知项目", gateway.messages[-3])
+            self.assertIn("当前", gateway.messages[-3])
+            self.assertIn("已清除当前 active_project", gateway.messages[-2])
+            self.assertIn("当前没有绑定 active_project", gateway.messages[-1])
+            self.assertEqual(ledger.list_recent_tasks(limit=5), [])
+
+    def test_active_project_is_used_when_rewrite_creates_task_without_project_flag(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectKnowledgeResolver(
+                wiki=wiki,
+                fallback=ProjectResolver(ProjectRegistry([])),
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+                command_rewriter=FakeCommandRewriter(
+                    _rewrite_response("/coding task 订单列表新增状态筛选")
+                ),
+            )
+            gateway = FakeGateway()
+
+            orchestrator.handle_gateway_event(FakeGatewayEvent(f"/coding project init {project}"), gateway=gateway)
+            orchestrator.handle_gateway_event(FakeGatewayEvent("进入coding"), gateway=gateway)
+            result = orchestrator.handle_gateway_event(FakeGatewayEvent("订单列表新增状态筛选"), gateway=gateway)
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(len(orchestrator.auto_started), 1)
+            task = ledger.get_task(orchestrator.auto_started[0][0])
+            self.assertEqual(task["source"]["project_name"], "bps-admin")
+            self.assertEqual(task["project_path"], str(project.resolve()))
+            self.assertEqual(task["source"]["active_project_context"]["name"], "bps-admin")
+            self.assertIn("active_project", orchestrator.command_rewriter.calls[0])
+            self.assertEqual(orchestrator.command_rewriter.calls[0]["active_project"]["name"], "bps-admin")
 
     def test_gateway_commands_is_intercepted_before_hermes_builtin_listing(self):
         with tempfile.TemporaryDirectory() as tmp:

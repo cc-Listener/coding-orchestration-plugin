@@ -43,12 +43,17 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         self.assertIn("CODING_ORCHESTRATION_ROOT=~/.hermes/coding-orchestration-test", usage)
         self.assertIn("CODING_ORCHESTRATION_ROOT=~/.hermes/coding-orchestration-prod", usage)
         self.assertIn("初始化时不需要带入 `project-registry.json`", usage)
+        self.assertIn("rtk hermes plugins update coding_orchestration", usage)
+        self.assertIn("rtk git pull --ff-only", usage)
+        self.assertIn("rtk proxy curl -sS http://127.0.0.1:8642/health", usage)
 
         readme = (repo_root / "README.md").read_text(encoding="utf-8")
         self.assertIn("生产安装", readme)
         self.assertIn("本地调试安装", readme)
         self.assertIn("生产环境不要依赖软链接安装", readme)
         self.assertIn("初始化时不需要带入 `project-registry.json`", readme)
+        self.assertIn("rtk hermes plugins update coding_orchestration", readme)
+        self.assertIn("rtk git pull --ff-only", readme)
 
     def test_install_script_runs_when_invoked_by_path(self):
         repo_root = Path(__file__).resolve().parents[1]

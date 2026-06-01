@@ -10,7 +10,7 @@ Hermes Coding Orchestration Plugin 是一个 Hermes 用户插件，用 Hermes Ga
 
 MVP 的目标是先跑通最小闭环：飞书 `/coding` 标准命令、Coding Mode 自然语言改写、Hermes 主控、Task Ledger 追踪状态、LLM Wiki 沉淀知识、Codex CLI 受控执行 plan-only / implementation / QA、人工确认 plan、人工触发 merge-test 和人工发布。
 
-MVP 不追求大平台化，也不让普通自然语言绕过主控直接进入 plugin。标准入口是 `/coding <action>`；发送“进入coding”后，同会话自然语言会先由 LLM rewrite 成标准命令，高置信度直接执行，低置信度或高风险候选等待确认。
+MVP 不追求大平台化，也不让普通自然语言绕过主控直接进入 plugin。标准入口是 `/coding <action>`；发送“进入coding”后，同会话自然语言会先由 LLM rewrite 成标准命令，高置信度直接执行，低置信度交给 Hermes 主 agent 基于插件上下文和内置 operator skill 继续判断，高风险候选等待确认。
 
 ## 解决的问题
 
@@ -89,7 +89,7 @@ rtk hermes gateway status
 /coding help
 ```
 
-预期结果是 `/commands` 第一页能看到 `/coding help`、`/coding task`、`/coding status`、`/coding delete`，并且 `/coding help` 能输出完整命令说明。
+预期结果是 `/commands` 第一页能看到 `/coding help`、`/coding task`、`/coding project list`、`/coding status`、`/coding delete`，并且 `/coding help` 能输出完整命令说明。
 
 ### 本地调试安装
 
@@ -112,6 +112,31 @@ rtk hermes plugins enable coding_orchestration
 ```
 
 生产环境不要依赖软链接安装；软链接会把运行中的 Hermes 绑定到本地工作区，适合开发调试，不适合作为稳定部署方式。
+
+### 更新插件
+
+正式安装的插件使用 Hermes 标准更新命令：
+
+```bash
+rtk hermes plugins update coding_orchestration
+rtk hermes gateway restart
+```
+
+本地开发 symlink 插件使用当前仓库更新流程：
+
+```bash
+rtk git pull --ff-only
+rtk hermes gateway restart
+```
+
+更新后验证：
+
+```bash
+rtk hermes plugins list
+rtk proxy curl -sS http://127.0.0.1:8642/health
+```
+
+Hermes Gateway 不会自动热加载 Python 插件代码；更新后必须重启。已经启动中的 Codex run 不会被中途换代码影响，更新只影响后续新的 Gateway 消息、命令和新 run。
 
 ## 1.0 TODO
 
@@ -183,6 +208,8 @@ FEISHU_PROJECT_WORK_ITEM_DETAIL_URL_TEMPLATE=https://project.feishu.cn/open_api/
 active task binding 用于 `/coding continue`、`/coding change`、`/coding bugfix`、`/coding implement` 这类命令在缺省 `task_id` 时找到当前任务；在 Coding Mode 中也会作为 rewrite 上下文。slash 命令只保留 `/coding <action>` 入口，不再兼容旧的 `/coding-*` 或 `/codex-*` 形式。
 
 implementation 有硬门禁：必须先由 Codex 完成 plan-only，Hermes 将 phase 标为 `plan_ready` 后，再通过 `/coding implement <task_id>` 或 Coding Mode 高置信度 rewrite 进入 GitOps implementation。未进入 Coding Mode 时，`新建分支去干活`、`确认` 这类自然语言仍交给 Hermes 主 agent。
+
+Coding Mode 低置信度不会由插件直接创建 task、启动 runner 或回复二次确认。插件会把原话、LLM 候选、拒绝原因、active task、最近 task 和 allowed commands 作为 handoff 文本交回 Hermes 主 agent；如果 Hermes 仍无法判断，就由主 agent 回复低置信度原因并要求用户确认标准 `/coding <action>` 或补充信息。
 
 ## Plugin 任务处理流程
 

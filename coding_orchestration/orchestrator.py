@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import os
 import re
 import shutil
@@ -20,6 +21,13 @@ from .feishu_project_reader import FeishuProjectReader
 from .ledger import TaskLedger
 from .llm_wiki_adapter import LocalLlmWikiAdapter
 from .command_rewriter import HermesCommandRewriter
+from .command_catalog import (
+    allowed_rewrite_commands,
+    allowed_top_level_actions,
+    command_catalog_context,
+    command_help_lines,
+    command_listing_lines,
+)
 from .models import (
     AgentRunStatus,
     ArtifactSet,
@@ -53,6 +61,8 @@ _CODING_MODE_EXIT_RE = re.compile(r"^\s*退出\s*cod(?:e|ing)(?:\s*mode|模式)?
 _CODING_MODE_TASK_ID = "__coding_mode__"
 _PENDING_REWRITE_TASK_ID = "__coding_rewrite_pending__"
 _PENDING_ACTION_TASK_ID = "__coding_pending_action__"
+_ACTIVE_PROJECT_TASK_ID_PREFIX = "__coding_project__:"
+_RECOMMENDED_OPERATOR_SKILL = "coding_orchestration:hermes-coding-operator"
 _CODING_REWRITE_CONFIDENCE_THRESHOLD = 0.85
 
 
@@ -160,6 +170,16 @@ class CodingOrchestrator:
             return self.command_coding_task(rest)
         if command == "coding-list":
             return self.command_coding_list(rest)
+        if command == "coding-project-list":
+            return self.command_coding_project_list(rest)
+        if command == "coding-project-init":
+            return self.command_coding_project_init(rest)
+        if command == "coding-project-use":
+            return self.command_coding_project_use(rest)
+        if command == "coding-project-status":
+            return self.command_coding_project_status(rest)
+        if command == "coding-project-clear":
+            return self.command_coding_project_clear(rest)
         if command == "coding-use":
             return self.command_coding_use(rest)
         if command == "coding-exit":
@@ -195,31 +215,7 @@ class CodingOrchestrator:
             [
                 "Coding Orchestration 命令帮助",
                 "",
-                "创建与选择",
-                "- /coding task <需求>：创建编码任务，自动识别项目并进入 plan-only。",
-                "- /coding list：列出当前未结束的 coding task，方便选择。",
-                "- /coding use <task_id>：切换当前飞书会话绑定的 active task。",
-                "- /coding exit：退出当前飞书会话的 coding 任务绑定。",
-                "",
-                "查看与补充",
-                "- /coding status <task_id>：查看任务状态、项目、source branch、worktree。",
-                "- /coding continue <反馈>：给当前 active task 补充 plan 反馈，并重新进入 plan-only。",
-                "- /coding change <反馈>：记录需求变更，重新进入 plan-only 做变更影响分析。",
-                "- /coding bugfix <反馈>：给当前 active task 补充实现/QA 修复反馈，并在源 workspace 继续 implementation。",
-                "",
-                "执行流程",
-                "- /coding run <task_id>：对已有任务启动 plan-only run。",
-                "- /coding implement <task_id>：人工确认 plan 后，启动 GitOps implementation run。",
-                "- /coding prepare-merge-test <task_id>：把任务标记为等待人工执行 merge test，仅记录人工准备动作。",
-                "- /coding merge-test <task_id> [--accept-risk]：人工触发后执行 merge-to-test；blocked 风险可人工确认后放行。",
-                "- /coding complete <task_id>：merge-test 已合入 test 后，由人工标记任务完成。",
-                "",
-                "控制与清理",
-                "- /coding cancel <task_id|run_id>：取消任务或 run。注意：当前 task_id 取消会让任务进入 cancelled。",
-                "- /coding restore <task_id>：恢复误取消的 task，只恢复状态，不自动启动 Codex。",
-                "- /coding delete <task_id> [--keep-artifacts] [--keep-wiki] [--force]：删除 task，并按参数清理 artifacts / LLM Wiki 记录。",
-                "帮助",
-                "- /coding help：显示本帮助。",
+                *command_help_lines(),
                 "",
                 "边界",
                 "- 默认普通自然语言不会进入 plugin；发送“进入coding”后，本会话自然语言会按 coding 指令处理，发送“退出coding”关闭。",
@@ -237,30 +233,14 @@ class CodingOrchestrator:
 
         entries = [
             "**Coding Orchestration Plugin Commands**:",
-            "`/coding help` -- 显示 coding workflow 帮助。",
-            "`/coding task <需求>` -- 创建编码任务，自动识别项目并进入 plan-only。",
-            "`/coding list` -- 列出当前未结束的 coding task。",
-            "`/coding use <task_id>` -- 切换当前飞书会话绑定的 active task。",
-            "`/coding exit` -- 退出当前飞书会话的 coding 任务绑定。",
-            "`/coding status <task_id>` -- 查看任务状态、项目、source branch、worktree。",
-            "`/coding continue <反馈>` -- 补充 plan 反馈，并重新进入 plan-only。",
-            "`/coding change <反馈>` -- 记录需求变更，重新进入 plan-only 做变更影响分析。",
-            "`/coding bugfix <反馈>` -- 补充实现/QA 修复反馈，并在源 workspace 继续 implementation。",
-            "`/coding run <task_id>` -- 对已有任务启动 plan-only run。",
-            "`/coding implement <task_id>` -- 人工确认 plan 后，启动 GitOps implementation run。",
-            "`/coding prepare-merge-test <task_id>` -- 标记任务等待人工执行 merge test。",
-            "`/coding merge-test <task_id> [--accept-risk]` -- 人工触发 merge-test run；blocked 风险可人工确认后放行。",
-            "`/coding complete <task_id>` -- merge-test 已合入 test 后，由人工标记任务完成。",
-            "`/coding cancel <task_id|run_id>` -- 取消任务或 run。",
-            "`/coding restore <task_id>` -- 恢复误取消的 task，只恢复状态，不自动启动 Codex。",
-            "`/coding delete <task_id> [--keep-artifacts] [--keep-wiki] [--force]` -- 删除 task 并清理关联记录。",
+            *command_listing_lines(),
             "说明：默认普通自然语言不会进入 plugin；发送“进入coding”后，本会话自然语言会按 coding 指令处理。",
         ]
         hermes_lines = self._hermes_gateway_command_lines()
         if hermes_lines:
             entries.extend(["", "**Hermes Built-in Commands**:", *hermes_lines])
 
-        page_size = 20
+        page_size = 40
         total_pages = max(1, (len(entries) + page_size - 1) // page_size)
         page = max(1, min(requested_page, total_pages))
         start = (page - 1) * page_size
@@ -297,6 +277,21 @@ class CodingOrchestrator:
         if not tasks:
             return "当前没有未结束 coding task。"
         return self._format_task_list(tasks)
+
+    def command_coding_project_list(self, raw_args: str = "") -> str:
+        return self._format_project_list(active_project=None)
+
+    def command_coding_project_init(self, raw_args: str = "") -> str:
+        return "命令模式缺少飞书来源，无法建立 active_project；请在飞书里使用 /coding project init <project_path_or_name>。"
+
+    def command_coding_project_use(self, raw_args: str = "") -> str:
+        return "命令模式缺少飞书来源，无法建立 active_project；请在飞书里使用 /coding project use <project_name>。"
+
+    def command_coding_project_status(self, raw_args: str = "") -> str:
+        return "命令模式缺少飞书来源，无法读取当前会话 active_project；请在飞书里使用 /coding project status。"
+
+    def command_coding_project_clear(self, raw_args: str = "") -> str:
+        return "命令模式缺少飞书来源，无法清除当前会话 active_project；请在飞书里使用 /coding project clear。"
 
     def command_coding_use(self, raw_args: str) -> str:
         task_id = raw_args.strip()
@@ -606,6 +601,11 @@ class CodingOrchestrator:
         raw_text = text
         text = normalize_project_text(text)
         explicit_project = self._extract_flag(text, "--project")
+        active_project_context = None
+        if not explicit_project and event is not None:
+            active_project_context = self._active_project_for_event(event)
+            if active_project_context:
+                explicit_project = str(active_project_context.get("name") or "")
         requested_runner = self._extract_flag(text, "--runner")
         related_task_id = self._extract_flag(text, "--bug-of") or self._extract_flag(text, "--parent-task")
         clean_text = self._strip_flags(text)
@@ -631,6 +631,7 @@ class CodingOrchestrator:
                 "gateway_source": self._event_source_for_ledger(event),
                 "media": self._event_media_for_ledger(event),
                 "source_context": self._source_context_for_ledger(source_context),
+                "active_project_context": active_project_context,
                 "project_name": resolved.project_name,
                 "project_confidence": resolved.confidence,
                 "match_evidence": [
@@ -893,6 +894,21 @@ class CodingOrchestrator:
         if command == "coding-list":
             self._reply_if_possible(gateway, event, self._format_task_list_for_event(event))
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        if command == "coding-project-list":
+            self._reply_if_possible(gateway, event, self._format_project_list_for_event(event))
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        if command == "coding-project-init":
+            self._reply_if_possible(gateway, event, self._initialize_project_for_event(raw_args, event))
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        if command == "coding-project-use":
+            self._reply_if_possible(gateway, event, self._select_active_project_for_event(raw_args, event))
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        if command == "coding-project-status":
+            self._reply_if_possible(gateway, event, self._active_project_status_for_event(event))
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        if command == "coding-project-clear":
+            self._reply_if_possible(gateway, event, self._clear_active_project_for_event(event))
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
         if command == "coding-use":
             self._reply_if_possible(gateway, event, self._select_active_task_for_event(raw_args, event))
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
@@ -1095,18 +1111,26 @@ class CodingOrchestrator:
             self._clear_pending_rewrite_for_event(event)
 
         if self.command_rewriter is None:
-            self._reply_if_possible(
-                gateway,
+            return self._handoff_rewrite_to_hermes(
+                normalized,
                 event,
-                "当前 coding mode 需要 LLM rewrite，但未配置 command_rewriter。请直接使用 /coding <action>。",
+                {
+                    "intent": "llm_unavailable",
+                    "canonical_command": None,
+                    "confidence": 0.0,
+                    "risk_level": "unknown",
+                    "needs_confirmation": False,
+                    "needs_human_review": True,
+                    "missing": ["command_rewriter"],
+                    "reason": "当前 coding mode 未配置 command_rewriter。",
+                },
+                "当前 coding mode 未配置 command_rewriter。",
             )
-            return {"action": "skip", "reason": "coding_rewrite_unavailable"}
 
         rewrite = self._rewrite_coding_command(normalized, event)
         command_text, rejection = self._validated_rewrite_command(rewrite)
         if rejection:
-            self._reply_if_possible(gateway, event, self._rewrite_needs_human_confirmation_message(normalized, rewrite, rejection))
-            return {"action": "skip", "reason": "coding_rewrite_needs_human_confirmation"}
+            return self._handoff_rewrite_to_hermes(normalized, event, rewrite, rejection)
 
         if self._rewrite_requires_confirmation(command_text, rewrite):
             self._store_pending_rewrite_for_event(event, command_text, rewrite, normalized)
@@ -1121,6 +1145,19 @@ class CodingOrchestrator:
                 f"未执行：rewrite 命令未被 `/coding` handler 接受。\n候选命令：{command_text}\n请直接发送明确的 /coding <action> 命令。",
             )
         return {"action": "skip", "reason": "coding_rewrite_executed"}
+
+    def _handoff_rewrite_to_hermes(
+        self,
+        text: str,
+        event: Any,
+        rewrite: dict[str, Any],
+        rejection: str,
+    ) -> dict[str, str]:
+        return {
+            "action": "rewrite",
+            "reason": "coding_rewrite_handoff_to_hermes",
+            "text": self._rewrite_handoff_to_hermes_message(text, rewrite, rejection, event),
+        }
 
     @staticmethod
     def _extract_task_id(text: str) -> str:
@@ -1162,6 +1199,7 @@ class CodingOrchestrator:
     def _coding_rewrite_context(self, text: str, event: Any) -> dict[str, Any]:
         media = self._event_media_for_ledger(event)
         active_task = self._active_task_for_event(event)
+        active_project = self._active_project_for_event(event)
         active_context = None
         if active_task:
             active_context = {
@@ -1186,6 +1224,10 @@ class CodingOrchestrator:
                 }
                 for task in known_tasks
             ],
+            "active_project": active_project,
+            "known_projects": self._known_project_profiles(limit=10),
+            "recommended_skill": _RECOMMENDED_OPERATOR_SKILL,
+            "command_catalog": command_catalog_context(),
             "has_media": bool(media),
             "media_types": [str(item.get("type") or "") for item in media if item.get("type")],
             "allowed_commands": self._coding_rewrite_allowed_commands(),
@@ -1193,25 +1235,7 @@ class CodingOrchestrator:
 
     @staticmethod
     def _coding_rewrite_allowed_commands() -> list[dict[str, str]]:
-        return [
-            {"command": "/coding task <需求>", "intent": "create_task", "effect": "write"},
-            {"command": "/coding list", "intent": "list_tasks", "effect": "read"},
-            {"command": "/coding use <task_id>", "intent": "select_task", "effect": "write_binding"},
-            {"command": "/coding exit", "intent": "exit_task", "effect": "write_binding"},
-            {"command": "/coding status <task_id>", "intent": "status_task", "effect": "read"},
-            {"command": "/coding continue <反馈>", "intent": "plan_feedback", "effect": "write"},
-            {"command": "/coding change <反馈>", "intent": "requirement_change", "effect": "write"},
-            {"command": "/coding bugfix <反馈>", "intent": "bugfix_feedback", "effect": "write"},
-            {"command": "/coding run <task_id>", "intent": "run_plan", "effect": "start_runner"},
-            {"command": "/coding implement <task_id>", "intent": "implement", "effect": "start_runner"},
-            {"command": "/coding prepare-merge-test <task_id>", "intent": "prepare_merge_test", "effect": "write"},
-            {"command": "/coding merge-test <task_id>", "intent": "merge_test", "effect": "start_runner"},
-            {"command": "/coding complete <task_id>", "intent": "complete_task", "effect": "write"},
-            {"command": "/coding cancel <task_id|run_id>", "intent": "cancel", "effect": "write"},
-            {"command": "/coding restore <task_id>", "intent": "restore_cancelled_task", "effect": "write"},
-            {"command": "/coding delete <task_id>", "intent": "delete", "effect": "destructive"},
-            {"command": "/coding help", "intent": "help", "effect": "read"},
-        ]
+        return allowed_rewrite_commands()
 
     def _validated_rewrite_command(self, rewrite: dict[str, Any]) -> tuple[str, str]:
         command_text = self._canonical_rewrite_command(rewrite.get("canonical_command"))
@@ -1250,28 +1274,7 @@ class CodingOrchestrator:
         raw_args = (match.group(2) or "").strip()
         action, _, _rest = raw_args.partition(" ")
         action = action.strip().lower()
-        allowed_actions = {
-            "",
-            "help",
-            "-help",
-            "--help",
-            "task",
-            "list",
-            "use",
-            "status",
-            "continue",
-            "change",
-            "bugfix",
-            "run",
-            "implement",
-            "prepare-merge-test",
-            "merge-test",
-            "complete",
-            "cancel",
-            "restore",
-            "delete",
-            "exit",
-        }
+        allowed_actions = allowed_top_level_actions()
         if action not in allowed_actions:
             return ""
         internal_command, rest = self._normalize_coding_gateway_command("coding", raw_args)
@@ -1279,6 +1282,11 @@ class CodingOrchestrator:
             "coding-help": "help",
             "coding-task": "task",
             "coding-list": "list",
+            "coding-project-list": "project list",
+            "coding-project-init": "project init",
+            "coding-project-use": "project use",
+            "coding-project-status": "project status",
+            "coding-project-clear": "project clear",
             "coding-use": "use",
             "coding-exit": "exit",
             "coding-status": "status",
@@ -1329,6 +1337,38 @@ class CodingOrchestrator:
                 f"原因：{rejection}",
                 f"LLM 理由：{reason}",
                 "请重新描述，或直接发送明确的 /coding <action> 命令。",
+            ]
+        )
+
+    def _rewrite_handoff_to_hermes_message(
+        self,
+        text: str,
+        rewrite: dict[str, Any],
+        rejection: str,
+        event: Any,
+    ) -> str:
+        context = self._coding_rewrite_context(text, event)
+        payload = {
+            "original_user_text": text,
+            "rewrite_rejection": rejection,
+            "rewrite_candidate": rewrite,
+            "recommended_skill": _RECOMMENDED_OPERATOR_SKILL,
+            "coding_context": context,
+        }
+        return "\n".join(
+            [
+                "Hermes 主 agent 接管：用户已进入 coding mode，但 coding plugin 未能高置信度改写成安全可执行的 `/coding <action>` 命令。",
+                "插件未执行任何 coding 操作，也未创建 task、未启动 runner、未写 LLM Wiki。",
+                f'请优先调用 skill_view(name="{_RECOMMENDED_OPERATOR_SKILL}") 读取插件内置操作指南。',
+                "",
+                "请基于下面插件上下文处理用户原话：",
+                "- 如果这不是 coding task 操作，按普通 Hermes 对话正常回答。",
+                "- 如果能判断为 coding task 操作但信息不足或风险不清，请给出低置信度原因，并要求用户确认标准 `/coding <action>` 或补充信息。",
+                "- 低置信度不创建 task、不启动 runner、不写 LLM Wiki；不要声称已经执行 `/coding` 命令。",
+                "- 除非用户指定项目、active task 或明确 Wiki 目标，否则不要默认使用插件仓库、Hermes 当前工作目录或当前会话所在目录。",
+                "",
+                "上下文 JSON：",
+                json.dumps(payload, ensure_ascii=False, indent=2),
             ]
         )
 
@@ -1558,6 +1598,23 @@ class CodingOrchestrator:
         rest = rest.strip()
         if action in {"", "help", "-help", "--help"}:
             return "coding-help", rest
+        if action == "project":
+            project_action, _, project_rest = rest.partition(" ")
+            project_action = project_action.strip().lower()
+            project_rest = project_rest.strip()
+            project_map = {
+                "list": "coding-project-list",
+                "init": "coding-project-init",
+                "use": "coding-project-use",
+                "status": "coding-project-status",
+                "clear": "coding-project-clear",
+            }
+            if not project_action:
+                return "coding-project-status", ""
+            mapped_project = project_map.get(project_action)
+            if mapped_project:
+                return mapped_project, project_rest
+            return "coding-help", raw_args
         command_map = {
             "task": "coding-task",
             "new": "coding-task",
@@ -1584,6 +1641,220 @@ class CodingOrchestrator:
         if mapped:
             return mapped, rest
         return "coding-help", raw_args
+
+    def _initialize_project_for_event(self, raw_args: str, event: Any | None) -> str:
+        candidate = normalize_project_text(raw_args).strip()
+        if not candidate:
+            return "请提供项目路径或项目名称，例如 /coding project init /Users/xiaojing/Desktop/project/bps-admin。"
+        project_path = self._local_project_path_for_candidate(candidate)
+        if project_path is None:
+            return (
+                f"未找到项目：{candidate}\n"
+                "reason：无法在给定路径、已知项目父目录或 ~/Desktop/project 下定位目录。\n"
+                "impact：未写入 LLM Wiki，也未绑定 active_project。\n"
+                "recovery_action：请发送绝对路径，例如 /coding project init /Users/xiaojing/Desktop/project/<repo>。"
+            )
+        project_name = project_path.name
+        aliases = self._project_aliases_from_human_text(candidate, project_name)
+        self._upsert_human_project_profile(
+            project_name=project_name,
+            project_path=project_path,
+            aliases=aliases,
+            body=f"project init: {candidate}",
+        )
+        profile = self._find_project_profile(project_name) or {
+            "name": project_name,
+            "project": project_name,
+            "aliases": aliases,
+            "path": str(project_path),
+            "status": "verified",
+            "updated_at": "",
+            "source": "project_init",
+            "dynamic_source_count": 0,
+        }
+        self._bind_active_project_for_event(profile, event)
+        return "\n".join(
+            [
+                f"已初始化项目：{project_name}",
+                f"路径：{project_path}",
+                f"active_project：{project_name}",
+                "说明：已写入或刷新 LLM Wiki project_profile；不会创建 task，也不会启动 Codex。",
+            ]
+        )
+
+    def _select_active_project_for_event(self, raw_args: str, event: Any | None) -> str:
+        project_name = normalize_project_text(raw_args).strip()
+        if not project_name:
+            return "请提供项目名称，例如 /coding project use bps-admin。"
+        profile = self._find_project_profile(project_name)
+        if profile is None:
+            return (
+                f"未找到项目画像：{project_name}\n"
+                "recovery_action：先使用 /coding project list 查看已有项目，或使用 /coding project init <project_path_or_name> 初始化。"
+            )
+        self._bind_active_project_for_event(profile, event)
+        return "\n".join(
+            [
+                f"已切换 active_project：{profile['name']}",
+                f"路径：{profile.get('path') or '未记录'}",
+                "说明：project use 只切换会话项目上下文，不重新扫描、不创建 task。",
+            ]
+        )
+
+    def _active_project_status_for_event(self, event: Any | None) -> str:
+        active_project = self._active_project_for_event(event)
+        if not active_project:
+            return (
+                "当前没有绑定 active_project。\n"
+                "可用命令：/coding project list、/coding project use <project_name>、/coding project init <project_path_or_name>。"
+            )
+        return self._format_project_status(active_project)
+
+    def _format_project_list_for_event(self, event: Any | None) -> str:
+        return self._format_project_list(active_project=self._active_project_for_event(event))
+
+    def _format_project_list(self, *, active_project: dict[str, Any] | None) -> str:
+        projects = self._known_project_profiles()
+        if not projects:
+            return "当前没有已知项目画像。请使用 /coding project init <project_path_or_name> 初始化项目。"
+        active_name = str((active_project or {}).get("name") or "")
+        lines = ["当前已知项目："]
+        for project in projects:
+            name = str(project.get("name") or "unknown")
+            current = "（当前）" if active_name and name == active_name else ""
+            lines.append(f"- {name}{current}")
+            lines.append(f"  状态: {project.get('status') or 'unknown'}")
+            lines.append(f"  路径: {project.get('path') or '未记录'}")
+            aliases = project.get("aliases") or []
+            if aliases:
+                lines.append(f"  别名: {', '.join(str(item) for item in aliases)}")
+            if project.get("updated_at"):
+                lines.append(f"  更新时间: {project['updated_at']}")
+        return "\n".join(lines)
+
+    def _format_project_status(self, project: dict[str, Any]) -> str:
+        dynamic_count = project.get("dynamic_source_count")
+        if dynamic_count is None:
+            dynamic_count = self._dynamic_source_count_for_project(str(project.get("name") or ""))
+        return "\n".join(
+            [
+                f"当前 active_project：{project.get('name') or 'unknown'}",
+                f"路径：{project.get('path') or '未记录'}",
+                f"初始化状态：{project.get('status') or 'unknown'}",
+                f"动态来源索引：{dynamic_count} 条",
+                f"最近更新时间：{project.get('updated_at') or '未知'}",
+            ]
+        )
+
+    def _known_project_profiles(self, limit: int | None = None) -> list[dict[str, Any]]:
+        projects: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for ref in self.wiki.find_by_kind("project_profile"):
+            doc = self.wiki.read(str(ref.get("id") or ""))
+            if not doc:
+                continue
+            profile = self._project_profile_from_doc(doc)
+            name = str(profile.get("name") or "")
+            if not name or name in seen:
+                continue
+            projects.append(profile)
+            seen.add(name)
+        for project in self.resolver.registry.projects:
+            if project.name in seen:
+                continue
+            projects.append(
+                {
+                    "name": project.name,
+                    "project": project.name,
+                    "aliases": list(project.aliases),
+                    "path": project.path,
+                    "status": "registry",
+                    "updated_at": "",
+                    "source": "project_registry",
+                    "dynamic_source_count": 0,
+                }
+            )
+            seen.add(project.name)
+        projects.sort(key=lambda item: str(item.get("name") or ""))
+        return projects[:limit] if limit else projects
+
+    def _find_project_profile(self, project_name_or_alias: str) -> dict[str, Any] | None:
+        target = normalize_project_text(project_name_or_alias).strip()
+        target_key = target.lower()
+        for project in self._known_project_profiles():
+            names = [
+                str(project.get("name") or ""),
+                str(project.get("project") or ""),
+                Path(str(project.get("path") or "")).name if project.get("path") else "",
+                *[str(item) for item in project.get("aliases") or []],
+            ]
+            if any(name and normalize_project_text(name).strip().lower() == target_key for name in names):
+                return project
+        return None
+
+    def _project_profile_from_doc(self, doc: dict[str, Any]) -> dict[str, Any]:
+        name = str(doc.get("name") or doc.get("project_id") or doc.get("project") or "").strip()
+        paths = doc.get("local_paths") or []
+        path = str(paths[0]) if paths else str(doc.get("local_path") or doc.get("project_path") or doc.get("path") or "")
+        aliases = [str(item) for item in doc.get("aliases") or [] if str(item).strip()]
+        return {
+            "name": name,
+            "project": str(doc.get("project") or name),
+            "aliases": aliases,
+            "path": path,
+            "status": str(doc.get("status") or "unknown"),
+            "updated_at": str(doc.get("updated_at") or ""),
+            "source": "llm_wiki",
+            "dynamic_source_count": self._dynamic_source_count_for_project(name),
+        }
+
+    def _dynamic_source_count_for_project(self, project_name: str) -> int:
+        if not project_name:
+            return 0
+        try:
+            return len(self.wiki.find_by_kind("external_source_index", filters={"project": project_name}))
+        except Exception:
+            return 0
+
+    def _bind_active_project_for_event(self, project: dict[str, Any], event: Any | None) -> bool:
+        binding_key = self._active_project_binding_key_for_event(event)
+        name = str(project.get("name") or "").strip()
+        if not binding_key or not name:
+            return False
+        source = self._event_source_for_ledger(event)
+        source["active_project"] = project
+        self.ledger.bind_active_task(
+            binding_key=binding_key,
+            task_id=f"{_ACTIVE_PROJECT_TASK_ID_PREFIX}{name}",
+            scope=source,
+        )
+        return True
+
+    def _active_project_for_event(self, event: Any | None) -> dict[str, Any] | None:
+        binding_key = self._active_project_binding_key_for_event(event)
+        if not binding_key:
+            return None
+        binding = self.ledger.get_active_binding(binding_key)
+        task_id = str((binding or {}).get("task_id") or "")
+        if not binding or not task_id.startswith(_ACTIVE_PROJECT_TASK_ID_PREFIX):
+            return None
+        scope = binding.get("scope") or {}
+        project = scope.get("active_project")
+        if not isinstance(project, dict):
+            project = {"name": task_id.removeprefix(_ACTIVE_PROJECT_TASK_ID_PREFIX)}
+        latest = self._find_project_profile(str(project.get("name") or ""))
+        return {**project, **(latest or {})}
+
+    def _clear_active_project_for_event(self, event: Any | None) -> str:
+        binding_key = self._active_project_binding_key_for_event(event)
+        if not binding_key:
+            return "当前来源无法识别，无 active_project 可清除。"
+        cleared = self.ledger.clear_active_binding(binding_key)
+        return "已清除当前 active_project，不会删除 LLM Wiki。" if cleared else "当前没有绑定 active_project。"
+
+    def _active_project_binding_key_for_event(self, event: Any | None) -> str | None:
+        binding_key = self._binding_key_for_event(event)
+        return f"{binding_key}:active_project" if binding_key else None
 
     def _format_task_list_for_event(self, event: Any) -> str:
         binding_key = self._binding_key_for_event(event)

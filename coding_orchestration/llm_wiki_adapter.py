@@ -436,8 +436,33 @@ class LocalLlmWikiAdapter:
             lines.append("- none")
         lines.extend(["", "## Recently Updated", ""])
         for doc in docs[:10]:
-            lines.append(f"- {doc.get('updated_at') or '-'} | {doc.get('kind')} | {doc.get('title') or doc.get('id')}")
+            lines.append(
+                f"- {doc.get('updated_at') or '-'} | {doc.get('kind')} | "
+                f"{doc.get('title') or doc.get('id')} | {doc.get('_wiki_path') or '-'}"
+            )
         if not docs:
+            lines.append("- none")
+        project_docs = [
+            doc
+            for doc in docs
+            if str(doc.get("id") or "").startswith("project:")
+            or str(doc.get("kind") or "") == "project_profile"
+        ]
+        project_docs.sort(
+            key=lambda doc: (
+                str(doc.get("project") or "unknown"),
+                str(doc.get("kind") or ""),
+                str(doc.get("id") or ""),
+            )
+        )
+        lines.extend(["", "## Project Initialization Writes", ""])
+        for doc in project_docs:
+            lines.append(
+                f"- project={doc.get('project') or 'unknown'} | kind={doc.get('kind') or '-'} | "
+                f"id={doc.get('id') or '-'} | status={doc.get('status') or '-'} | "
+                f"path={doc.get('_wiki_path') or '-'} | updated={doc.get('updated_at') or '-'}"
+            )
+        if not project_docs:
             lines.append("- none")
         self.wiki_root.joinpath("overview.md").write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 

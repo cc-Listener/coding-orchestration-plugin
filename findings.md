@@ -162,7 +162,10 @@
 | list 输出太啰嗦 | 改为多行字段格式，并将长需求压缩为一句话摘要；tip 合并当前会话绑定和切换命令 |
 | 需求变更与 bugfix 混用 | 新增 `/coding change <反馈>`，将其记录为 `requirement_change` 并启动 plan-only，不再直接进入 implementation |
 | 图片反馈丢失 | human decision 新增 `media`，增量 prompt 输出 `图片附件`、`media_type` 和 URL/路径；只有 `[Image]` 占位但无 media 时不启动 Codex，提示重发图片或链接 |
-| Coding Mode rewrite 误触发 | 移除自然语言关键词直连，改为 LLM rewriter 产出标准命令；高置信度直接执行，低置信度和 destructive 候选进入 pending confirmation |
+| Coding Mode rewrite 误触发 | 移除自然语言关键词直连，改为 LLM rewriter 产出标准命令；高置信度直接执行，低置信度交给 Hermes 主 agent，destructive 候选进入 pending confirmation |
+| Coding Mode 低置信度误把插件当最终回复方 | 低置信度 rewrite 原先直接发送“需要人工二次确认”并 `skip` 掉消息，导致 Hermes 主 agent 没机会结合上下文理解；已改为 `rewrite` handoff 给主 agent，高置信度 direct execute 和 destructive pending confirmation 保持不变 |
+| 用户习惯先初始化项目再提需求 | 新增 `/coding project list/init/use/status/clear` 和 active_project binding；project init 只写 LLM Wiki 项目知识并绑定会话，不创建 task、不启动 Codex |
+| 低置信度 handoff 缺可复用操作指南 | 新增 plugin 内置 skill `hermes-coding-operator`，包含 intent triage、project-first workflow、task next step、feedback router、LLM Wiki helper 和 merge-test risk helper |
 | needs_human 的项目补充没有结构化回填 | 真实 `task_f758ed7b9d99` 中“项目为 oms 后台，文件夹名称为 `oms_operation_web`”只写入 human_clarification/wiki，未更新 `project_path/source.project_name/task_session.project_name`；已新增人工补充项目文件夹识别、LLM Wiki project_profile 写入和 task 项目上下文回填 |
 | plan-only 因 invalid_json_schema 被误报 blocked | 真实 `task_41c786eddf54/run_b8c47b4f3a5b` 的根因不是 stderr 中的 model refresh warning，而是 Hermes 生成的 `report.schema.json` 不满足 strict structured output：`qa_artifacts` 有 properties 但 required 不完整；已改为所有 object 的 properties 都完整列入 required，并将该类 stdout error 归类为 `runner_failed` |
 | `/coding run` 长时间无输出 | Gateway 显式 `/coding run` 原先直接调用同步 `command_coding_run()`，Feishu 只有 Codex 完成后才收到回复；已改为 Gateway 先 ACK、后台执行 plan-only，且 running/queued task 不重复启动 |
@@ -194,6 +197,10 @@
 | Hermes plugin discovery 会把 symlink 当独立入口 | `~/.hermes/plugins/coding-orchestration-plugin/coding_orchestration` 和 `~/.hermes/plugins/coding_orchestration` symlink 会被加载成两个不同 module，导致两个 `pre_gateway_dispatch` hook 同时发送回复；注册入口需要进程级 guard，或后续清理重复 symlink |
 | Codex 会返回任务语义 status | plan-only 可能返回 `ready_for_implementation` 这类人类语义状态；它不应进入 `AgentRunStatus` 状态机，runner 边界需要先归一为 `success`，再由 orchestrator 映射为 `planned/plan_ready` |
 | 状态机边界不只在 runner | orchestrator 收尾、partial structured recovery、report schema 和 `TaskStateMachine.task_status_for_run_status()` 也可能接触外部 status；已改为统一调用 `normalize_agent_run_status()`，未知值降级为 `completed_unstructured` 而不是抛异常 |
+| Coding Mode 低置信度交回 Hermes 主 agent | rewrite 低置信度、`intent=unknown`、缺 command 或缺信息时，plugin 不创建 task、不启动 runner、不直接发二次确认，而是返回 Gateway `rewrite` action，把原话、LLM 候选、拒绝原因、active task、known tasks 和 allowed commands 交给 Hermes 主 agent |
+| command catalog 是 `/coding` 单一事实源 | `/coding help`、`/commands`、rewriter prompt、handoff allowed commands 都从 `coding_orchestration/command_catalog.py` 生成，避免 CLI 增加后 prompt 和文案漂移 |
+| active_project 是会话级 binding | 支持用户先初始化/选择项目再提需求；active_project 存在时，新需求可注入项目上下文创建 task，但 active task 优先级更高 |
+| 低置信度 handoff 使用 plugin 内置 skill | 插件注册 `hermes-coding-operator`，handoff prompt 要求 Hermes 主 agent 优先 `skill_view(name="coding_orchestration:hermes-coding-operator")`，让低置信度处理有固定 playbook |
 
 ## 资源
 - `/Users/xiaojing/.hermes/coding-orchestration/runs/task_43141b20c03e`

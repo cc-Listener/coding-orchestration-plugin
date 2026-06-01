@@ -1542,5 +1542,75 @@
   - 空白检查：`rtk git diff --check`：passed，无输出。
   - Hermes 实际插件：已同步 `models.py`、`state_machine.py`、`prompt_builder.py`、`orchestrator.py`、`runners/codex_cli.py` 到 `/Users/xiaojing/.hermes/plugins/coding-orchestration-plugin/coding_orchestration`，并重启 Hermes Gateway。
 
+### 阶段 72：Coding Mode 低置信度 Hermes fallback
+- **状态：** complete
+- 问题：
+  - Coding Mode 中低置信度 rewrite 原先由插件直接回复“需要人工二次确认”并返回 `skip`，Hermes 主 agent 没机会基于插件上下文继续解读用户自然语言。
+  - `command_rewriter` system prompt 的 action 列表缺少 `/coding restore <task_id>`，和实际 CLI 命令不完全对齐。
+- 已完成：
+  - rewrite rejection 分支改为返回 Gateway `rewrite` action，注入“原话、拒绝原因、LLM 候选、active task、known tasks、allowed commands”，交给 Hermes 主 agent 接管。
+  - 低置信度、`intent=unknown`、`canonical_command=null`、缺信息、`command_rewriter` 不可用时都不创建 task、不启动 runner、不由插件直接回复二次确认。
+  - 高置信度合法命令仍直接复用 `/coding <action>` handler；`cancel/delete` 或 LLM 标记 `needs_confirmation=true` 仍保存 pending rewrite，等待人工确认。
+  - `HermesCommandRewriter` prompt 补齐 `/coding restore <task_id>`，并明确非 coding 意图返回 `intent=unknown` 交 Hermes 主 agent。
+  - README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION 和飞书分享文档已同步最新口径。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/command_rewriter.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `README.md`
+  - `PLUGIN_USAGE.md`
+  - `PLUGIN_TECHNICAL_SOLUTION.md`
+  - `docs/feishu-workflow-update-20260526.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_low_confidence_natural_language_hands_off_to_hermes tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_unknown_null_rewrite_hands_context_to_hermes tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_natural_language_cancel_rewrite_requires_confirmation tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_command_rewriter_prompt_lists_restore_and_hermes_fallback`：4 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_plugin_registration`：110 tests passed。
+  - py_compile：`rtk python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/command_rewriter.py`：passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：192 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 尾随空白检查：`rtk rg -n '[ \t]+$' coding_orchestration/orchestrator.py coding_orchestration/command_rewriter.py tests/test_orchestrator_run_flow.py README.md PLUGIN_USAGE.md PLUGIN_TECHNICAL_SOLUTION.md docs/feishu-workflow-update-20260526.md task_plan.md`：passed，未发现匹配。
+  - Hermes 实际插件：已同步 `orchestrator.py`、`command_rewriter.py` 到 `/Users/xiaojing/.hermes/plugins/coding-orchestration-plugin/coding_orchestration`，`rtk hermes gateway restart` 成功，health 为 ok，`coding_orchestration` enabled。
+
+### 阶段 73：Project-First 与低置信度 Skill 化
+- **状态：** complete
+- 问题：
+  - 用户希望支持“先初始化/选择项目，再提需求”，无 active_project 的模糊新需求不能误创建 task。
+  - `/coding` 命令增长后，rewriter prompt、help、handoff allowed commands 容易漂移。
+  - 低置信度 handoff 需要 Hermes 主 agent 有固定 playbook，而不是临场猜测插件语义。
+- 已完成：
+  - 新增 `command_catalog.py`，集中描述 `/coding` actions、intent、category、risk、required args、help 文案和 rewrite 上下文。
+  - 新增 `/coding project list/init/use/status/clear`，project init 调用项目知识初始化并绑定 active_project，不创建 task、不启动 Codex。
+  - active_project 作为会话级 binding 存在，和 active task binding 分离；自然语言新需求在无显式项目时可注入 active_project。
+  - 扩展 Coding Mode rewrite context 和 handoff prompt，注入 active_project、known_projects、command_catalog、recommended_skill，并明确低置信度不创建 task、不启动 runner、不写 LLM Wiki。
+  - 新增 plugin 内置 skill `coding_orchestration/skills/hermes-coding-operator/SKILL.md`，覆盖 intent triage、project-first workflow、task next step、feedback router、LLM Wiki helper 和 merge-test risk helper。
+  - plugin register 会注册 `hermes-coding-operator` skill，供 Hermes 主 agent 通过 `skill_view(name="coding_orchestration:hermes-coding-operator")` 读取。
+- 创建/修改的文件：
+  - `coding_orchestration/command_catalog.py`
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/command_rewriter.py`
+  - `coding_orchestration/__init__.py`
+  - `coding_orchestration/skills/hermes-coding-operator/SKILL.md`
+  - `tests/test_command_catalog.py`
+  - `tests/test_plugin_registration.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `README.md`
+  - `PLUGIN_USAGE.md`
+  - `PLUGIN_TECHNICAL_SOLUTION.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - RED：新增 focused tests 初次失败，暴露 catalog 未接入、project 命令缺失、skill 未注册和 handoff 缺 project/skill context。
+  - GREEN：`rtk python3 -m unittest tests.test_command_catalog tests.test_plugin_registration tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_project_commands_manage_active_project_without_creating_task tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_active_project_is_used_when_rewrite_creates_task_without_project_flag tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_coding_mode_low_confidence_handoff_includes_operator_skill_and_project_context`：9 tests passed。
+  - 相关测试：`rtk python3 -m unittest tests.test_command_catalog tests.test_plugin_registration tests.test_orchestrator_run_flow tests.test_gateway_trigger`：119 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：199 tests passed。
+  - py_compile：`rtk python3 -m py_compile coding_orchestration/command_catalog.py coding_orchestration/orchestrator.py coding_orchestration/command_rewriter.py coding_orchestration/__init__.py`：passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 尾随空白检查：`rtk rg -n '[ \t]+$' ...`：passed，未发现匹配。
+  - Hermes 实际插件：已同步 `coding_orchestration/` 到 `/Users/xiaojing/.hermes/plugins/coding-orchestration-plugin/`，`rtk hermes gateway restart` 成功。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 ok；`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
 ---
 *每个阶段完成后或遇到错误时更新此文件*

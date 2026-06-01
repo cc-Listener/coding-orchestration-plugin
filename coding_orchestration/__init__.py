@@ -7,6 +7,7 @@ Source is intended to live in a normal project checkout and be symlinked into
 from __future__ import annotations
 
 import builtins
+from pathlib import Path
 from typing import Any
 
 from .orchestrator import CodingOrchestrator
@@ -44,8 +45,14 @@ def _register_once(ctx: Any) -> None:
         "coding",
         orchestrator.command_coding,
         description="Coding orchestration command group",
-        args_hint="<task|status|list|use|exit|continue|change|bugfix|run|implement|complete|cancel|delete|prepare-merge-test|merge-test|help>",
+        args_hint="<task|project|status|list|use|exit|continue|change|bugfix|run|implement|complete|cancel|delete|prepare-merge-test|merge-test|help>",
     )
+    if hasattr(ctx, "register_skill"):
+        ctx.register_skill(
+            "hermes-coding-operator",
+            Path(__file__).parent / "skills" / "hermes-coding-operator" / "SKILL.md",
+            description="Handle low-confidence Hermes Coding Mode handoff.",
+        )
 
 
 __all__ = ["register"]

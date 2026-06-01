@@ -164,6 +164,12 @@ class ProjectKnowledgeResolverTest(unittest.TestCase):
             self.assertEqual(external["freshness"]["mode"], "read_before_use")
             self.assertIn(".api-spec.json", external["body"])
             self.assertNotIn("/v1/orders", external["body"])
+            overview = (root / "wiki" / "wiki" / "overview.md").read_text(encoding="utf-8")
+            self.assertIn("## Project Initialization Writes", overview)
+            self.assertIn("project=admin-app | kind=project_profile", overview)
+            self.assertIn("path=wiki/entities/project-admin-app.md", overview)
+            self.assertIn("path=wiki/concepts/project-admin-app-guidance.md", overview)
+            self.assertIn("path=wiki/sources/project-admin-app-external-sources.md", overview)
 
     def test_wiki_project_profile_supplies_workflow_constraints_without_registry_entry(self):
         with tempfile.TemporaryDirectory() as tmp:

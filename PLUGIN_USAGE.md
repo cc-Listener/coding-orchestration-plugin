@@ -44,9 +44,9 @@ rtk hermes gateway status
 
 预期结果：
 
-- `/commands` 第一页能看到 `/coding help`、`/coding task`、`/coding status`、`/coding delete`。
+- `/commands` 第一页能看到 `/coding help`、`/coding task`、`/coding project list`、`/coding status`、`/coding delete`。
 - `/coding help` 能输出完整命令说明。
-- 默认普通自然语言不会进入 plugin；发送“进入coding”后，本会话自然语言会先交给 LLM rewrite。高置信度会直接执行为 `/coding <action>`，低置信度或高风险候选会要求确认。
+- 默认普通自然语言不会进入 plugin；发送“进入coding”后，本会话自然语言会先交给 LLM rewrite。高置信度会直接执行为 `/coding <action>`；低置信度交给 Hermes 主 agent 基于插件上下文继续判断；高风险候选会要求确认。
 
 ## Debug 安装
 
@@ -63,6 +63,31 @@ rtk proxy python3 scripts/install_symlink.py --hermes-home ~/.hermes
 ```
 
 生产环境不要依赖软链接安装；软链接会把 Hermes 绑定到本地 checkout，适合快速调试，不适合稳定部署。
+
+## 更新插件
+
+正式安装的插件使用 Hermes 标准更新命令：
+
+```bash
+rtk hermes plugins update coding_orchestration
+rtk hermes gateway restart
+```
+
+本地开发 symlink 插件使用当前仓库更新流程：
+
+```bash
+rtk git pull --ff-only
+rtk hermes gateway restart
+```
+
+更新后验证：
+
+```bash
+rtk hermes plugins list
+rtk proxy curl -sS http://127.0.0.1:8642/health
+```
+
+关键点：Hermes Gateway 不会自动热加载 Python 插件代码，插件更新后必须重启。已经启动中的 Codex run 不会被中途换代码影响；更新只影响后续新的 Gateway 消息、命令和新 run。
 
 ## 1.0 TODO
 
@@ -107,7 +132,7 @@ coding_orchestration:
 - Codex CLI、Claude Code、Gemini 都只是 Runner，不能直接操作飞书，不能自己决定项目，不能自动发布。
 - Task Ledger 是运行期事实源。
 - LLM Wiki 只保存 verified knowledge、draft knowledge、run summary、QA 经验，不保存任务状态事实。
-- plugin 默认只处理显式 `/coding` 前缀消息；发送“进入coding”后，本会话自然语言进入 Coding Mode，通过 LLM rewrite 生成标准 `/coding <action>`。高置信度且信息完整时直接执行，低置信度、缺信息或高风险候选才等待人工确认。
+- plugin 默认只处理显式 `/coding` 前缀消息；发送“进入coding”后，本会话自然语言进入 Coding Mode，通过 LLM rewrite 生成标准 `/coding <action>`。高置信度且信息完整时直接执行，低置信度或缺信息交给 Hermes 主 agent 继续判断，高风险候选才等待人工确认。
 
 ## Runner 权限与自动测试
 
@@ -122,6 +147,11 @@ implementation 和 QA run 使用受控高权限 Codex CLI session。这样 Codex
 标准入口仍然是 `/coding <action>`。Coding Mode 只是把自然语言先改写成这些标准命令，不新增第二套动作：
 
 - `/coding task <需求>`：创建任务并自动进入 plan-only。
+- `/coding project list`：列出已有 LLM Wiki `project_profile`，并标记当前 active_project。
+- `/coding project init <project_path_or_name>`：扫描项目并写入或刷新 LLM Wiki，绑定 active_project，不创建 task。
+- `/coding project use <project_name>`：从已有项目中选择并绑定 active_project，不重新扫描。
+- `/coding project status`：展示当前 active_project、初始化状态、动态来源索引和最近更新时间。
+- `/coding project clear`：清除当前会话 active_project，不删除 LLM Wiki。
 - `/coding continue <反馈>`：给当前 active task 补充计划反馈，并重新进入 plan-only。
 - `/coding change <反馈>`：记录需求变更，重新进入 plan-only 做变更影响分析和短计划。
 - `/coding bugfix <反馈>`：给当前 active task 补充实现或 QA 修复反馈，并复用原 workspace 继续 implementation。
@@ -131,9 +161,9 @@ implementation 和 QA run 使用受控高权限 Codex CLI session。这样 Codex
 - `/coding complete <task_id>`：merge-test 已合入 test 后，人工标记 task 完成。
 - `/coding list|use|exit|status|cancel|delete`：查看、切换、退出、取消或删除任务。
 
-active task binding 用于 `/coding continue`、`/coding change`、`/coding bugfix`、`/coding implement`、`/coding merge-test` 等命令在缺省 `task_id` 时找到当前任务。同一个飞书会话里有多个任务时，用 `/coding list` 查看，用 `/coding use <task_id>` 切换当前任务。需要释放当前绑定或关闭 Coding Mode 时，使用 `/coding exit` 或“退出coding”；需要新开独立任务时，显式发送 `/coding task ...`，或在 Coding Mode 中描述新需求并让高置信度 rewrite 自动执行。
+active task binding 用于 `/coding continue`、`/coding change`、`/coding bugfix`、`/coding implement`、`/coding merge-test` 等命令在缺省 `task_id` 时找到当前任务。active_project binding 用于“先选项目再提需求”：用户先 `/coding project init` 或 `/coding project use`，后续 Coding Mode 中的新需求如果没有显式项目，Hermes 会把 active_project 注入新 task。active task 优先级高于 active_project；如果两者项目冲突，必须追问，不自动切换。同一个飞书会话里有多个任务时，用 `/coding list` 查看，用 `/coding use <task_id>` 切换当前任务。需要释放当前绑定或关闭 Coding Mode 时，使用 `/coding exit` 或“退出coding”；只清除项目上下文时，使用 `/coding project clear`。
 
-implementation 有硬门禁：Codex 必须先完成 plan-only，Hermes 把 task phase 标为 `plan_ready` 后，人工通过 `/coding implement <task_id>` 才会启动 GitOps implementation。Coding Mode 中的“确认”“新建分支去干活”等自然语言必须先被 LLM rewrite 成标准命令；高置信度且信息完整时直接执行，低置信度或缺信息时要求人工确认。
+implementation 有硬门禁：Codex 必须先完成 plan-only，Hermes 把 task phase 标为 `plan_ready` 后，人工通过 `/coding implement <task_id>` 才会启动 GitOps implementation。Coding Mode 中的“确认”“新建分支去干活”等自然语言必须先被 LLM rewrite 成标准命令；高置信度且信息完整时直接执行，低置信度或缺信息时交给 Hermes 主 agent 基于插件上下文继续判断。
 
 ## Coding Mode 自然语言 rewrite
 
@@ -144,7 +174,7 @@ implementation 有硬门禁：Codex 必须先完成 plan-only，Hermes 把 task 
 - LLM 只负责改写，不负责执行。
 - Hermes 必须校验 LLM 输出的命令是否属于允许列表。
 - 高置信度且信息完整时直接执行合法 `/coding <action>`。
-- 低置信度不创建 task、不启动 Codex，只提示人工二次确认。
+- 低置信度不创建 task、不启动 Codex，也不由插件直接回复；插件会把原话、候选结果、active task、active_project、known projects、command catalog 和推荐 skill 交给 Hermes 主 agent。
 - `/coding cancel`、`/coding delete` 这类 destructive 动作，或 LLM 明确 `needs_confirmation=true` 的候选，即使高置信度也必须确认。
 - 如果文本包含 `[Image]` 但 Gateway 没有拿到可访问图片，Hermes 不启动 Codex，提示用户重发图片或图片链接。
 
@@ -157,20 +187,15 @@ Hermes：
 [task_xxx] 已收到 bugfix 反馈，进入 implementation 修复。
 ```
 
-低置信度示例：
+低置信度 fallback 示例：
 
 ```text
 用户：帮我看一下
 
 Hermes：
-我不确定你要执行哪个 coding 指令，需要人工二次确认。
+Hermes 主 agent 会收到插件上下文后继续判断。
 
-可能是：
-1. /coding continue <反馈>：补充计划信息
-2. /coding change <反馈>：需求发生变化
-3. /coding bugfix <反馈>：修复已有实现问题
-
-请回复 1/2/3，或直接发送标准命令。
+如果仍不能确定，会回复低置信度原因，并要求用户确认标准 `/coding <action>` 或补充信息。
 ```
 
 LLM rewrite 使用的核心 prompt：
@@ -181,7 +206,7 @@ LLM rewrite 使用的核心 prompt：
 你的唯一任务：把用户输入的自然语言，改写为一个合法的 `/coding <action>` 命令候选。
 你不能执行命令，只能输出 JSON。
 你不能创建 task、不能启动 Codex、不能修改状态。
-真正执行由 Hermes 在用户确认后完成。
+真正执行由 Hermes 校验后完成；高置信度直接执行，高风险候选才等待确认。
 
 必须遵守：
 1. 只允许使用 allowed_commands 中列出的命令。
@@ -193,20 +218,22 @@ LLM rewrite 使用的核心 prompt：
 7. 用户表达“可以合 test、merge test、准备合到测试分支”时，改写为 `/coding merge-test <task_id>` 或 `/coding prepare-merge-test <task_id>`，但如果缺少 task_id 且没有 active_task_id，必须标记 missing。
 8. cancel/delete 属于 destructive 命令，即使高置信度也必须 needs_confirmation=true。
 9. 高置信度且信息完整时设置 needs_confirmation=false，Hermes 会直接执行。
-10. 低置信度必须 needs_human_review=true，不能给出可直接执行的命令。
+10. 低置信度必须 needs_human_review=true，不能给出可直接执行的命令；Hermes 会把这类消息交给 Hermes 主 agent 接管。
 11. 如果无法判断用户意图，intent=unknown，canonical_command=null。
 12. 如果用户输入包含图片占位或 has_media=true，保留原始反馈文本，不要丢失图片语义。
 13. 如果用户在 active coding task 上下文中指出当前功能、实现、文档或系统表现“不符合预期”“有问题”“需要优化”，这属于当前 task 的反馈，优先改写为 `/coding bugfix <反馈>`；不要误判为元讨论。
 14. 如果用户只是抽象讨论 plugin、rewrite 规则、方案设计或文档内容，且没有要求检查/修复当前 task，则属于元讨论，intent=unknown，canonical_command=null。
 15. “查看最近对话记录，自然语言 rewrite 表现不符合预期”在 active task 存在时，应理解为要求检查最近对话并修复当前 rewrite 表现，不能改写为 `/coding list`、`/coding status` 或 `/coding task`，应优先改写为 `/coding bugfix <原文>`。
-16. 输出必须是严格 JSON，不要 markdown，不要解释。
+16. “有哪些项目 / 当前有哪些项目”应改写为 `/coding project list`；“先初始化 xxx / 项目路径是 xxx”应改写为 `/coding project init <...>`；“我接下来用 xxx / 切到 xxx”应改写为 `/coding project use <...>`；“当前项目是什么”应改写为 `/coding project status`；“清掉当前项目”应改写为 `/coding project clear`。
+17. 新需求有 active_project 时可改写为 `/coding task <需求>`；没有 active_project、active task 或明确项目时，必须低置信度 handoff，不创建 task。
+18. 输出必须是严格 JSON，不要 markdown，不要解释。
 ```
 
 LLM 必须输出的 JSON schema：
 
 ```json
 {
-  "intent": "list_tasks | task_status | switch_task | create_task | plan_feedback | requirement_change | bugfix_feedback | prepare_merge_test | merge_test | complete_task | cancel_task | delete_task | help | exit | unknown",
+  "intent": "create_task | list_tasks | project_list | project_init | project_use | project_status | project_clear | select_task | exit_task | status_task | plan_feedback | requirement_change | bugfix_feedback | run_plan | implement | prepare_merge_test | merge_test | complete_task | cancel | restore_cancelled_task | delete | help | unknown",
   "canonical_command": "/coding list",
   "confidence": 0.95,
   "risk_level": "read | write | state_transition | destructive | unknown",
@@ -301,7 +328,7 @@ LLM 必须输出的 JSON schema：
 /coding delete task_xxx
 ```
 
-低置信度项目识别会进入人工确认；自然语言低置信度 rewrite 会进入人工二次确认；implementation 模式会使用隔离 workspace/source branch，并在 run 完成后做 diff guard。人工测试通过后，`/coding merge-test <task_id>` 会续接上一次 Codex session 执行 `merge-to-test` skill，把 source branch push 到 origin、merge 到 `test` 并 push `origin/test`，然后把 Task Ledger 更新为 `merged_test`。这代表已合入 test，但 task 还没有完成；确认测试环境符合预期后，再发送 `/coding complete <task_id>` 标记 `done`。测试环境发布仍然人工执行。
+低置信度项目识别会进入人工确认；自然语言低置信度 rewrite 会交给 Hermes 主 agent，仍不会创建 task 或启动 runner；implementation 模式会使用隔离 workspace/source branch，并在 run 完成后做 diff guard。人工测试通过后，`/coding merge-test <task_id>` 会续接上一次 Codex session 执行 `merge-to-test` skill，把 source branch push 到 origin、merge 到 `test` 并 push `origin/test`，然后把 Task Ledger 更新为 `merged_test`。这代表已合入 test，但 task 还没有完成；确认测试环境符合预期后，再发送 `/coding complete <task_id>` 标记 `done`。测试环境发布仍然人工执行。
 
 `blocked` task 可以人工尝试 merge-test，但不是无条件放行。Hermes 的硬阻断只保留缺 implementation run、缺 worktree、缺 source branch 或 cancelled。其他风险会先返回确认提示；确认后发送 `/coding merge-test <task_id> --accept-risk`，Hermes 会记录 `accepted_risk` 和 `blocked_merge_test_released`，再转成 `ready_for_merge_test_with_known_gaps` 继续 merge-test。缺 Codex session 时会开新 session；缺 report、report 不完整、diff guard 越权、runner_failed/failed 或报告显示未落地代码，都需要人工接受风险。
 
