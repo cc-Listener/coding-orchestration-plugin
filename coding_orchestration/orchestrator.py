@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -17,6 +16,9 @@ from typing import Any
 
 from .diff_guard import DiffGuard
 from .feishu_messages import render_task_created, render_task_needs_human, render_task_needs_source_context
+from .feishu_project_reader import FeishuProjectReader
+from .hermes_runtime import HermesRuntime
+from .kanban_bridge import KanbanBridge
 from .ledger import TaskLedger
 from .llm_wiki_adapter import LocalLlmWikiAdapter
 from .command_rewriter import HermesCommandRewriter
@@ -40,6 +42,7 @@ from .models import (
     normalize_agent_run_status,
     task_status_display,
 )
+from .pre_llm_context import build_pre_llm_context
 from .prompt_builder import PromptBuilder
 from .project_knowledge_initializer import ProjectKnowledgeInitializer
 from .project_knowledge_resolver import ProjectKnowledgeResolver
@@ -47,6 +50,7 @@ from .project_resolver import Project, ProjectRegistry, ProjectResolver
 from .project_resolver import normalize_text as normalize_project_text
 from .run_summary_writer import RunSummaryWriter
 from .runner_router import RunnerRouter
+from .source_resolver import SourceResolver
 from .state_machine import TaskStateMachine
 from .runners.base import RunResult
 from .symphony_compat.workflow_loader import WorkflowLoader, WorkflowSpec
@@ -95,6 +99,9 @@ class CodingOrchestrator:
     runner_router: Any | None = None
     command_rewriter: Any | None = None
     feishu_project_reader: Any | None = None
+    source_resolver: Any | None = None
+    dispatch_tool: Any | None = None
+    kanban_bridge: Any | None = None
     workflow_loader: WorkflowLoader = field(default_factory=WorkflowLoader)
     prompt_builder: PromptBuilder = field(default_factory=PromptBuilder)
     diff_guard: DiffGuard = field(default_factory=DiffGuard)
@@ -115,8 +122,25 @@ class CodingOrchestrator:
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         if self.runner_router is None:
             self.runner_router = RunnerRouter.from_config({"default_runner": "codex_cli"})
+        if self.feishu_project_reader is None:
+            self.feishu_project_reader = FeishuProjectReader()
+        if self.source_resolver is None:
+            self.source_resolver = SourceResolver(feishu_reader=self.feishu_project_reader)
+        if self.kanban_bridge is None:
+            self.kanban_bridge = KanbanBridge(self.dispatch_tool)
         self.workspace_manager = WorkspaceManager(self.workspace_root)
         self.summary_writer = RunSummaryWriter(self.wiki)
+
+    def set_dispatch_tool(self, dispatch_tool: Any) -> None:
+        self.dispatch_tool = dispatch_tool
+        self.kanban_bridge = KanbanBridge(dispatch_tool)
+        runtime = HermesRuntime(dispatch_tool)
+        if hasattr(self.runner_router, "set_hermes_runtime"):
+            self.runner_router.set_hermes_runtime(runtime)
+            return
+        for runner in getattr(self.runner_router, "runners", {}).values():
+            if hasattr(runner, "set_hermes_runtime"):
+                runner.set_hermes_runtime(runtime)
 
     @classmethod
     def from_default_config(cls) -> "CodingOrchestrator":
@@ -135,9 +159,6 @@ class CodingOrchestrator:
 
     @staticmethod
     def _default_runtime_root() -> Path:
-        configured = os.environ.get("CODING_ORCHESTRATION_ROOT")
-        if configured:
-            return Path(configured).expanduser()
         return Path.home() / ".hermes" / "coding-orchestration"
 
     def handle_gateway_event(self, event: Any, gateway: Any = None, session_store: Any = None) -> dict | None:
@@ -168,8 +189,226 @@ class CodingOrchestrator:
             return {"action": "skip", "reason": "ignored_coding_orchestration_echo"}
         return None
 
+    def pre_llm_call(self, *args: Any, **kwargs: Any) -> dict[str, str] | None:
+        if args and isinstance(args[0], dict):
+            kwargs = {**args[0], **kwargs}
+        context = build_pre_llm_context(
+            self,
+            session_id=str(kwargs.get("session_id") or kwargs.get("chat_id") or kwargs.get("user_id") or ""),
+            platform=str(kwargs.get("platform") or "feishu"),
+        )
+        return {"context": context} if context else None
+
     def command_coding_task(self, raw_args: str) -> str:
         return self.create_task_from_text(raw_args)
+
+    def tool_task_create(self, args: dict[str, Any]) -> dict[str, Any]:
+        requirement = str(args.get("requirement") or args.get("text") or "").strip()
+        if not requirement:
+            return {"ok": False, "error": "requirement is required"}
+
+        project = str(args.get("project") or "").strip()
+        runner = str(args.get("runner") or "").strip()
+        source_url = str(args.get("source_url") or args.get("url") or "").strip()
+        parts: list[str] = []
+        if project:
+            parts.extend(["--project", project])
+        if runner:
+            parts.extend(["--runner", runner])
+        parts.append(requirement)
+
+        source_context = self.feishu_project_reader.read_from_text(source_url) if source_url else None
+        created = self._create_task_from_text(" ".join(parts), source_context=source_context)
+        task = self.ledger.get_task(created.task_id)
+        return {
+            "ok": True,
+            "task_id": created.task_id,
+            "status": task.get("status") if task else None,
+            "phase": task.get("phase") if task else None,
+            "needs_human": created.needs_human,
+            "auto_plan_started": created.auto_plan_started,
+            "message": created.message,
+        }
+
+    def tool_task_status(self, args: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(args.get("task_id") or "").strip()
+        if not task_id:
+            return {"ok": False, "error": "task_id is required"}
+        return self._task_status_payload(task_id)
+
+    def tool_task_run(self, args: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(args.get("task_id") or "").strip()
+        if not task_id:
+            return {"ok": False, "error": "task_id is required"}
+        mode = str(args.get("mode") or RunMode.PLAN_ONLY.value).strip()
+        if mode in {RunMode.IMPLEMENTATION.value, "implement", "implementation"}:
+            message = self.command_coding_implement(task_id)
+        elif mode in {RunMode.MERGE_TEST.value, "merge_test", "merge-test"}:
+            message = self.command_coding_merge_test(task_id)
+        else:
+            message = self.command_coding_run(task_id)
+        return {
+            "ok": not message.startswith("未找到任务") and not message.startswith("请提供"),
+            "task_id": task_id,
+            "mode": mode,
+            "message": message,
+        }
+
+    def tool_source_resolve(self, args: dict[str, Any]) -> dict[str, Any]:
+        text = str(args.get("url") or args.get("text") or "").strip()
+        if not text:
+            return {"ok": False, "error": "url or text is required", "source_status": "failed"}
+        resolver = getattr(self, "source_resolver", None)
+        if resolver is not None and hasattr(resolver, "resolve_source"):
+            context = resolver.resolve_source({"text": text})
+        else:
+            context = self.feishu_project_reader.read_from_text(text)
+        return self._source_context_payload(context)
+
+    def tool_lark_preflight(self, args: dict[str, Any]) -> dict[str, Any]:
+        resolver = getattr(self, "source_resolver", None)
+        if resolver is None or not hasattr(resolver, "preflight_lark"):
+            return {
+                "ok": False,
+                "status": "unavailable",
+                "error": "SourceResolver is not configured.",
+                "recovery_action": "Install or enable coding_orchestration.source_resolver.",
+            }
+        return resolver.preflight_lark(args)
+
+    def command_coding_cli(self, args: Any = None) -> str:
+        if args is None:
+            parts: list[str] = []
+        elif isinstance(args, str):
+            parts = args.split()
+        else:
+            parts = [str(part) for part in args]
+        command = parts[0] if parts else "status"
+        rest = parts[1:]
+        if command == "doctor":
+            return self.command_coding_doctor()
+        if command == "lark-preflight":
+            return self._format_lark_preflight(self.tool_lark_preflight({}))
+        if command == "source-resolve":
+            return self._format_source_resolve(" ".join(rest))
+        if command == "status":
+            return self.command_coding_status(" ".join(rest)) if rest else self.command_coding_list("")
+        return "Usage: hermes coding <doctor|status|lark-preflight|source-resolve>"
+
+    def command_coding_doctor(self) -> str:
+        lark = self.tool_lark_preflight({})
+        meegle = self._meegle_preflight()
+        kanban_available = bool(getattr(getattr(self, "kanban_bridge", None), "available", lambda: False)())
+        runtime_available = self._hermes_runtime_available()
+        router = getattr(self, "runner_router", None)
+        default_runner = str(getattr(router, "default_runner", "unknown"))
+        try:
+            codex_decision = router.codex_backend_decision(RunMode.IMPLEMENTATION) if router else None
+        except Exception:
+            codex_decision = None
+        codex_backend = getattr(codex_decision, "backend", "unknown")
+        hermes_provider = getattr(codex_decision, "hermes_provider", "")
+        lines = [
+            "Hermes Coding Doctor",
+            f"Lark: {lark.get('status') or 'unknown'}",
+            f"Lark recovery: {lark.get('recovery_action') or 'ok'}",
+            f"Meegle: {meegle.get('status') or 'unknown'}",
+            f"Meegle recovery: {meegle.get('recovery_action') or 'ok'}",
+            f"Kanban: {'available' if kanban_available else 'unavailable'}",
+            f"Hermes runtime: {'available' if runtime_available else 'unavailable'}",
+            f"Runner default: {default_runner}",
+            f"Codex CLI backend: {codex_backend}",
+            f"Hermes openai-codex provider: {hermes_provider or 'not detected'}",
+            f"Ledger: {self.ledger.db_path}",
+            "cron-ready: rtk hermes cron create \"every 30m\" \"Run hermes coding lark-preflight and report only if unhealthy\" --workdir /Users/xiaojing/Desktop/tools/hermes-codex-tools",
+        ]
+        return "\n".join(lines)
+
+    def _meegle_preflight(self) -> dict[str, Any]:
+        resolver = getattr(self, "source_resolver", None)
+        if resolver is None or not hasattr(resolver, "preflight_meegle"):
+            return {
+                "ok": False,
+                "status": "unavailable",
+                "recovery_action": "SourceResolver has no Meegle preflight support.",
+            }
+        return resolver.preflight_meegle({})
+
+    def dashboard_status_payload(self) -> dict[str, Any]:
+        tasks = self.ledger.list_recent_tasks(limit=500)
+        task_counts: dict[str, int] = {}
+        source_health: dict[str, int] = {}
+        runner_failures: list[dict[str, Any]] = []
+        for task in tasks:
+            status = str(task.get("status") or "unknown")
+            task_counts[status] = task_counts.get(status, 0) + 1
+            source_context = ((task.get("source") or {}).get("source_context") or {})
+            source_status = self._source_status_from_context(source_context)
+            source_health[source_status] = source_health.get(source_status, 0) + 1
+            for run in reversed(task.get("agent_runs") or []):
+                if str(run.get("status") or "") in {
+                    AgentRunStatus.FAILED.value,
+                    AgentRunStatus.RUNNER_FAILED.value,
+                    AgentRunStatus.TIMEOUT.value,
+                    AgentRunStatus.ORPHANED.value,
+                }:
+                    runner_failures.append(
+                        {
+                            "task_id": task.get("task_id"),
+                            "run_id": run.get("run_id"),
+                            "status": run.get("status"),
+                            "mode": run.get("mode"),
+                        }
+                    )
+                    break
+        return {
+            "task_counts_by_status": task_counts,
+            "source_health": source_health,
+            "last_runner_failures": runner_failures[:10],
+            "kanban_available": bool(getattr(getattr(self, "kanban_bridge", None), "available", lambda: False)()),
+            "hermes_runtime_available": self._hermes_runtime_available(),
+            "lark_preflight": self.tool_lark_preflight({}),
+        }
+
+    def _format_lark_preflight(self, result: dict[str, Any]) -> str:
+        missing = result.get("missing_scopes") or []
+        lines = [
+            "Lark preflight",
+            f"status: {result.get('status') or 'unknown'}",
+            f"ok: {bool(result.get('ok'))}",
+        ]
+        if missing:
+            lines.append(f"missing_scopes: {', '.join(str(item) for item in missing)}")
+        if result.get("error"):
+            lines.append(f"error: {result.get('error')}")
+        recovery = result.get("recovery_action") or ""
+        if recovery:
+            lines.append(f"recovery_action: {recovery}")
+        return "\n".join(lines)
+
+    def _format_source_resolve(self, text: str) -> str:
+        if not text.strip():
+            return "Usage: hermes coding source-resolve <feishu_or_meegle_url>"
+        result = self.tool_source_resolve({"text": text})
+        lines = [
+            "Source resolve",
+            f"source_status: {result.get('source_status') or 'unknown'}",
+            f"task_status: {result.get('task_status') or ''}",
+            f"source_type: {result.get('source_type') or ''}",
+            f"url: {result.get('url') or ''}",
+        ]
+        if result.get("error"):
+            lines.append(f"error: {result.get('error')}")
+        if result.get("recovery_action"):
+            lines.append(f"recovery_action: {result.get('recovery_action')}")
+        return "\n".join(lines)
+
+    def _hermes_runtime_available(self) -> bool:
+        for runner in getattr(getattr(self, "runner_router", None), "runners", {}).values():
+            runtime = getattr(runner, "hermes_runtime", None)
+            if runtime is not None and runtime.available():
+                return True
+        return False
 
     def command_coding(self, raw_args: str = "") -> str:
         command, rest = self._normalize_coding_gateway_command("coding", raw_args)
@@ -637,7 +876,11 @@ class CodingOrchestrator:
         source_type = str(source_context.get("source_type") or "feishu_chat")
         source_needs_human = self._source_context_requires_human(source_context)
         task_id = f"task_{uuid.uuid4().hex[:12]}"
-        initial_status = "needs_human" if resolved.needs_human or source_needs_human else "planned"
+        initial_status = self._initial_task_status_for_create(
+            resolved_needs_human=resolved.needs_human,
+            source_needs_human=source_needs_human,
+            source_context=source_context,
+        )
         initial_phase = (
             TaskPhase.DRAFT.value
             if resolved.needs_human or source_needs_human
@@ -674,6 +917,14 @@ class CodingOrchestrator:
             },
         )
         self._bind_active_task_for_event(task_id, event)
+        self._sync_task_to_kanban(
+            task_id=task_id,
+            title=message_summary,
+            body=requirement_summary,
+            project_name=resolved.project_name or "",
+            project_path=resolved.project_path or "",
+            status=initial_status,
+        )
         draft_ref = self.wiki.upsert(
             {
                 "kind": "draft_knowledge",
@@ -724,9 +975,92 @@ class CodingOrchestrator:
             auto_plan_started=auto_plan_started,
         )
 
+    def _sync_task_to_kanban(
+        self,
+        *,
+        task_id: str,
+        title: str,
+        body: str,
+        project_name: str,
+        project_path: str,
+        status: str,
+    ) -> dict[str, Any] | None:
+        bridge = getattr(self, "kanban_bridge", None)
+        if bridge is None or not hasattr(bridge, "create_task"):
+            return None
+        try:
+            result = bridge.create_task(
+                local_task_id=task_id,
+                title=title or task_id,
+                body=body,
+                assignee="coder",
+                metadata={
+                    "project": project_name,
+                    "project_path": project_path,
+                    "status": status,
+                },
+            )
+        except Exception as exc:
+            return {"ok": False, "reason": f"kanban_sync_failed: {exc}"}
+        if result.get("ok") and result.get("kanban_task_id"):
+            self.ledger.update_task_session(
+                task_id,
+                {
+                    "kanban_task_id": result["kanban_task_id"],
+                    "kanban": {
+                        "task_id": result["kanban_task_id"],
+                        "sync_status": "created",
+                    },
+                },
+            )
+        return result
+
+    def _initial_task_status_for_create(
+        self,
+        *,
+        resolved_needs_human: bool,
+        source_needs_human: bool,
+        source_context: dict[str, Any],
+    ) -> str:
+        if resolved_needs_human or source_needs_human:
+            return TaskStatus.NEEDS_HUMAN.value
+        source_status = self._source_status_from_context(source_context)
+        if source_status in {"deferred", "auth_needed", "permission_missing"}:
+            return TaskStateMachine.task_status_for_source_status(source_status).value
+        return TaskStatus.PLANNED.value
+
     def _read_source_context(self, text: str, gateway: Any) -> dict[str, Any] | None:
-        del gateway
-        return self._index_external_source_context(text)
+        indexed = self._index_external_source_context(text)
+        reader = self.feishu_project_reader
+        if reader is None:
+            return indexed
+        try:
+            context = reader.read_from_text(text, gateway=gateway)
+        except Exception as exc:  # defensive: source readers must not block task creation
+            if indexed is None:
+                return None
+            context = {
+                **indexed,
+                "read_status": "failed",
+                "error": f"Feishu source reader failed: {exc}",
+            }
+        if not context:
+            return indexed
+        if isinstance(indexed, dict) and isinstance(context, dict):
+            context = {**indexed, **context}
+            if str(context.get("read_status") or "").strip().lower() == "success":
+                for key in (
+                    "codex_resolvable",
+                    "deferred_source_resolution",
+                    "resolution_owner",
+                    "lark_cli_command",
+                    "recovery_action",
+                    "error",
+                    "requires_human_context",
+                ):
+                    context.pop(key, None)
+        normalized = self._normalize_document_source_context_for_codex(text, context)
+        return normalized or indexed
 
     @staticmethod
     def _index_external_source_context(text: str) -> dict[str, Any] | None:
@@ -740,16 +1074,16 @@ class CodingOrchestrator:
                 "document_kind": document_link["document_kind"],
                 "document_token": document_link["document_token"],
                 "requires_human_context": False,
-                "codex_resolvable": True,
-                "resolution_owner": "codex",
+                "codex_resolvable": False,
+                "deferred_source_resolution": True,
+                "resolution_owner": "hermes_or_human",
                 "lark_cli_command": (
-                    "lark-cli docs +fetch --api-version v2 "
+                    "rtk lark-cli docs +fetch --api-version v2 "
                     f"--doc {document_link['url']} --doc-format markdown --format json"
                 ),
                 "recovery_action": (
-                    "Let Codex run lark-cli in its task session. If it is not bound, run "
-                    "`rtk lark-cli config bind --source codex --identity user-default` or paste the document "
-                    "content into the task."
+                    "Authorize the Hermes/Feishu document reader or paste the document content into the task. "
+                    "Codex task sessions should not rely on binding lark-cli themselves."
                 ),
             }
         project_link = CodingOrchestrator._extract_first_feishu_project_link(text)
@@ -762,9 +1096,10 @@ class CodingOrchestrator:
                 "work_item_type_key": project_link["work_item_type_key"],
                 "work_item_id": project_link["work_item_id"],
                 "requires_human_context": False,
-                "codex_resolvable": True,
-                "resolution_owner": "codex",
-                "recovery_action": "Let Codex inspect this Feishu Project link in its task session or ask for pasted content if it cannot access it.",
+                "codex_resolvable": False,
+                "deferred_source_resolution": True,
+                "resolution_owner": "hermes_or_human",
+                "recovery_action": "Authorize the Hermes/Feishu Project reader or paste the work item content into the task.",
             }
         return None
 
@@ -798,8 +1133,52 @@ class CodingOrchestrator:
     ) -> dict[str, Any] | None:
         if not isinstance(context, dict) or not context:
             return context
-        if context.get("codex_resolvable") or context.get("resolution_owner") == "codex":
+        status = str(context.get("read_status") or "").strip().lower()
+        source_type = str(context.get("source_type") or "").strip().lower()
+        url = str(context.get("url") or "").strip().lower()
+        is_feishu_source = (
+            source_type.startswith("feishu_doc")
+            or source_type.startswith("feishu_wiki")
+            or source_type.startswith("feishu_project_")
+            or "feishu.cn" in url
+        )
+        if (
+            not context.get("requires_human_context")
+            and (
+                context.get("codex_resolvable")
+                or context.get("deferred_source_resolution")
+                or context.get("resolution_owner") in {"codex", "hermes_or_human"}
+            )
+        ):
+            if is_feishu_source and status in {"failed", "indexed"} and not context.get("deferred_source_resolution"):
+                normalized = dict(context)
+                normalized["codex_resolvable"] = False
+                normalized["deferred_source_resolution"] = True
+                normalized["resolution_owner"] = "hermes_or_human"
+                normalized["recovery_action"] = (
+                    "Authorize the Hermes/Feishu reader or paste the source content into the task. "
+                    "Codex task sessions should not rely on binding lark-cli themselves."
+                )
+                return normalized
             return context
+        if CodingOrchestrator._looks_like_failed_feishu_project_context(context):
+            normalized = dict(context)
+            project_link = CodingOrchestrator._extract_first_feishu_project_link(text)
+            if project_link is not None:
+                normalized["url"] = project_link["url"]
+                normalized["project_key"] = project_link["project_key"]
+                normalized["work_item_type_key"] = project_link["work_item_type_key"]
+                normalized["work_item_id"] = project_link["work_item_id"]
+                normalized["source_type"] = f"feishu_project_{project_link['work_item_type_key']}"
+            normalized["read_status"] = normalized.get("read_status") or "failed"
+            normalized["requires_human_context"] = False
+            normalized["codex_resolvable"] = False
+            normalized["deferred_source_resolution"] = True
+            normalized["resolution_owner"] = "hermes_or_human"
+            normalized["recovery_action"] = normalized.get("recovery_action") or (
+                "Authorize the Hermes/Feishu Project reader or paste the work item content into the task."
+            )
+            return normalized
         if not CodingOrchestrator._looks_like_failed_feishu_document_context(context):
             return context
         normalized = dict(context)
@@ -820,18 +1199,18 @@ class CodingOrchestrator:
             normalized["source_type"] = "feishu_wiki" if kind == "wiki" else "feishu_docx"
         normalized["read_status"] = normalized.get("read_status") or "failed"
         normalized["requires_human_context"] = False
-        normalized["codex_resolvable"] = True
-        normalized["resolution_owner"] = "codex"
+        normalized["codex_resolvable"] = False
+        normalized["deferred_source_resolution"] = True
+        normalized["resolution_owner"] = "hermes_or_human"
         url = str(normalized.get("url") or "").strip()
         if url.startswith("http") and not normalized.get("lark_cli_command"):
             normalized["lark_cli_command"] = (
-                "lark-cli docs +fetch --api-version v2 "
+                "rtk lark-cli docs +fetch --api-version v2 "
                 f"--doc {url} --doc-format markdown --format json"
             )
         normalized["recovery_action"] = normalized.get("recovery_action") or (
-            "Let Codex run lark-cli in its task session. If it is not bound, run "
-            "`rtk lark-cli config bind --source codex --identity user-default` or paste the document "
-            "content into the task."
+            "Authorize the Hermes/Feishu document reader or paste the document content into the task. "
+            "Codex task sessions should not rely on binding lark-cli themselves."
         )
         return normalized
 
@@ -858,6 +1237,17 @@ class CodingOrchestrator:
         )
         auth_markers = ("need_user_authorization", "requires scope", "scope(s)")
         return any(marker in error for marker in document_markers) and any(marker in error for marker in auth_markers)
+
+    @staticmethod
+    def _looks_like_failed_feishu_project_context(context: dict[str, Any]) -> bool:
+        status = str(context.get("read_status") or "").strip().lower()
+        if status and status != "failed":
+            return False
+        source_type = str(context.get("source_type") or "").strip().lower()
+        url = str(context.get("url") or "").strip().lower()
+        if source_type.startswith("feishu_project_"):
+            return True
+        return "project.feishu.cn" in url
 
     @staticmethod
     def _requirement_summary(clean_text: str, source_context: dict[str, Any] | None) -> str:
@@ -893,6 +1283,7 @@ class CodingOrchestrator:
             "error",
             "requires_human_context",
             "codex_resolvable",
+            "deferred_source_resolution",
             "resolution_owner",
             "lark_cli_command",
             "recovery_action",
@@ -903,7 +1294,11 @@ class CodingOrchestrator:
     def _source_context_requires_human(source_context: dict[str, Any]) -> bool:
         if not source_context:
             return False
-        if source_context.get("codex_resolvable") or source_context.get("resolution_owner") == "codex":
+        if (
+            source_context.get("codex_resolvable")
+            or source_context.get("deferred_source_resolution")
+            or source_context.get("resolution_owner") in {"codex", "hermes_or_human"}
+        ):
             return False
         return bool(source_context.get("requires_human_context"))
 
@@ -1001,6 +1396,7 @@ class CodingOrchestrator:
                 "document_id",
                 "revision_id",
                 "codex_resolvable",
+                "deferred_source_resolution",
                 "resolution_owner",
                 "lark_cli_command",
                 "recovery_action",
@@ -2154,6 +2550,90 @@ class CodingOrchestrator:
             return f"未找到任务：{task_id}"
         return self._format_task_status_details(task, include_branch=True)
 
+    def _task_status_payload(self, task_id: str) -> dict[str, Any]:
+        task = self.ledger.get_task(task_id)
+        if not task:
+            return {"ok": False, "task_id": task_id, "error": f"task not found: {task_id}"}
+        source = task.get("source") or {}
+        source_context = source.get("source_context") or {}
+        session = task.get("task_session") or {}
+        runner = session.get("runner") or {}
+        latest_run = self._latest_agent_run(task)
+        return {
+            "ok": True,
+            "task_id": task_id,
+            "status": task.get("status"),
+            "status_label": task_status_display(task.get("status")),
+            "phase": task.get("phase"),
+            "project_name": source.get("project_name") or session.get("project_name"),
+            "project_path": task.get("project_path"),
+            "source_status": self._source_status_from_context(source_context),
+            "source_type": source_context.get("source_type") or source.get("type"),
+            "source_url": source_context.get("url") or "",
+            "source_recovery_action": source_context.get("recovery_action") or "",
+            "runner": runner.get("provider") or runner.get("name") or "",
+            "last_run_id": (latest_run or {}).get("run_id") or "",
+            "runtime_status": (latest_run or {}).get("status") or "",
+            "kanban_task_id": session.get("kanban_task_id") or "",
+            "next_actions": self._next_actions_for_task_payload(task, source_context),
+        }
+
+    @staticmethod
+    def _latest_agent_run(task: dict[str, Any]) -> dict[str, Any] | None:
+        runs = task.get("agent_runs") or []
+        return runs[-1] if runs else None
+
+    @staticmethod
+    def _next_actions_for_task_payload(task: dict[str, Any], source_context: dict[str, Any]) -> list[str]:
+        source_status = CodingOrchestrator._source_status_from_context(source_context)
+        if source_status in {"deferred", "auth_needed", "permission_missing"}:
+            return ["coding_lark_preflight", "coding_source_resolve", "coding_task_status"]
+        status = str(task.get("status") or "")
+        if status in {TaskStatus.PLANNED.value, TaskStatus.NEW.value}:
+            return ["coding_task_run"]
+        if status == TaskStatus.READY_FOR_MERGE_TEST.value:
+            return ["coding_task_run", "coding_task_status"]
+        return ["coding_task_status"]
+
+    @staticmethod
+    def _source_context_payload(context: dict[str, Any] | None) -> dict[str, Any]:
+        if not context:
+            return {
+                "ok": False,
+                "source_status": "failed",
+                "task_status": "",
+                "error": "No source context returned.",
+            }
+        source_status = CodingOrchestrator._source_status_from_context(context)
+        ok = source_status == "ok"
+        return {
+            "ok": ok,
+            "source_status": source_status,
+            "task_status": "planned" if ok else "",
+            "source_type": context.get("source_type") or "",
+            "url": context.get("url") or "",
+            "title": context.get("title") or "",
+            "summary_markdown": context.get("summary_markdown") or "",
+            "error": context.get("error") or "",
+            "recovery_action": context.get("recovery_action") or "",
+            "raw": context,
+        }
+
+    @staticmethod
+    def _source_status_from_context(context: dict[str, Any] | None) -> str:
+        if not context:
+            return "missing"
+        if context.get("read_status") == "success" or context.get("summary_markdown"):
+            return "ok"
+        error = str(context.get("error") or "").lower()
+        if "needs_refresh" in error or "auth" in error or "authorization" in error:
+            return "auth_needed"
+        if "scope" in error or "permission" in error or "forbidden" in error:
+            return "permission_missing"
+        if context.get("deferred_source_resolution"):
+            return "deferred"
+        return "failed"
+
     @staticmethod
     def _format_task_status_details(task: dict[str, Any], *, include_branch: bool) -> str:
         task_id = str(task.get("task_id") or "")
@@ -2327,6 +2807,32 @@ class CodingOrchestrator:
         task_id = self._active_task_id_for_event(event)
         return self.ledger.get_task(task_id) if task_id else None
 
+    def active_task_for_session(self, *, session_id: str, platform: str = "feishu") -> str | None:
+        session_id = str(session_id or "").strip()
+        platform = str(platform or "feishu").strip() or "feishu"
+        if not session_id:
+            return None
+        candidates = []
+        if ":" in session_id:
+            candidates.append(session_id)
+        candidates.extend(
+            [
+                f"{platform}:chat:{session_id}",
+                f"{platform}:user:{session_id}",
+                session_id,
+            ]
+        )
+        for binding_key in dict.fromkeys(candidates):
+            binding = self.ledger.get_active_binding(binding_key)
+            if not binding:
+                continue
+            task_id = str(binding.get("task_id") or "")
+            task = self.ledger.get_task(task_id)
+            if task:
+                return str(task["task_id"])
+            self.ledger.clear_active_binding(binding_key)
+        return None
+
     def _active_task_id_for_event(self, event: Any) -> str | None:
         binding_key = self._binding_key_for_event(event)
         if not binding_key:
@@ -2355,6 +2861,9 @@ class CodingOrchestrator:
     def _active_coding_statuses() -> list[str]:
         return [
             TaskStatus.NEEDS_HUMAN.value,
+            TaskStatus.SOURCE_DEFERRED.value,
+            TaskStatus.SOURCE_AUTH_NEEDED.value,
+            TaskStatus.SOURCE_PERMISSION_MISSING.value,
             TaskStatus.PLANNED.value,
             TaskStatus.QUEUED.value,
             TaskStatus.RUNNING.value,
@@ -2573,6 +3082,20 @@ class CodingOrchestrator:
         if isinstance(normalized_context, dict) and normalized_context != source_context:
             self.ledger.update_source_context(task_id, normalized_context)
             task = self.ledger.get_task(task_id) or task
+            source = dict(task.get("source") or {})
+            source_context = source.get("source_context")
+        enriched_context = self._enrich_deferred_source_context_before_run(
+            combined_text,
+            source_context if isinstance(source_context, dict) else None,
+        )
+        if isinstance(enriched_context, dict) and enriched_context != source_context:
+            self.ledger.update_source_context(task_id, enriched_context)
+            if str(enriched_context.get("read_status") or "").strip().lower() == "success":
+                base_text = str(source.get("normalized_text") or source.get("raw_text") or task.get("requirement_summary") or "")
+                enriched_summary = self._requirement_summary(base_text, enriched_context)
+                if enriched_summary and enriched_summary != task.get("requirement_summary"):
+                    self.ledger.update_requirement_summary(task_id, enriched_summary)
+            task = self.ledger.get_task(task_id) or task
         if not task.get("project_path"):
             resolved = self.resolver.resolve(combined_text)
             if not resolved.project_path:
@@ -2600,6 +3123,63 @@ class CodingOrchestrator:
             self.ledger.update_phase(task_id, TaskPhase.PLANNING.value)
             task = self.ledger.get_task(task_id) or task
         return task
+
+    def _enrich_deferred_source_context_before_run(
+        self,
+        text: str,
+        source_context: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if not isinstance(source_context, dict) or not source_context:
+            return source_context
+        status = str(source_context.get("read_status") or "").strip().lower()
+        if status == "success":
+            return source_context
+        if not self._is_deferred_feishu_source_context(source_context):
+            return source_context
+        reader = self.feishu_project_reader
+        if reader is None:
+            return source_context
+        reader_text = text
+        source_url = str(source_context.get("url") or "").strip()
+        if source_url.startswith("http") and source_url not in reader_text:
+            reader_text = f"{reader_text}\n{source_url}".strip()
+        try:
+            refreshed = reader.read_from_text(reader_text, gateway=None)
+        except Exception as exc:
+            refreshed = {
+                **source_context,
+                "read_status": "failed",
+                "error": f"Feishu source reader failed during run preflight: {exc}",
+            }
+        if not isinstance(refreshed, dict) or not refreshed:
+            return source_context
+        merged = {**source_context, **refreshed}
+        if str(merged.get("read_status") or "").strip().lower() == "success":
+            for key in (
+                "codex_resolvable",
+                "deferred_source_resolution",
+                "resolution_owner",
+                "lark_cli_command",
+                "recovery_action",
+                "error",
+                "requires_human_context",
+            ):
+                merged.pop(key, None)
+        return self._normalize_document_source_context_for_codex(reader_text, merged) or source_context
+
+    @staticmethod
+    def _is_deferred_feishu_source_context(source_context: dict[str, Any]) -> bool:
+        source_type = str(source_context.get("source_type") or "").strip().lower()
+        url = str(source_context.get("url") or "").strip().lower()
+        if not (
+            source_type.startswith("feishu_doc")
+            or source_type.startswith("feishu_wiki")
+            or source_type.startswith("feishu_project_")
+            or "feishu.cn" in url
+        ):
+            return False
+        status = str(source_context.get("read_status") or "").strip().lower()
+        return status in {"", "failed", "indexed"} or bool(source_context.get("deferred_source_resolution"))
 
     def _resolve_local_project_from_human_text(
         self,

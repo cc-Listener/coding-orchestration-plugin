@@ -261,6 +261,35 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
 )
 
 
+NATIVE_TOOL_CATALOG: tuple[dict[str, object], ...] = (
+    {
+        "name": "coding_task_create",
+        "preferred_for": "structured task creation from Hermes main agent",
+        "replaces": "/coding task natural-language rewrite when tool calling is available",
+    },
+    {
+        "name": "coding_task_status",
+        "preferred_for": "active task status, source health, runtime state, next actions",
+        "replaces": "/coding status parsing in non-human flows",
+    },
+    {
+        "name": "coding_task_run",
+        "preferred_for": "starting or continuing plan/implementation/merge-test runs",
+        "replaces": "/coding run or /coding implement when tool calling is available",
+    },
+    {
+        "name": "coding_source_resolve",
+        "preferred_for": "Feishu/Lark/Meegle source URL resolution and recovery actions",
+        "replaces": "rewriting source/auth problems into /coding bugfix",
+    },
+    {
+        "name": "coding_lark_preflight",
+        "preferred_for": "lark-cli auth, scope, and needs_refresh diagnostics",
+        "replaces": "guessing Lark permissions in natural-language rewrite",
+    },
+)
+
+
 CATEGORY_LABELS = {
     "query": "查看",
     "project": "项目上下文",
@@ -274,7 +303,19 @@ CATEGORY_LABELS = {
 
 
 def command_catalog_context() -> list[dict[str, object]]:
-    return [item.rewrite_context() for item in COMMAND_CATALOG]
+    return [
+        *[item.rewrite_context() for item in COMMAND_CATALOG],
+        {
+            "kind": "preferred_native_tools",
+            "tools": list(NATIVE_TOOL_CATALOG),
+            "rules": [
+                "Hermes main agent should prefer coding_* native tools when tool calling is available.",
+                "Slash commands are the human-facing fallback surface.",
+                "Low-confidence rewrite should return unknown and let the main agent call native tools.",
+                "Lark/source auth problems must not be rewritten as /coding bugfix.",
+            ],
+        },
+    ]
 
 
 def allowed_rewrite_commands() -> list[dict[str, str]]:

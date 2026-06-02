@@ -179,11 +179,11 @@
 | cancelled task 仍可能被续接 | 已在 pending action、Gateway 命令、active task 反馈和 `start_run()` 层增加 cancelled gate；一旦 cancelled，不再操作该 task |
 | 误 cancel 后无法继续 task | 新增 `/coding restore <task_id>`；真实 `task_26603ef00507` 已从 `cancelled` 恢复为 `ready_for_merge_test_with_known_gaps` / `ready_to_merge_test`，依据是最近 merge-test 未完成 |
 | 分享/demo 文档落后于最新流程 | `docs/feishu-workflow-update-20260526.md` 已同步 Coding Mode rewrite、pending action、QA 可选证据、merge-test checkpoint、session/prompt 瘦身、`merged_test` 人工完成和 `/coding restore`；后续流程变更需要同步更新该总览文档，避免演示口径和插件行为不一致 |
-| 飞书 Wiki/Doc 链接由 Codex 读取 | 真实 `task_f9eae60e8f1a` 的 `bestfulfill.feishu.cn/wiki/...` 证明只把 URL 当普通文本会让 Codex 不知道恢复动作；当前边界改为 Hermes 创建 task 时只索引 URL/token/推荐 `lark-cli docs +fetch` 命令，Codex plan-only session 自行读取，读取失败再结构化 blocked |
-| Hermes 不再要求飞书用户身份绑定 | `lark-cli config bind --source hermes --identity user-default` 属于安全敏感配置，不应成为创建 task 前置条件；当前绑定建议改为 Codex session 内的 `rtk lark-cli config bind --source codex --identity user-default` 或由用户粘贴来源内容 |
+| 飞书 Wiki/Doc 链接不应完全交给 Codex 读取 | 真实 `task_b859b49449e9` 证明 Codex session 不能稳定拿到 `lark-cli` 用户授权；当前边界改为 Hermes/Gateway 能读就先注入正文，读不到只延迟解析并给 Hermes/Feishu 授权或粘贴正文恢复动作 |
+| Hermes 不要求创建 task 前必须绑定飞书身份 | `lark-cli config bind --source hermes --identity user-default` 仍是安全敏感配置，不应成为创建 task 前置条件；但 Codex 也不再承担绑定 `lark-cli`，缺正文时由报告提示授权 Hermes/Feishu reader 或人工补正文 |
 | implementation source branch 默认从 `main` 创建 | workspace 创建必须显式传 base branch，不能隐式继承项目当前工作区 HEAD；默认 `source_base_branch=main`，可通过 task session 或 source 的 `source_base_branch/base_branch` 覆盖，manifest 会记录实际使用值 |
 | implementation 完成后立即 checkpoint commit | implementation runner 返回可进入 merge-test 的状态后，Hermes 会先通过 diff guard，再创建 `Implement <task_id> after implementation` commit；QA 前 checkpoint 仍保留，但正常情况下只会看到 clean，提交失败会阻断 QA 并给恢复动作 |
-| plan-only 不应使用 bypass | 规划阶段可能需要飞书/Lark 文档、Swagger/OpenAPI、私有 API 元数据、Keychain/认证上下文和网络资源；当前边界是 Hermes 只索引外部来源，Codex plan-only 自行读取并结构化报告恢复动作，仍保持 `read-only` sandbox，避免 bypass 后对项目外写入不可审计 |
+| plan-only 不应使用 bypass | 规划阶段可能需要飞书/Lark 文档、Swagger/OpenAPI、私有 API 元数据和网络资源；当前边界是 Hermes/Gateway 先做可用来源读取，Codex 只读项目上下文并使用已注入正文，缺正文时结构化 blocked，仍保持 `read-only` sandbox |
 | Hermes autonomous-ai-agents/codex 先作为 runner 后端接入 | 该 Hermes skill 当前是 agent-facing terminal/process 使用说明，不是 plugin-callable Python API；先新增 `hermes_autonomous_codex` runner 作为可切换后端，保留 orchestration 的状态机、ledger、report fallback、checkpoint 和 diff guard，后续再把底层 direct Codex subprocess 替换为 Hermes terminal/process |
 | 文档口径必须跟随权限 profile 更新 | 当前准确口径是 plan-only 使用 `plan_read_only` 且 `dangerous_bypass=false`；implementation/QA/merge-test 使用受控高权限并由 cwd、manifest/prompt 和 diff guard 收口 |
 | 新增 Python 模块必须进入 git diff | `command_rewriter.py` 与 `runners/hermes_autonomous_codex.py` 被 orchestrator/router 无条件 import；如果只是未跟踪文件，干净 checkout 会直接 `ModuleNotFoundError`，需要至少标记 intent-to-add 或正式 git add |
@@ -203,11 +203,15 @@
 | 低置信度 handoff 使用 plugin 内置 skill | 插件注册 `hermes-coding-operator`，handoff prompt 要求 Hermes 主 agent 优先 `skill_view(name="coding_orchestration:hermes-coding-operator")`，让低置信度处理有固定 playbook |
 | 上午 `task_7802123463ab` 项目匹配失败不是用户没给项目 | 12:03 raw text 已包含“商户后台 / bestvoy-admin”，但当时 project profile 尚未建立，create task 未从本地文件夹候选回退解析；12:18 project init 只绑定 active_project，没有回填既有 active task；12:24 `/coding continue` 又被归类为 plan_feedback，绕过项目澄清逻辑 |
 | skill 建议不可用的根因是状态上下文不完整 | low-confidence handoff 只给 status，不给 phase/next_step；`hermes-coding-operator` 只覆盖理想状态，缺 failed、runner_failed、blocked、plan_revision，导致主 agent 容易建议当前状态下不能推进的动作 |
-| 飞书 Wiki/Doc 权限失败不应阻断创建 task | 新口径改为 Codex-owned external source resolution：Hermes 只记录 URL/token/error/推荐 `lark-cli docs +fetch` 命令；只要项目已确定，task 继续进入 plan-only，由 Codex 在 session 内调用 `lark-cli` 读取，Codex 读取仍失败时才结构化 blocked 并给绑定/补充内容恢复动作 |
-| 外部来源上下文没有进入可见 prompt | `source_context` 原先只写入 ledger，prompt 的“来源”和 `context-index.json` 没有展示 read_status、document_token、error 和 lark-cli 命令；已补充来源块和 context index，避免 Codex 不知道该读哪个飞书文档 |
+| 飞书 Wiki/Doc 权限失败不应阻断创建 task | 新口径改为 Hermes-first deferred source resolution：Hermes/Gateway 先读，成功注入正文；失败时记录 URL/token/error/recovery_action，只要项目已确定就进入 plan-only，由 Codex 判断缺正文是否 blocked |
+| 外部来源上下文没有进入可见 prompt | `source_context` 原先只写入 ledger，prompt 的“来源”和 `context-index.json` 没有展示 read_status、document_token、error 和恢复动作；已补充来源块和 context index，避免 Codex 在缺正文时猜测需求 |
 | 真实 `task_449a0649f70c` 的失败来自创建 task 前强依赖飞书预读 | Gateway/adapter 返回 `read_status=failed`、`requires_human_context=true`、`docx:document:readonly` 后，插件输出“任务需要人工确认”。当前已取消 orchestrator 创建 task 时的 `FeishuProjectReader` 预读环节，改为直接索引文档来源；只要项目能识别，就继续 plan-only |
-| `FeishuProjectReader` 不再处于创建 task 主链路 | `CodingOrchestrator._read_source_context()` 已改为 `_index_external_source_context()`，即使注入旧 reader 也不会调用；飞书 Project/Wiki/Docx 均记录为 `read_status=indexed`、`codex_resolvable=true`、`resolution_owner=codex` |
+| `FeishuProjectReader` 是非阻塞 source enrichment | `CodingOrchestrator._read_source_context()` 会优先调用 reader/gateway，成功时注入正文；失败或异常时降级为 `deferred_source_resolution=true`、`resolution_owner=hermes_or_human`，不再让 Codex 承担绑定 `lark-cli` |
+| `lark-cli` 应放在 Hermes source enrichment 层 | 默认使用 `rtk lark-cli docs +fetch ...` 作为 Feishu reader 文档兜底；创建 task 和 plan run preflight 都可以重试 enrichment，Codex runner 只消费已注入正文或返回缺正文的结构化 blocked |
 | “文件夹名称为 bestvoy-admin”需要在 source 失败时仍被解析 | 项目识别不应被飞书文档读取失败短路；run 前会从 source raw_text、normalized_text、requirement_summary 重新提取项目文件夹，并写回 `project_path/source.project_name/task_session.project_name` |
+| Hermes 必须只加载本地软链接插件 | 运行根固定为 `~/.hermes/coding-orchestration`，`CODING_ORCHESTRATION_ROOT` 不再作为默认覆盖；文档只保留 `~/.hermes/plugins/coding_orchestration -> 当前仓库/coding_orchestration`，历史安装副本必须移除或停用 |
+| 真实 Hermes tool 注册需要完整签名 | `PluginContext.register_tool()` 要求 `name/toolset/schema/handler`，其中 `schema` 是 OpenAI function schema；fake context 只收 `name/handler/description` 会掩盖真实加载失败 |
+| 当前 lark-cli 没有 Meegle 子命令 | `rtk lark-cli meegle --help` 返回 `unknown command "meegle"`；doctor 已显式输出 `Meegle: unavailable`，恢复路径是配置 `MEEGLE_CLI` 或补 `lark-cli meegle work-item get` |
 
 ## 资源
 - `/Users/xiaojing/.hermes/coding-orchestration/runs/task_43141b20c03e`

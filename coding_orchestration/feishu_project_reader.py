@@ -4,6 +4,7 @@ import inspect
 import json
 import os
 import re
+import shlex
 import subprocess
 from dataclasses import dataclass
 from typing import Any
@@ -74,7 +75,7 @@ class FeishuProjectReader:
 
         return self._failed_document_context(
             document_link,
-            "Feishu document reader is not configured. Bind lark-cli to Hermes with user identity, or paste the document content into the task.",
+            "Feishu document reader is not configured. Authorize the Hermes/Feishu document reader, or paste the document content into the task.",
         )
 
     @staticmethod
@@ -501,20 +502,21 @@ class FeishuProjectReader:
             "document_token": link.document_token,
             "error": error,
             "requires_human_context": False,
-            "codex_resolvable": True,
-            "resolution_owner": "codex",
+            "codex_resolvable": False,
+            "deferred_source_resolution": True,
+            "resolution_owner": "hermes_or_human",
             "lark_cli_command": command,
             "recovery_action": (
-                "Let Codex run the lark-cli command in the task session. "
-                "If lark-cli is not bound, run `rtk lark-cli config bind --source codex --identity user-default` "
-                "or paste the document content into the task."
+                "Authorize the Hermes/Feishu document reader, or paste the document content into the task. "
+                "Codex task sessions should not rely on binding lark-cli themselves."
             ),
         }
 
     @staticmethod
     def _document_lark_cli_command(link: FeishuDocumentLink) -> list[str]:
+        command_prefix = shlex.split(os.getenv("FEISHU_DOC_LARK_CLI", "rtk lark-cli"))
         return [
-            os.getenv("FEISHU_DOC_LARK_CLI", "lark-cli"),
+            *command_prefix,
             "docs",
             "+fetch",
             "--api-version",

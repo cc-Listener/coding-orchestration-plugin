@@ -1,5 +1,37 @@
 # 进度日志
 
+## 会话：2026-06-02
+
+### 阶段 85：Hermes Coding Plugin 深度集成收尾验收
+- **状态：** complete
+- 执行的操作：
+  - 修复真实 Hermes `PluginContext.register_tool()` 兼容：coding tools 现在注册 `toolset="coding_orchestration"` 和 OpenAI function schema。
+  - 修复真实 Hermes `register_cli_command()` 兼容：`hermes coding` 通过 `setup_fn/handler_fn` 注册动态 CLI。
+  - 给 `hermes coding doctor` 增加 Meegle 轻量 preflight，提前暴露 `lark-cli` 未提供 `meegle` 子命令或未配置 `MEEGLE_CLI` 的卡点。
+  - 通过 `hermes chat -Q` 创建真实 task `task_9ab0e30b0770`，验证创建任务不会因 Lark/Meegle 权限直接进入 `blocked`。
+- 创建/修改的文件：
+  - `coding_orchestration/plugin_tools.py`
+  - `coding_orchestration/cli.py`
+  - `coding_orchestration/source_resolver.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_plugin_registration.py`
+  - `tests/test_source_resolver.py`
+  - `tests/test_coding_cli.py`
+  - `docs/plans/2026-06-02-hermes-coding-plugin-deep-integration.md`
+- 验证结果：
+  - `rtk python3 -m unittest tests.test_plugin_registration -v`：4 tests passed。
+  - `rtk python3 -m unittest tests.test_source_resolver -v`：5 tests passed。
+  - `rtk python3 -m unittest tests.test_coding_cli -v`：3 tests passed。
+  - `rtk python3 -m unittest discover -s tests -v`：249 tests passed。
+  - `rtk hermes plugins list`：`coding_orchestration enabled`。
+  - `rtk hermes tools list`：plugin toolset `coding_orchestration` 正常加载。
+  - `rtk hermes coding lark-preflight`：`status: ok`。
+  - `rtk hermes coding doctor`：Lark ok，Kanban available，Hermes runtime available，Codex CLI backend `hermes_terminal_codex_cli`，Meegle unavailable 且给出 recovery action。
+  - `rtk hermes chat -Q --max-turns 1 -q "/coding task 订单列表新增店铺筛选 --project /Users/xiaojing/Desktop/tools/hermes-codex-tools"`：创建 `task_9ab0e30b0770`，状态 `planned`，不需要人工介入。
+  - `rtk hermes coding status task_9ab0e30b0770`：可读取同一任务状态。
+- 剩余风险：
+  - 当前环境 `rtk lark-cli meegle --help` 返回 `unknown command "meegle"`；Meegle/飞书 Project work item 读取需要配置 `MEEGLE_CLI` 或补齐 lark-cli Meegle 子命令。
+
 ## 会话：2026-05-19
 
 ### 阶段 1：复盘与需求收敛
@@ -207,6 +239,8 @@
   - 相关测试：`rtk python3 -m unittest tests.test_orchestrator_run_flow tests.test_gateway_trigger`：45 tests passed。
   - 全量测试：`rtk python3 -m unittest discover -s tests`：95 tests passed。
   - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 实际插件目录：已同步到 `/Users/xiaojing/.hermes/plugins/coding-orchestration-plugin/`。
+  - Hermes Gateway：`rtk hermes gateway restart` 成功；`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 ok。
   - Hermes 加载：`rtk hermes gateway restart`：passed，输出 `Service restarted`。
   - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health`：passed。
   - Hermes 插件状态：`rtk hermes plugins list`：`coding_orchestration enabled`。
@@ -1634,13 +1668,13 @@
   - Hermes 实际插件：已同步 `coding_orchestration/` 到 `/Users/xiaojing/.hermes/plugins/coding-orchestration-plugin/`，`rtk hermes gateway restart` 成功。
   - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 ok；`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
 
-### 阶段 75：Codex-owned 飞书文档读取与全局链路降阻
+### 阶段 75：飞书文档读取降阻（旧 Codex-owned 口径，已由阶段 81 替代）
 - **状态：** complete
 - 问题：
   - 飞书 Wiki/Doc 链接在飞书权限失败时会进入 `needs_human`，导致 task 创建后不能自动 plan。
   - 用户期望飞书文档由 Codex 自己在 task session 内调用 `lark-cli` 读取，Hermes 不应在创建阶段硬阻断。
 - 已完成：
-  - 调整飞书文档失败 context：保留 URL、document_kind、document_token、error、`lark_cli_command`，并标记 `codex_resolvable/resolution_owner=codex`。
+  - 调整飞书文档失败 context：保留 URL、document_kind、document_token、error、`lark_cli_command`，旧口径标记 `codex_resolvable/resolution_owner=codex`；阶段 81 已替换为 `deferred_source_resolution/resolution_owner=hermes_or_human`。
   - 调整 task 创建：Codex 可解析的文档来源不再触发 `needs_human`。
   - 调整 prompt/context index：Codex 能在 plan-only 中看到外部来源上下文和推荐读取命令。
   - 调整 plan-only run instructions：明确优先在 Codex session 内用 `rtk lark-cli docs +fetch ...` 读取飞书文档，Codex 自己读取失败后才结构化 blocked。
@@ -1720,7 +1754,7 @@
   - 用户期望飞书来源交给 Codex plan-only session 自己通过 `lark-cli` 读取，Hermes 不要在创建阶段替 Codex 预读。
 - 已完成：
   - `CodingOrchestrator._read_source_context()` 改为只调用 `_index_external_source_context()`，不再调用 `FeishuProjectReader.read_from_text()`。
-  - 飞书 Wiki/Docx 链接记录 `read_status=indexed`、`codex_resolvable=true`、`resolution_owner=codex` 和推荐 `lark-cli docs +fetch` 命令。
+  - 飞书 Wiki/Docx 链接旧口径记录 `read_status=indexed`、`codex_resolvable=true`、`resolution_owner=codex`；阶段 81 已替换为 Hermes-first deferred source resolution。
   - 飞书 Project 链接记录 project key、work item type、work item id、URL 和 `codex_resolvable=true`。
   - 文档口径更新为 Hermes 只索引来源；Codex 在 plan-only 内读取，失败再结构化 blocked。
 - 创建/修改的文件：
@@ -1750,7 +1784,7 @@
   - 排查发现 `/Users/xiaojing/.hermes/plugins/coding-orchestration-plugin/coding_orchestration/orchestrator.py` 仍是旧代码，会 import/实例化 `FeishuProjectReader`；同时仓库内 `render_task_needs_source_context()` 仍保留旧恢复文案。
   - 真实消息没有可解析 docx URL，只有飞书来源标题和 adapter 权限失败 context，因此仅修 `_read_source_context()` 不够，必须在 `_create_task_from_text()` 入口归一化外部传入的 source context。
 - 已完成：
-  - `_create_task_from_text()` 开头调用 `_normalize_document_source_context_for_codex()`，把 failed doc/wiki context 转成 `codex_resolvable=true`、`resolution_owner=codex`、`requires_human_context=false`。
+  - `_create_task_from_text()` 开头调用 `_normalize_document_source_context_for_codex()`，旧口径把 failed doc/wiki context 转成 `codex_resolvable=true`；阶段 81 已调整为 `deferred_source_resolution=true`。
   - 新增回归测试覆盖“文件夹名称为 bestvoy-admin + failed docx source_context + 无真实 URL”仍创建 planned task。
   - 更新 `render_task_needs_source_context()`，删除旧 Hermes Project token 和 `--source hermes` 绑定指引。
 - 创建/修改的文件：
@@ -1776,7 +1810,7 @@
   - 命令体系：`command_catalog.py` 作为 `/coding` 单一事实源，help/listing/rewriter 展示必填参数和可选参数。
   - Project-first：新增/完善 active_project、项目初始化/选择/状态/清除、低置信度 handoff 中的 known_projects 和 next_step。
   - Operator skill：`hermes-coding-operator` 补齐 project-first workflow、failed/runner_failed/blocked/plan_revision 下一步建议。
-  - 飞书来源：创建 task 不再调用 `FeishuProjectReader` 预读；飞书 Project/Wiki/Docx 只索引 URL/token/推荐读取命令，Codex plan-only 自行读取。
+  - 飞书来源：创建 task 曾改为不调用 `FeishuProjectReader` 预读；阶段 81 已恢复非阻塞 reader 调用，成功注入正文，失败降级索引。
   - 历史修复：`needs_human`/failed task 在 `/coding run` 或 `start_run` 前自动修复项目和 source context；文本中的“文件夹名称/项目路径”可回填本地项目并写入 LLM Wiki。
   - 文档同步：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION、task_plan、findings、progress 同步最新职责边界。
 - 关键验证：
@@ -1784,6 +1818,94 @@
   - `rtk python3 -m unittest discover -s tests`：212 tests passed。
   - `rtk git diff --check`：passed。
   - 实际 Hermes 插件目录已同步；`rtk hermes gateway restart` 成功；health 返回 ok。
+
+### 阶段 81：飞书来源读取从 Codex-owned 改为 Hermes-first deferred
+- **状态：** complete
+- 问题：
+  - 真实 `task_b859b49449e9` 显示 Codex plan-only 无法稳定拿到 `lark-cli` 用户授权，直接 blocked 在 `docx:document:readonly`。
+  - 前一版把飞书文档读取完全交给 Codex，是错误假设；Codex runner 不应承担飞书授权绑定。
+- 已完成：
+  - `CodingOrchestrator._read_source_context()` 恢复非阻塞 Feishu reader 调用：Gateway/reader 成功读取时注入正文摘要；失败、异常或无权限时降级为 source index。
+  - 失败来源 context 改为 `deferred_source_resolution=true`、`resolution_owner=hermes_or_human`、`codex_resolvable=false`，并保留 URL/token/error/recovery_action。
+  - 兼容旧 task：已有 `codex_resolvable=true` / `resolution_owner=codex` 的 failed/indexed 飞书来源会在 run 前改写为 deferred source resolution。
+  - `PromptBuilder` plan-only instructions 删除“Codex 自行绑定 lark-cli”要求；缺正文时要求结构化 blocked，并指向 Hermes/Feishu 授权或人工粘贴正文。
+  - README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION 和 findings 已同步新职责边界。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/feishu_project_reader.py`
+  - `coding_orchestration/prompt_builder.py`
+  - `tests/test_feishu_project_reader.py`
+  - `tests/test_router_prompt_summary.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `README.md`
+  - `PLUGIN_USAGE.md`
+  - `PLUGIN_TECHNICAL_SOLUTION.md`
+  - `findings.md`
+  - `task_plan.md`
+  - `progress.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_feishu_project_reader tests.test_router_prompt_summary tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_feishu_project_link_without_reader_still_starts_plan tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_task_creation_falls_back_to_index_when_reader_fails tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_feishu_wiki_link_is_indexed_without_reader_before_plan_only tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_feishu_wiki_read_failure_still_starts_plan_for_codex_resolution tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_docx_authorization_failure_with_project_folder_still_plans tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_existing_needs_human_docx_task_repairs_context_before_plan_run`：23 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：213 tests passed。
+  - py_compile：`rtk python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/feishu_project_reader.py coding_orchestration/prompt_builder.py coding_orchestration/feishu_messages.py tests/test_feishu_project_reader.py tests/test_router_prompt_summary.py tests/test_orchestrator_run_flow.py`：passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+
+### 阶段 82：lark-cli 调用收口到 Hermes source enrichment
+- **状态：** complete
+- 问题：
+  - 阶段 81 已把飞书读取职责从 Codex 移回 Hermes，但 run 前没有再次 enrichment；用户补齐 Hermes `lark-cli` 授权后，旧 task 仍可能继续使用 failed/deferred source_context。
+  - `FeishuProjectReader` 默认命令仍是裸 `lark-cli`，不符合仓库所有 shell 命令走 `rtk` 的约束。
+- 已完成：
+  - `FeishuProjectReader._document_lark_cli_command()` 默认使用 `rtk lark-cli docs +fetch ...`，并支持 `FEISHU_DOC_LARK_CLI` 自定义前缀。
+  - `_repair_task_context_from_existing_task()` 增加 run preflight source enrichment：只对 failed/indexed/deferred 飞书来源重试；成功后更新 source_context 和 requirement_summary，失败仍不阻断。
+  - 如果历史 source_context 里有 URL 但 raw_text 没有 URL，preflight 会把 URL 拼入 reader 输入再读取。
+  - 新增回归测试覆盖 deferred task 在 plan run 前重新读取成功，并让 Codex prompt 包含飞书正文。
+- 创建/修改的文件：
+  - `coding_orchestration/feishu_project_reader.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `README.md`
+  - `PLUGIN_USAGE.md`
+  - `PLUGIN_TECHNICAL_SOLUTION.md`
+  - `task_plan.md`
+  - `progress.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_feishu_project_reader tests.test_router_prompt_summary tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_deferred_feishu_source_is_enriched_again_before_plan_run tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_existing_needs_human_docx_task_repairs_context_before_plan_run tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_legacy_codex_resolvable_docx_context_is_rewritten_to_deferred_resolution`：20 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：214 tests passed。
+  - py_compile：`rtk python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/feishu_project_reader.py coding_orchestration/prompt_builder.py coding_orchestration/feishu_messages.py tests/test_feishu_project_reader.py tests/test_router_prompt_summary.py tests/test_orchestrator_run_flow.py`：passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+
+### 阶段 83：强制本地软链接与固定运行根
+- **状态：** complete
+- 问题：
+  - 用户确认当前仍走旧运行根，要求 Hermes 直接走本地软链接 `coding_orchestration` 目录，这是硬需求。
+  - 文档和测试仍残留 Git 安装副本、插件 update 和旧运行根口径，容易让实际 Hermes 再次加载历史副本。
+- 已完成：
+  - `CodingOrchestrator._default_runtime_root()` 固定为 `~/.hermes/coding-orchestration`，不再读取 `CODING_ORCHESTRATION_ROOT` 覆盖。
+  - README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION 改为只推荐本地软链接安装、当前仓库更新和 Gateway 重启。
+  - 文档测试改为断言软链接命令存在、旧 Git 安装命令和旧运行根不出现在用户文档。
+  - 删除 Hermes `.env` 里的 `CODING_ORCHESTRATION_ROOT` 残留配置。
+  - 将历史插件安装副本移到 `/private/tmp/coding-orchestration-plugin.backup-20260602-local-symlink`，`~/.hermes/plugins/` 只保留本地软链接。
+  - 重启 Hermes Gateway，health 返回 ok；插件列表显示 `coding_orchestration enabled`。
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_config tests.test_docs_and_install_entry`：6 tests passed。
+  - py_compile：`rtk python3 -m py_compile coding_orchestration/orchestrator.py tests/test_orchestrator_config.py tests/test_docs_and_install_entry.py`：passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：215 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 文档扫描：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION 不再出现旧 Git 安装命令和旧运行根命令。
+  - 运行态：`~/.hermes/plugins` 只剩 `coding_orchestration -> /Users/xiaojing/Desktop/tools/hermes-codex-tools/coding_orchestration`；当前进程未匹配旧运行根或历史插件副本路径。
+
+### 阶段 84：状态机与 Coding 流程图产出
+- **状态：** complete
+- 执行的操作：
+  - 核对 `coding_orchestration/models.py` 中的 `TaskStatus` 中文标识。
+  - 核对 `coding_orchestration/state_machine.py` 中允许的状态迁移。
+  - 生成演示用流程图文档，包含整体 Coding 流程、TaskStatus 状态机、中文状态表和人工动作速查。
+- 创建/修改的文件：
+  - `docs/coding-state-machine-flow-20260602.md`
+  - `task_plan.md`
+  - `progress.md`
+- 已验证：
+  - `rtk git diff --check`：passed，无输出。
 
 ---
 *每个阶段完成后或遇到错误时更新此文件*

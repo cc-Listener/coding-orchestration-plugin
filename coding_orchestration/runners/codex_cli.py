@@ -4,6 +4,7 @@ import json
 import os
 import re
 import signal
+import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -15,9 +16,13 @@ from ..models import AgentRunStatus, ArtifactSet, RunMode, RunnerCapabilities, n
 class CodexCliRunner(CodingAgentRunner):
     name = "codex_cli"
 
-    def __init__(self, command: str = "codex"):
+    def __init__(self, command: str = "codex", hermes_runtime: Any | None = None):
         self.command = command
+        self.hermes_runtime = hermes_runtime
         self._processes: dict[str, subprocess.Popen] = {}
+
+    def set_hermes_runtime(self, hermes_runtime: Any) -> None:
+        self.hermes_runtime = hermes_runtime
 
     def capabilities(self) -> RunnerCapabilities:
         return RunnerCapabilities(
@@ -134,6 +139,15 @@ class CodexCliRunner(CodingAgentRunner):
             workspace_path=workspace_path,
             mode=mode,
         )
+        if self.hermes_runtime is not None and self.hermes_runtime.available():
+            return self.run_hermes_runtime(
+                run_id=run_id,
+                command=command,
+                run_dir=run_dir,
+                stdin_path=run_dir / "input-prompt.md",
+                mode=mode,
+                cwd=subprocess_cwd,
+            )
         return self.run_subprocess(
             run_id=run_id,
             command=command,
@@ -143,6 +157,65 @@ class CodexCliRunner(CodingAgentRunner):
             mode=mode,
             cwd=subprocess_cwd,
         )
+
+    def run_hermes_runtime(
+        self,
+        *,
+        run_id: str,
+        command: list[str],
+        run_dir: Path,
+        stdin_path: Path,
+        mode: RunMode,
+        cwd: Path,
+    ) -> RunResult:
+        run_dir.mkdir(parents=True, exist_ok=True)
+        result = self.hermes_runtime.start_command(
+            command=shlex.join(command),
+            cwd=str(cwd),
+            stdin_path=str(stdin_path),
+            watch_patterns=[
+                AgentRunStatus.READY_FOR_MERGE_TEST.value,
+                AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+                AgentRunStatus.RUNNER_FAILED.value,
+                AgentRunStatus.BLOCKED.value,
+                AgentRunStatus.FAILED.value,
+            ],
+        )
+        (run_dir / "stdout.log").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+        (run_dir / "stderr.log").write_text("", encoding="utf-8")
+        if not result.get("ok"):
+            report = self.build_fallback_report(
+                run_dir,
+                mode,
+                status=AgentRunStatus.RUNNER_FAILED,
+                limitation_reason=str(result.get("reason") or "hermes_runtime_start_failed"),
+                limitation_impact="Hermes terminal/process runtime did not start the Codex command.",
+                limitation_recovery_action="Verify Hermes terminal/process tools are enabled, then retry the run.",
+                limitation_fallback_evidence=str(run_dir / "stdout.log"),
+            )
+            return RunResult(AgentRunStatus.RUNNER_FAILED.value, None, self.collect_artifacts(run_dir), report)
+        report = {
+            "runner": self.name,
+            "status": AgentRunStatus.QUEUED.value,
+            "mode": mode.value,
+            "summary_markdown": "Hermes runtime 已启动后台 Codex 任务。",
+            "modified_files": [],
+            "test_commands": [],
+            "test_results": [],
+            "risks": [],
+            "verification_limitations": [],
+            "human_required": False,
+            "next_actions": ["Use Hermes process/terminal notifications to collect completion artifacts."],
+            "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
+            "tested_commit": "",
+            "raw_stdout_ref": str(run_dir / "stdout.log"),
+            "raw_stderr_ref": str(run_dir / "stderr.log"),
+            "summary_ref": str(run_dir / "summary.md"),
+            "runtime": result.get("raw"),
+        }
+        (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        (run_dir / "summary.md").write_text(str(report["summary_markdown"]), encoding="utf-8")
+        return RunResult(AgentRunStatus.QUEUED.value, None, self.collect_artifacts(run_dir), report)
 
     @staticmethod
     def subprocess_cwd(*, project_path: Path, workspace_path: Path | None, mode: RunMode) -> Path:

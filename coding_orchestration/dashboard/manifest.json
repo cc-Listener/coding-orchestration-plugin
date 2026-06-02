@@ -1,0 +1,13 @@
+{
+  "name": "coding-orchestration",
+  "label": "Coding",
+  "description": "Hermes coding orchestration status and source diagnostics.",
+  "tab": {
+    "path": "/coding",
+    "label": "Coding",
+    "icon": "Code2",
+    "position": "after:kanban"
+  },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}

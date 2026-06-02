@@ -72,12 +72,12 @@ class TaskStateMachineTest(unittest.TestCase):
 
         self.assertEqual(task_status, TaskStatus.RUNNER_FAILED)
 
-    def test_completed_unstructured_blocks_task(self):
+    def test_completed_unstructured_maps_to_ready_with_known_gaps(self):
         task_status = TaskStateMachine.task_status_for_run_status(
             AgentRunStatus.COMPLETED_UNSTRUCTURED,
         )
 
-        self.assertEqual(task_status, TaskStatus.BLOCKED)
+        self.assertEqual(task_status, TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS)
 
     def test_maps_runner_failed_to_runner_failed_task_status(self):
         task_status = TaskStateMachine.task_status_for_run_status("runner_failed")
@@ -89,15 +89,30 @@ class TaskStateMachineTest(unittest.TestCase):
 
         self.assertEqual(task_status, TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS)
 
+    def test_source_deferred_is_not_blocked(self):
+        task_status = TaskStateMachine.task_status_for_source_status("deferred")
+
+        self.assertEqual(task_status, TaskStatus.SOURCE_DEFERRED)
+
+    def test_auth_needed_is_not_blocked(self):
+        task_status = TaskStateMachine.task_status_for_source_status("auth_needed")
+
+        self.assertEqual(task_status, TaskStatus.SOURCE_AUTH_NEEDED)
+
+    def test_permission_missing_is_not_blocked(self):
+        task_status = TaskStateMachine.task_status_for_source_status("permission_missing")
+
+        self.assertEqual(task_status, TaskStatus.SOURCE_PERMISSION_MISSING)
+
     def test_maps_ready_for_merge_test_status(self):
         task_status = TaskStateMachine.task_status_for_run_status("ready_for_merge_test")
 
         self.assertEqual(task_status, TaskStatus.READY_FOR_MERGE_TEST)
 
-    def test_unknown_runner_status_does_not_crash_task_mapping(self):
+    def test_unknown_runner_status_maps_to_known_gaps_not_blocked(self):
         task_status = TaskStateMachine.task_status_for_run_status("ready_for_implementation")
 
-        self.assertEqual(task_status, TaskStatus.BLOCKED)
+        self.assertEqual(task_status, TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS)
 
     def test_normalizes_external_task_like_statuses_by_mode(self):
         self.assertEqual(

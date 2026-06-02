@@ -3,6 +3,7 @@ import unittest
 from coding_orchestration.command_catalog import (
     COMMAND_CATALOG,
     allowed_rewrite_commands,
+    command_catalog_context,
     command_help_lines,
     command_listing_lines,
 )
@@ -57,6 +58,15 @@ class CommandCatalogTest(unittest.TestCase):
         self.assertIn("可选参数：`--keep-artifacts`、`--keep-wiki`、`--force`", help_text)
         self.assertIn("可选参数：`--project <项目名|路径>`", listing_text)
         self.assertIn("`--runner <runner_name>`", prompt_text)
+
+    def test_catalog_lists_native_tools_as_preferred_path(self):
+        context = command_catalog_context()
+        text = str(context)
+
+        self.assertIn("coding_task_create", text)
+        self.assertIn("coding_lark_preflight", text)
+        self.assertIn("coding_source_resolve", text)
+        self.assertIn("preferred_native_tools", text)
 
 
 if __name__ == "__main__":

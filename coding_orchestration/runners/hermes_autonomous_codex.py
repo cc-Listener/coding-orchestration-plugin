@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from ..codex_reuse import CodexReuseStrategy
 from ..models import RunnerCapabilities
 from .codex_cli import CodexCliRunner
 
@@ -46,15 +47,29 @@ class HermesAutonomousCodexRunner(CodexCliRunner):
         return super().run(**kwargs)
 
     def _write_backend_metadata(self, run_dir: Path) -> None:
+        decision = CodexReuseStrategy(
+            hermes_runtime_available=True,
+            codex_cli_available=True,
+            hermes_codex_provider_available=True,
+            codex_cli_auth_available=True,
+        ).select_backend(mode="implementation")
         metadata = {
             "runner": self.name,
-            "backend": "direct_codex_cli",
+            "backend": decision.backend,
+            "hermes_provider": decision.hermes_provider,
+            "requires_pty": decision.requires_pty,
+            "uses_process_tool": decision.uses_process_tool,
+            "must_not_copy_codex_auth_json": decision.must_not_copy_codex_auth_json,
+            "auth_notes": decision.auth_notes,
             "hermes_skill": "autonomous-ai-agents/codex",
             "skill_path": self.skill_path,
             "notes": [
-                "Hermes autonomous-ai-agents/codex is currently an agent-facing skill, not a plugin-callable API.",
+                "Hermes autonomous-ai-agents/codex is an agent-facing terminal/process workflow.",
+                "Codex CLI workspace edits should run through Hermes terminal/process with pty=true and background process polling when available.",
+                "Hermes openai-codex provider/OAuth is model capability backed by ~/.hermes/auth.json, not standalone Codex CLI auth.",
+                "Standalone Codex CLI may use ~/.codex/auth.json; do not copy or auto-import it into ~/.hermes/auth.json.",
                 "This runner preserves Task Ledger, manifest, report fallback, checkpoint commits, and diff guard.",
-                "The direct Codex subprocess can later be replaced by Hermes terminal/process primitives behind this runner.",
+                "Fallback to direct Codex subprocess remains only for old Hermes environments without terminal/process dispatch.",
             ],
         }
         (run_dir / "autonomous-codex-backend.json").write_text(

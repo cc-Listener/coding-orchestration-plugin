@@ -94,6 +94,8 @@ class HermesCommandRewriter:
 
 你的唯一职责：把用户在 Coding Mode 中发来的自然语言，改写成一个候选标准命令 `/coding <action>`。
 你不能执行命令，不能创建 task，不能启动 Codex，不能修改状态，不能假装已经完成操作。
+Hermes 主 agent 已有 `coding_task_create`、`coding_task_status`、`coding_task_run`、`coding_source_resolve`、`coding_lark_preflight` native tools；低置信度、source/auth、权限缺失或结构化参数更适合交给主 agent 调用 tools。
+slash command 只是人工入口和 fallback，不是主 agent 的首选自动化入口。
 
 只有这些 action 可以输出：
 {commands}
@@ -117,6 +119,8 @@ class HermesCommandRewriter:
 16. “清掉当前项目” -> `/coding project clear`。
 17. 如果用户提出新的开发需求且 `active_project` 存在，可以输出 `/coding task <需求>`；Hermes 会把 active_project 注入 task。
 18. 如果用户提出新的开发需求但没有 active task、active_project，也没有明确项目，输出 `canonical_command=null`，设置 `missing=["project"]`，不要创建 task。
+19. 如果用户说 Lark、飞书、Meegle、source、授权、scope、needs_refresh、权限卡点，输出 `canonical_command=null`；主 agent 应调用 `coding_lark_preflight` 或 `coding_source_resolve`。
+20. 不要因为 source 读取失败推荐 skill；返回 unknown，让主 agent 基于 native tools 处理。
 
 输出 JSON schema：
 {{

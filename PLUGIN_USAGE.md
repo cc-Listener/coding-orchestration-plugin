@@ -2,24 +2,33 @@
 
 这个仓库保存 Hermes Coding Orchestration 插件源码。当前版本定位为 **MVP**：先跑通飞书 `/coding` 标准命令、Coding Mode 自然语言改写、Hermes 主控、LLM Wiki 知识增强、Codex 受控执行、Task Ledger 留痕和人工发布的最小闭环。
 
-生产环境应该直接通过 Hermes 插件安装命令安装，软链接只用于本地 debug。
+当前硬约束：Hermes 必须直接加载本地软链接 `~/.hermes/plugins/coding_orchestration`，运行根固定为 `~/.hermes/coding-orchestration`。不要使用 Git 安装副本，也不要使用其他运行根。
 
-## 生产安装
+当前仓库已经是 Hermes plugin；使用时重点是让 Hermes 主 agent 直接复用插件暴露的 Hermes native tools，而不是继续依赖不可控的 skill 建议或自然语言 rewrite。插件注册 `pre_llm_call` 注入 active task/source health/next actions，并注册 `coding_task_create`、`coding_task_status`、`coding_task_run`、`coding_source_resolve`、`coding_lark_preflight`。`/coding <action>` 仍是人工入口和 fallback。
 
-生产环境统一使用 SSH Git URL 安装。安装前先判断 SSH 仓库访问是否符合：
+当前方案不引入 MCP。飞书 Wiki/Docx、Meegle/飞书 Project 的读取和权限诊断由插件内 `SourceResolver`、`MeegleReader` 和文档 reader 处理；Lark/Meegle 权限问题会回到结构化 source 状态与 recovery action。blocked 只表示 hard human-blocked，`needs_refresh`、scope 缺失、source deferred 和 runner unstructured output 不再默认变成 blocked。
+
+## 本地软链接安装
+
+通过软链接接入 Hermes：
 
 ```bash
-rtk git ls-remote git@github.com:cc-Listener/coding-orchestration-plugin.git HEAD
+rtk python3 scripts/install_symlink.py --hermes-home ~/.hermes
+rtk hermes plugins enable coding_orchestration
 ```
 
-符合判定：返回 commit hash 和 `HEAD` 才继续安装；如果出现 `Permission denied (publickey)` 或 `Repository not found`，先修复 SSH key 或仓库权限。
+软链接目标：
 
-测试部署和生产部署必须使用不同运行根目录。测试 Gateway 设置 `CODING_ORCHESTRATION_ROOT=~/.hermes/coding-orchestration-test`，生产 Gateway 设置 `CODING_ORCHESTRATION_ROOT=~/.hermes/coding-orchestration-prod`；修改后必须重启对应 Gateway。
+```text
+~/.hermes/plugins/coding_orchestration -> 当前仓库/coding_orchestration
+```
 
-安装命令：
+插件默认不读取 `CODING_ORCHESTRATION_ROOT` 作为运行根覆盖；即使 Hermes `.env` 残留该变量，也会使用 `~/.hermes/coding-orchestration`。
 
-```bash
-rtk hermes plugins install git@github.com:cc-Listener/coding-orchestration-plugin.git --enable
+Hermes `.env` 至少包含：
+
+```text
+CODEX_CLI_COMMAND=/absolute/path/to/codex
 ```
 
 插件启用后需要重启 Gateway 或开启新的 Hermes session 才会生效：
@@ -48,32 +57,9 @@ rtk hermes gateway status
 - `/coding help` 能输出完整命令说明。
 - 默认普通自然语言不会进入 plugin；发送“进入coding”后，本会话自然语言会先交给 LLM rewrite。高置信度会直接执行为 `/coding <action>`；低置信度交给 Hermes 主 agent 基于插件上下文继续判断；高风险候选会要求确认。
 
-## Debug 安装
-
-开发期可以先把源码落到当前目录，再通过软链接接入 Hermes：
-
-```bash
-rtk proxy python3 scripts/install_symlink.py --hermes-home ~/.hermes
-```
-
-软链接目标：
-
-```text
-~/.hermes/plugins/coding_orchestration -> 当前仓库/coding_orchestration
-```
-
-生产环境不要依赖软链接安装；软链接会把 Hermes 绑定到本地 checkout，适合快速调试，不适合稳定部署。
-
 ## 更新插件
 
-正式安装的插件使用 Hermes 标准更新命令：
-
-```bash
-rtk hermes plugins update coding_orchestration
-rtk hermes gateway restart
-```
-
-本地开发 symlink 插件使用当前仓库更新流程：
+软链接插件使用当前仓库更新流程：
 
 ```bash
 rtk git pull --ff-only
@@ -93,7 +79,7 @@ rtk proxy curl -sS http://127.0.0.1:8642/health
 
 MVP 之后，1.0 版本重点补齐以下事项：
 
-- 插件安装产品化：按 tag 发布、标准 Hermes plugin install、安装自检、升级和回滚说明。
+- 插件安装治理：本地软链接安装自检、重复安装副本诊断、升级和回滚说明。
 - Hermes 兼容性声明：记录支持的 Hermes 版本、Codex CLI 版本和必要环境变量。
 - Ledger migration：Task Ledger schema 可升级。
 - LLM Wiki 团队化：支持共享知识层和 verified / draft / run_summary 晋升流程。
@@ -117,12 +103,12 @@ coding_orchestration:
     hermes_autonomous_codex:
       command: codex
       skill_path: ~/.hermes/hermes-agent/skills/autonomous-ai-agents/codex/SKILL.md
-  ledger_db: ~/.hermes/coding-orchestration-prod/ledger.db
-  run_root: ~/.hermes/coding-orchestration-prod/runs
-  workspace_root: ~/.hermes/coding-orchestration-prod/workspaces
+  ledger_db: ~/.hermes/coding-orchestration/ledger.db
+  run_root: ~/.hermes/coding-orchestration/runs
+  workspace_root: ~/.hermes/coding-orchestration/workspaces
   llm_wiki:
     adapter: local
-    root: ~/.hermes/coding-orchestration-prod/llm-wiki
+    root: ~/.hermes/coding-orchestration/llm-wiki
 ```
 
 ## Hermes 集成原则
@@ -136,7 +122,7 @@ coding_orchestration:
 
 ## Runner 权限与自动测试
 
-plan-only run 使用 `plan_read_only` 权限 profile：Codex CLI 以只读沙箱运行，只做规划不改项目文件。Hermes 创建 task 时只负责识别项目、索引飞书 Project/Wiki/Docx 链接和其他动态来源，不再预读飞书正文，也不因飞书权限失败让 task 停在 `needs_human`。飞书 Wiki/Doc/Docx 链接会保留 URL、token 和 `lark-cli docs +fetch` 建议命令，由 Codex 在 plan-only session 内自行调用 `rtk lark-cli` 读取；仍失败时再结构化返回恢复动作。
+plan-only run 使用 `plan_read_only` 权限 profile：Codex CLI 以只读沙箱运行，只做规划不改项目文件。Hermes 创建 task 时负责识别项目，并在 source enrichment 层统一通过 `lark-cli` 读取飞书 Project/Wiki/Docx；读取成功就把正文摘要注入来源上下文，读取失败也不因飞书权限问题让 task 停在 `needs_human`，而是记录 URL、token、错误和恢复动作。启动 plan 前，Hermes 会对 failed/indexed/deferred 飞书来源再重试一次 enrichment。Codex plan-only 优先使用已注入正文；没有正文时不要求自行绑定 `lark-cli`，而是结构化返回需要修复 Hermes `lark-cli` 绑定、补充可访问内容或粘贴正文。
 
 implementation 和 QA run 使用受控高权限 Codex CLI session。这样 Codex 可以在任务 worktree 内实现代码，并在需要时自动安装依赖、访问私有源、启动测试或 dev server、执行浏览器 QA、写入 `.gstack` QA 报告/截图，以及提交 QA 修复。
 

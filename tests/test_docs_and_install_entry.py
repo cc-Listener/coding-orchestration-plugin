@@ -32,27 +32,34 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         self.assertIn("~/.hermes/plugins/coding_orchestration", usage)
         self.assertIn("软链接", usage)
         self.assertIn("LLM Wiki", usage)
-        self.assertIn(
-            "rtk hermes plugins install git@github.com:cc-Listener/coding-orchestration-plugin.git --enable",
-            usage,
-        )
-        self.assertIn(
-            "rtk git ls-remote git@github.com:cc-Listener/coding-orchestration-plugin.git HEAD",
-            usage,
-        )
-        self.assertIn("CODING_ORCHESTRATION_ROOT=~/.hermes/coding-orchestration-test", usage)
-        self.assertIn("CODING_ORCHESTRATION_ROOT=~/.hermes/coding-orchestration-prod", usage)
+        self.assertIn("rtk python3 scripts/install_symlink.py --hermes-home ~/.hermes", usage)
+        self.assertIn("rtk hermes plugins enable coding_orchestration", usage)
+        self.assertIn("~/.hermes/coding-orchestration", usage)
+        self.assertNotIn("rtk hermes plugins " + "install", usage)
+        self.assertNotIn("rtk git " + "ls-remote", usage)
+        self.assertNotIn("coding-orchestration-" + "prod", usage)
+        self.assertNotIn("coding-orchestration-" + "test", usage)
+        self.assertIn("CODEX_CLI_COMMAND=/absolute/path/to/codex", usage)
         self.assertIn("初始化时不需要带入 `project-registry.json`", usage)
-        self.assertIn("rtk hermes plugins update coding_orchestration", usage)
+        self.assertIn("统一通过 `lark-cli` 读取飞书 Project/Wiki/Docx", usage)
+        self.assertNotIn("FEISHU_PROJECT" + "_PLUGIN_TOKEN", usage)
+        self.assertNotIn("FEISHU_DOC" + "_LARK_CLI", usage)
         self.assertIn("rtk git pull --ff-only", usage)
         self.assertIn("rtk proxy curl -sS http://127.0.0.1:8642/health", usage)
 
         readme = (repo_root / "README.md").read_text(encoding="utf-8")
-        self.assertIn("生产安装", readme)
-        self.assertIn("本地调试安装", readme)
-        self.assertIn("生产环境不要依赖软链接安装", readme)
+        self.assertIn("本地软链接安装", readme)
+        self.assertIn("本地软链接要求", readme)
+        self.assertIn("rtk python3 scripts/install_symlink.py", readme)
+        self.assertIn("rtk hermes plugins enable coding_orchestration", readme)
+        self.assertNotIn("rtk hermes plugins " + "install", readme)
+        self.assertNotIn("rtk git " + "ls-remote", readme)
+        self.assertNotIn("coding-orchestration-" + "prod", readme)
         self.assertIn("初始化时不需要带入 `project-registry.json`", readme)
-        self.assertIn("rtk hermes plugins update coding_orchestration", readme)
+        self.assertIn("CODEX_CLI_COMMAND=/absolute/path/to/codex", readme)
+        self.assertIn("统一通过 `lark-cli` 读取正文", readme)
+        self.assertNotIn("FEISHU_PROJECT" + "_PLUGIN_TOKEN", readme)
+        self.assertNotIn("FEISHU_DOC" + "_LARK_CLI", readme)
         self.assertIn("rtk git pull --ff-only", readme)
 
     def test_operator_skill_next_steps_match_current_statuses(self):
@@ -71,6 +78,20 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         self.assertIn("/coding run <task_id>", skill)
         self.assertIn("/coding merge-test <task_id> --accept-risk", skill)
         self.assertIn("/coding continue <项目或来源补充>", skill)
+
+    def test_docs_state_mcp_is_not_part_of_current_solution(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        technical = (repo_root / "PLUGIN_TECHNICAL_SOLUTION.md").read_text(encoding="utf-8")
+        usage = (repo_root / "PLUGIN_USAGE.md").read_text(encoding="utf-8")
+        readme = (repo_root / "README.md").read_text(encoding="utf-8")
+        combined = "\n".join([technical, usage, readme])
+
+        self.assertIn("不引入 MCP", technical)
+        self.assertIn("SourceResolver", combined)
+        self.assertIn("ctx.register_tool", technical)
+        self.assertIn("pre_llm_call", technical)
+        self.assertIn("Hermes native tools", combined)
+        self.assertIn("blocked 只表示 hard human-blocked", combined)
 
     def test_install_script_runs_when_invoked_by_path(self):
         repo_root = Path(__file__).resolve().parents[1]

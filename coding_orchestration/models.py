@@ -9,6 +9,9 @@ from typing import Any
 class TaskStatus(str, Enum):
     NEW = "new"
     NEEDS_HUMAN = "needs_human"
+    SOURCE_DEFERRED = "source_deferred"
+    SOURCE_AUTH_NEEDED = "source_auth_needed"
+    SOURCE_PERMISSION_MISSING = "source_permission_missing"
     PLANNED = "planned"
     QUEUED = "queued"
     RUNNING = "running"
@@ -25,6 +28,9 @@ class TaskStatus(str, Enum):
 TASK_STATUS_LABELS_ZH: dict[TaskStatus, str] = {
     TaskStatus.NEW: "新建",
     TaskStatus.NEEDS_HUMAN: "待人工确认",
+    TaskStatus.SOURCE_DEFERRED: "来源待补齐",
+    TaskStatus.SOURCE_AUTH_NEEDED: "来源授权待刷新",
+    TaskStatus.SOURCE_PERMISSION_MISSING: "来源权限缺失",
     TaskStatus.PLANNED: "已规划",
     TaskStatus.QUEUED: "排队中",
     TaskStatus.RUNNING: "运行中",

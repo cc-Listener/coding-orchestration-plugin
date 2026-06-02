@@ -76,7 +76,7 @@ class FeishuProjectReaderTest(unittest.TestCase):
         self.assertEqual(context["document_id"], "Amt4d85oXoHvVTxqkiqcmmLTnBe")
         self.assertIn("更新店铺接口", context["summary_markdown"])
 
-    def test_lark_cli_document_failure_is_codex_resolvable(self):
+    def test_lark_cli_document_failure_is_deferred_to_hermes_or_human(self):
         reader = FeishuProjectReader()
 
         with patch("coding_orchestration.feishu_project_reader.subprocess.run") as run:
@@ -94,12 +94,13 @@ class FeishuProjectReaderTest(unittest.TestCase):
         self.assertEqual(context["read_status"], "failed")
         self.assertEqual(context["source_type"], "feishu_wiki")
         self.assertFalse(context["requires_human_context"])
-        self.assertTrue(context["codex_resolvable"])
-        self.assertEqual(context["resolution_owner"], "codex")
+        self.assertFalse(context["codex_resolvable"])
+        self.assertTrue(context["deferred_source_resolution"])
+        self.assertEqual(context["resolution_owner"], "hermes_or_human")
         self.assertIn("lark-cli docs +fetch", context["lark_cli_command"])
         self.assertIn("not bound", context["error"])
 
-    def test_gateway_failed_document_context_is_codex_resolvable(self):
+    def test_gateway_failed_document_context_is_deferred_to_hermes_or_human(self):
         reader = FeishuProjectReader()
         link = FeishuProjectReader.extract_first_document_link(
             "需求文档：https://bestfulfill.feishu.cn/docx/DocxToken123"
@@ -118,8 +119,9 @@ class FeishuProjectReaderTest(unittest.TestCase):
         self.assertEqual(context["read_status"], "failed")
         self.assertEqual(context["source_type"], "feishu_docx")
         self.assertFalse(context["requires_human_context"])
-        self.assertTrue(context["codex_resolvable"])
-        self.assertEqual(context["resolution_owner"], "codex")
+        self.assertFalse(context["codex_resolvable"])
+        self.assertTrue(context["deferred_source_resolution"])
+        self.assertEqual(context["resolution_owner"], "hermes_or_human")
         self.assertEqual(context["document_token"], "DocxToken123")
         self.assertIn("lark-cli docs +fetch", context["lark_cli_command"])
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from .codex_reuse import CodexReuseStrategy
 from .models import RunMode
 from .runners.codex_cli import CodexCliRunner
 from .runners.generic_cli import GenericCliRunner
@@ -14,9 +15,14 @@ class RunnerUnavailable(ValueError):
 
 
 class RunnerRouter:
-    def __init__(self, default_runner: str, runners: dict[str, Any]):
+    def __init__(self, default_runner: str, runners: dict[str, Any], codex_reuse_strategy: CodexReuseStrategy | None = None):
         self.default_runner = default_runner
         self.runners = runners
+        self.codex_reuse_strategy = codex_reuse_strategy or CodexReuseStrategy(
+            hermes_runtime_available=False,
+            codex_cli_available=True,
+            hermes_codex_provider_available=False,
+        )
 
     @classmethod
     def from_config(cls, config: dict[str, Any]) -> "RunnerRouter":
@@ -48,7 +54,34 @@ class RunnerRouter:
                 name="gemini",
                 command=(runners_cfg.get("gemini") or {}).get("command", "gemini"),
             )
-        return cls(default_runner=default_runner, runners=runners)
+        codex_reuse_strategy = CodexReuseStrategy(
+            hermes_runtime_available=bool(config.get("hermes_runtime_available") or config.get("dispatch_tool")),
+            codex_cli_available=bool(config.get("codex_cli_available", True)),
+            hermes_codex_provider_available=bool(
+                config.get("hermes_codex_provider_available")
+                or os.environ.get("HERMES_OPENAI_CODEX_PROVIDER") == "1"
+            ),
+            codex_cli_auth_available=bool(
+                config.get("codex_cli_auth_available")
+                or os.environ.get("CODEX_CLI_AUTH_AVAILABLE") == "1"
+            ),
+        )
+        return cls(default_runner=default_runner, runners=runners, codex_reuse_strategy=codex_reuse_strategy)
+
+    def codex_backend_decision(self, mode: RunMode | str):
+        mode_value = mode.value if isinstance(mode, RunMode) else str(mode)
+        return self.codex_reuse_strategy.select_backend(mode=mode_value)
+
+    def set_hermes_runtime(self, hermes_runtime: Any) -> None:
+        for runner in self.runners.values():
+            if hasattr(runner, "set_hermes_runtime"):
+                runner.set_hermes_runtime(hermes_runtime)
+        self.codex_reuse_strategy = CodexReuseStrategy(
+            hermes_runtime_available=bool(hermes_runtime and hermes_runtime.available()),
+            codex_cli_available=True,
+            hermes_codex_provider_available=self.codex_reuse_strategy.hermes_codex_provider_available,
+            codex_cli_auth_available=self.codex_reuse_strategy.codex_cli_auth_available,
+        )
 
     def select_runner(self, mode: RunMode, requested: str | None = None):
         name = requested or self.default_runner

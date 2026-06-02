@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 80：未提交变更汇总与提交前更新（complete）
+阶段 84：状态机与 Coding 流程图产出（complete）
 
 ## 各阶段
 
@@ -529,11 +529,11 @@
 - [x] 验证：相关测试、全量 unittest、`git diff --check`。
 - **状态：** complete
 
-### 阶段 75：Codex-owned 飞书文档读取与全局链路降阻
+### 阶段 75：飞书文档读取降阻（旧 Codex-owned 口径，已由阶段 81 替代）
 - [x] 方案：飞书 Wiki/Doc/Docx 链接由 Hermes 记录来源索引；飞书权限失败不再让 task 进入 `needs_human`。
 - [x] 测试：`lark-cli docs +fetch` 失败时，文档 source context 标记为 `codex_resolvable`，保留 URL/token/error/推荐命令。
 - [x] 测试：带飞书 Wiki 链接的 `/coding task` 在项目已确定时仍创建 `planned` task 并自动 plan-only。
-- [x] 测试：首次 plan prompt 展示外部来源上下文，run instructions 明确 Codex 在 session 内调用 `lark-cli`。
+- [x] 测试：首次 plan prompt 展示外部来源上下文。（后续阶段 81 已取消 Codex 自行绑定/读取 `lark-cli` 的要求。）
 - [x] 实现：更新 source reader、orchestrator、prompt/context-index 和文档口径。
 - [x] 验证：focused/full unittest、py_compile、`git diff --check`。
 - **状态：** complete
@@ -559,7 +559,7 @@
 - [x] 测试：创建 task 时即使注入 `FeishuProjectReader`，也不会调用 `read_from_text`。
 - [x] 测试：飞书 Project/Wiki/Docx 链接只写入 indexed source context，并继续启动 plan-only。
 - [x] 实现：`CodingOrchestrator._read_source_context()` 只做链接索引，不再调用 reader/gateway 预读飞书正文。
-- [x] 文档：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION、findings、progress 统一改成 Codex-owned 飞书读取口径。
+- [x] 文档：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION、findings、progress 曾统一为 Codex-owned 飞书读取口径；阶段 81 已再次修正为 Hermes-first deferred。
 - [x] 验证：focused/full unittest、py_compile、`git diff --check`。
 - **状态：** complete
 
@@ -576,6 +576,39 @@
 - [x] 汇总：核心变更包括 command catalog/help 参数展示、project-first active_project、低置信度 handoff operator skill、飞书来源 Codex-owned resolution、项目文件夹回填和历史 task 修复。
 - [x] 汇总：实际 Hermes 插件目录已同步并重启 Gateway，避免运行旧 `FeishuProjectReader` 逻辑。
 - [x] 验证：全量 unittest、py_compile、`git diff --check`、Gateway health。
+- **状态：** complete
+
+### 阶段 81：飞书来源读取从 Codex-owned 改为 Hermes-first deferred
+- [x] 排查：真实 `task_b859b49449e9` 中 Codex plan-only 无法稳定拿到 `lark-cli` 用户授权，导致需求文档无法读取并 blocked。
+- [x] 测试：Gateway / Feishu reader 读取成功时，source context 合并 URL/token/source_type 并把正文摘要注入 plan。
+- [x] 测试：Gateway / Feishu reader 读取失败、异常或无权限时，不阻断 task 创建；source context 标记 `deferred_source_resolution=true`、`resolution_owner=hermes_or_human`。
+- [x] 实现：`_read_source_context()` 恢复非阻塞 reader 调用；成功优先注入，失败降级为索引和恢复动作。
+- [x] 实现：plan-only prompt 不再要求 Codex session 自行绑定 `lark-cli`；缺正文时返回结构化 blocked，恢复动作指向 Hermes/Feishu 授权或人工粘贴正文。
+- [x] 文档：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION、findings、progress 同步新口径。
+- [x] 验证：focused/full unittest、py_compile、`git diff --check`。
+- **状态：** complete
+
+### 阶段 82：lark-cli 调用收口到 Hermes source enrichment
+- [x] 测试：已有 deferred 飞书来源的 task 在 `/coding run` 前会重新 enrichment；reader 成功后更新 source context 和 requirement_summary，Codex prompt 使用注入正文。
+- [x] 实现：`FeishuProjectReader` 默认通过 `rtk lark-cli docs +fetch ...` 兜底读取文档，避免裸 `lark-cli`。
+- [x] 实现：`_repair_task_context_from_existing_task()` 对 failed/indexed/deferred 飞书来源执行非阻塞 preflight enrichment；成功清理 deferred 字段，失败继续保留恢复动作。
+- [x] 文档：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION 说明 `lark-cli` 位于 Hermes source enrichment 层，并在 plan 前重试。
+- [x] 验证：focused/full unittest、py_compile、`git diff --check`。
+- **状态：** complete
+
+### 阶段 83：强制本地软链接与固定运行根
+- [x] 排查：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION 和文档测试仍保留 Git 安装副本、旧运行根和插件 update 口径。
+- [x] 实现：`CodingOrchestrator._default_runtime_root()` 固定返回 `~/.hermes/coding-orchestration`，不再读取 `CODING_ORCHESTRATION_ROOT` 覆盖。
+- [x] 实现：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION 统一为本地软链接安装、当前仓库更新、重启 Gateway 生效。
+- [x] 测试：文档测试断言软链接命令存在，旧 Git 安装命令和旧运行根不再出现在用户文档。
+- [x] 验证：focused/full unittest、py_compile、`git diff --check`。
+- [x] 运行态：清理或停用 `~/.hermes/plugins/` 下历史安装副本，确认只加载 `coding_orchestration` 软链接，并重启 Hermes Gateway。
+- **状态：** complete
+
+### 阶段 84：状态机与 Coding 流程图产出
+- [x] 核对：当前 `TaskStatus`、`TaskStateMachine`、README/技术方案中的状态口径。
+- [x] 产出：生成 `docs/coding-state-machine-flow-20260602.md`，包含整体 Coding 流程图、TaskStatus 状态机图、中文状态表和人工动作速查表。
+- [x] 验证：`rtk git diff --check`。
 - **状态：** complete
 
 ## 关键问题

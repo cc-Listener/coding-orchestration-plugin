@@ -109,6 +109,7 @@ class PromptBuilder:
                 "work_item_type_key",
                 "work_item_id",
                 "resolution_owner",
+                "deferred_source_resolution",
                 "error",
             )
             context_lines = [
@@ -120,7 +121,9 @@ class PromptBuilder:
             if command:
                 context_lines.append(f"  - lark_cli_command: `{command}`")
             if source_context.get("codex_resolvable"):
-                context_lines.append("  - note: Hermes 未预读成功；请在本轮 Codex plan 中自行读取该来源。")
+                context_lines.append("  - note: 历史来源标记为 runner 可尝试读取；不要绑定 lark-cli，失败时按 recovery_action 要求补充。")
+            elif source_context.get("deferred_source_resolution"):
+                context_lines.append("  - note: 来源正文未注入；不要猜测文档内容，信息不足时按 recovery_action 要求补充。")
             if context_lines:
                 lines.append("- 外部来源上下文：")
                 lines.extend(context_lines)
@@ -186,9 +189,9 @@ class PromptBuilder:
 - 只输出计划，不修改文件。
 - 可以读取完成计划所需的上下文，包括项目文件、Swagger/OpenAPI、飞书/Lark 文档、API 元数据和依赖元信息。
 - 所有 shell 命令使用 `rtk` 前缀。
-- 如果来源里包含飞书 Wiki/Doc/Docx 链接，先在 Codex session 内使用 `lark-cli docs +fetch --api-version v2 --doc <url> --doc-format markdown --format json` 读取；如果来源中给了 `lark_cli_command`，优先执行该命令的 `rtk` 前缀版本。
-- 不要因为 Hermes 预读飞书文档失败就停止；只有 Codex 自己使用 `lark-cli` 仍失败时，才返回 `status=blocked`。
-- Codex 读取飞书文档仍失败时，写清需要执行的绑定命令、补充链接内容或提供可访问凭证。
+- 如果 Hermes 已在来源上下文中注入飞书正文，直接基于该正文规划。
+- 如果来源只有飞书链接但没有正文，不要假设文档内容；只有当前环境已经具备读取权限时，才可尝试读取。
+- 不要要求 Codex session 自行绑定 `lark-cli`；如果缺少正文且需求依赖文档，返回 `status=blocked`，写清需要授权 Hermes/Feishu 读取器、补充链接内容或直接粘贴正文。
 - 计划需要包含：范围、涉及模块、实现步骤、风险、待确认问题。
 - 计划完整且可以进入人工确认/implementation 时，返回 `status=success`。
 - 如果信息不足，返回 `status=blocked`，并说明需要人工补充什么。"""
