@@ -138,26 +138,21 @@ MVP 默认 runner 是 Codex CLI。Codex CLI 的安装、登录和基础配置直
 
 后续扩展 Claude Code / Gemini 时，在 Hermes runner 配置里启用即可；workflow 不需要改。
 
-### 3.4 飞书 Project 读取权限
+### 3.4 飞书来源读取职责
 
-如果需求来自飞书 Project 链接，Hermes 需要先读出 story / bug 描述，再整理给 runner。需要配置：
+需求来自飞书 Project、Wiki、Doc 或 Docx 链接时，Hermes 不再预读飞书正文，也不要求配置 Hermes 侧 Project token。创建 task 时只索引来源 URL、token、Project key、工作项类型和推荐读取命令；项目识别仍优先走 LLM Wiki `project_profile`，缺失时再从文本中的项目名、文件夹名或路径定位本地项目并初始化项目画像。
 
-```bash
-FEISHU_PROJECT_PLUGIN_TOKEN=...
-FEISHU_PROJECT_USER_KEY=...
-```
-
-如果租户使用不同接口，可配置 URL 模板：
+飞书内容读取交给 Codex plan-only session。Codex 可以按 source context 中的建议执行：
 
 ```bash
-FEISHU_PROJECT_WORK_ITEM_DETAIL_URL_TEMPLATE=https://project.feishu.cn/open_api/{project_key}/work_item/{work_item_type_key}/{work_item_id}
+rtk lark-cli docs +fetch --api-version v2 --doc <url> --doc-format markdown --format json
 ```
 
-如果没有这些权限，plugin 会停在人工补充阶段，不会把只有链接的任务直接交给 Codex 猜。
+如果 Codex 仍无法读取，应在 `report.json` 中返回结构化 blocked，说明需要绑定 `lark-cli`、补充可访问凭证或直接粘贴来源内容。
 
 > 截图占位：`screenshots/04-feishu-project-permission.png`
 >
-> 截图内容建议：展示 Hermes 环境变量配置位置或启动日志，能看到 `FEISHU_PROJECT_PLUGIN_TOKEN`、`FEISHU_PROJECT_USER_KEY` 已配置；不要截出真实 token，建议打码。
+> 截图内容建议：展示 task artifact 中的 `source_context`，能看到飞书 URL、token、`codex_resolvable=true` 和推荐 `rtk lark-cli docs +fetch ...` 命令。
 
 ### 3.5 LLM Wiki 基础目录
 
@@ -568,8 +563,8 @@ Command Router
 Source Context Reader
   |
   +-- 飞书 Project / Wiki / Doc 链接
-  |     -> Hermes 使用飞书权限读取正文和字段
-  |     -> 读取失败则 task 进入 needs_human，不交给 runner 猜
+  |     -> Hermes 只索引 URL、token、工作项元信息和推荐读取命令
+  |     -> Codex 在 plan-only session 内调用 lark-cli 读取
   |
   v
 Project Resolver
@@ -1014,7 +1009,7 @@ Codex 模式：
 
 权限模型：
 
-- `plan-only` 使用 `plan_read_only` 权限 profile，Codex CLI 以只读沙箱运行，只做规划不改项目文件；飞书/Lark 文档、Swagger/OpenAPI、私有 API 元数据、依赖元信息和必要网络上下文优先由 Hermes source reader 在创建 task 前读取并注入 artifact。
+- `plan-only` 使用 `plan_read_only` 权限 profile，Codex CLI 以只读沙箱运行，只做规划不改项目文件；Hermes 创建 task 时只识别项目并索引飞书 Project/Wiki/Docx、Swagger/OpenAPI、私有 API 元数据等动态来源，不预读飞书正文，不因飞书权限失败阻断 task。飞书链接采用 Codex-owned external source resolution：Hermes 记录 URL、token 和 `lark-cli docs +fetch` 建议命令；Codex 在 plan-only session 内自行调用 `rtk lark-cli` 读取，仍失败时才结构化 blocked 并给绑定/补充内容/凭证恢复动作。
 - `implementation` 和 `qa` 使用 `--dangerously-bypass-approvals-and-sandbox`，因为依赖安装、私有源访问、dev server、浏览器 QA、`.git/worktrees` 元数据写入和 `.gstack` QA 产物都可能超出 `workspace-write`。
 - 高权限不是无限制开发：Codex 子进程 cwd 固定为 task worktree；源码修改只允许落在当前 workspace；项目外写入只允许依赖缓存、git metadata、dev server/browser 临时文件和 QA artifact。
 - `run-manifest.json` 对高权限 run 记录 `dangerous_bypass`、权限原因、允许的项目外写入类型和源码修改边界；Hermes diff guard 继续审计 workspace 内 diff。

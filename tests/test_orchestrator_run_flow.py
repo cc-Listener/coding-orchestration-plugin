@@ -192,6 +192,11 @@ class FakeFeishuProjectReader:
         return self.context
 
 
+class ExplodingFeishuProjectReader:
+    def read_from_text(self, text, gateway=None):
+        raise AssertionError("FeishuProjectReader must not be called during task creation")
+
+
 def _task_id_from_message(message: str) -> str:
     for part in message.split():
         if part.startswith("task_"):
@@ -507,6 +512,59 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIn("known_projects", result["text"])
             self.assertIn("bps-admin", result["text"])
             self.assertIn("不要默认使用插件仓库", result["text"])
+
+    def test_low_confidence_handoff_includes_actionable_next_step_for_failed_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "no-reader-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectKnowledgeResolver(
+                wiki=wiki,
+                fallback=ProjectResolver(ProjectRegistry([])),
+            )
+            rewriter = FakeCommandRewriter(
+                _rewrite_response(
+                    None,
+                    intent="unknown",
+                    confidence=0.2,
+                    risk_level="unknown",
+                    needs_human_review=True,
+                )
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+                command_rewriter=rewriter,
+            )
+            gateway = FakeGateway()
+            task_id = "task_failed_plan"
+            ledger.create_task(
+                task_id=task_id,
+                source={"type": "feishu_chat", "raw_text": "新增 Marketplace APP 后台模块"},
+                requirement_summary="新增 Marketplace APP 后台模块",
+                project_path=None,
+                status=TaskStatus.FAILED.value,
+                phase=TaskPhase.PLAN_REVISION.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+            )
+
+            orchestrator.handle_gateway_event(FakeGatewayEvent(f"/coding project init {project}"), gateway=gateway)
+            orchestrator.handle_gateway_event(FakeGatewayEvent(f"/coding use {task_id}"), gateway=gateway)
+            orchestrator.handle_gateway_event(FakeGatewayEvent("进入coding"), gateway=gateway)
+            result = orchestrator.handle_gateway_event(FakeGatewayEvent("开始启动任务，匹配到这个项目"), gateway=gateway)
+
+            self.assertEqual(result["action"], "rewrite")
+            self.assertIn('"phase": "plan_revision"', result["text"])
+            self.assertIn("next_step", result["text"])
+            self.assertIn(f"/coding run {task_id}", result["text"])
 
     def test_gateway_coding_mode_high_confidence_rewrite_with_confirmation_flag_waits_for_confirmation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1539,6 +1597,172 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["source"]["active_project_context"]["name"], "bps-admin")
             self.assertIn("active_project", orchestrator.command_rewriter.calls[0])
             self.assertEqual(orchestrator.command_rewriter.calls[0]["active_project"]["name"], "bps-admin")
+
+    def test_task_creation_resolves_project_folder_mentioned_in_requirement(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bestvoy-admin"
+            project.mkdir()
+            sibling = root / "known-parent"
+            sibling.mkdir()
+            _write_workflow(project)
+            _write_workflow(sibling)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectKnowledgeResolver(
+                wiki=wiki,
+                fallback=ProjectResolver(
+                    ProjectRegistry(
+                        [
+                            {
+                                "name": "known-parent",
+                                "path": str(sibling),
+                            }
+                        ]
+                    )
+                ),
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+            text = "项目名称：商户后台，文件夹名称为`bestvoy-admin`\n帮我做一个需求：MarketPlace APP后台模块"
+
+            result = orchestrator.handle_gateway_event(FakeGatewayEvent(f"/coding task {text}"), gateway=gateway)
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(len(orchestrator.auto_started), 1)
+            task = ledger.get_task(orchestrator.auto_started[0][0])
+            self.assertEqual(task["project_path"], str(project.resolve()))
+            self.assertEqual(task["source"]["project_name"], "bestvoy-admin")
+            self.assertEqual(task["status"], TaskStatus.PLANNED.value)
+            self.assertIsNotNone(orchestrator._find_project_profile("商户后台"))
+
+    def test_gateway_run_backfills_missing_task_project_from_active_project(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bestvoy-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectKnowledgeResolver(
+                wiki=wiki,
+                fallback=ProjectResolver(ProjectRegistry([])),
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+            task_id = "task_needs_project"
+            ledger.create_task(
+                task_id=task_id,
+                source={"type": "feishu_chat", "raw_text": "新增 Marketplace APP 后台模块"},
+                requirement_summary="新增 Marketplace APP 后台模块",
+                project_path=None,
+                status=TaskStatus.FAILED.value,
+                phase=TaskPhase.PLAN_REVISION.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+            )
+            orchestrator.handle_gateway_event(FakeGatewayEvent(f"/coding project init {project}"), gateway=gateway)
+            orchestrator.handle_gateway_event(FakeGatewayEvent(f"/coding use {task_id}"), gateway=gateway)
+
+            result = orchestrator.handle_gateway_event(FakeGatewayEvent(f"/coding run {task_id}"), gateway=gateway)
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(orchestrator.auto_started[0][0], task_id)
+            task = ledger.get_task(task_id)
+            self.assertEqual(task["project_path"], str(project.resolve()))
+            self.assertEqual(task["source"]["project_name"], "bestvoy-admin")
+            self.assertEqual(task["task_session"]["project_name"], "bestvoy-admin")
+            decision_types = [item["type"] for item in task["human_decisions"]]
+            self.assertIn("project_context_applied_from_active_project", decision_types)
+
+    def test_continue_project_clarification_updates_failed_task_instead_of_plan_feedback(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bestvoy-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectKnowledgeResolver(
+                wiki=wiki,
+                fallback=ProjectResolver(ProjectRegistry([])),
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+            task_id = "task_missing_project"
+            ledger.create_task(
+                task_id=task_id,
+                source={"type": "feishu_chat", "raw_text": "新增 Marketplace APP 后台模块"},
+                requirement_summary="新增 Marketplace APP 后台模块",
+                project_path=None,
+                status=TaskStatus.FAILED.value,
+                phase=TaskPhase.PLAN_REVISION.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+            )
+            orchestrator.handle_gateway_event(FakeGatewayEvent(f"/coding use {task_id}"), gateway=gateway)
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(
+                    f"/coding continue 这个task 的项目是商户后台，对应项目 bestvoy-admin，路径 {project}"
+                ),
+                gateway=gateway,
+            )
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(orchestrator.auto_started[0][0], task_id)
+            task = ledger.get_task(task_id)
+            self.assertEqual(task["project_path"], str(project.resolve()))
+            self.assertEqual(task["status"], TaskStatus.PLANNED.value)
+            self.assertEqual(task["phase"], TaskPhase.PLANNING.value)
+            decision_types = [item["type"] for item in task["human_decisions"]]
+            self.assertIn("human_clarification", decision_types)
+            self.assertNotIn("plan_feedback", decision_types)
 
     def test_gateway_commands_is_intercepted_before_hermes_builtin_listing(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2862,7 +3086,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(orchestrator.auto_implementation_started, [])
             self.assertTrue(all("已取消，不能继续操作" in message for message in gateway.messages[-3:]))
 
-    def test_feishu_project_link_enriches_requirement_before_plan_only(self):
+    def test_feishu_project_link_is_indexed_without_reader_before_plan_only(self):
         class RecordingOrchestrator(CodingOrchestrator):
             def __post_init__(self):
                 super().__post_init__()
@@ -2890,18 +3114,6 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                     ]
                 )
             )
-            reader = FakeFeishuProjectReader(
-                {
-                    "read_status": "success",
-                    "source_type": "feishu_project_story",
-                    "url": "https://project.feishu.cn/z9b9t3/story/detail/6983769492",
-                    "project_key": "z9b9t3",
-                    "work_item_type_key": "story",
-                    "work_item_id": "6983769492",
-                    "title": "BPS运营后台订单列表新增筛选",
-                    "summary_markdown": "## BPS运营后台订单列表新增筛选\n需求描述：订单列表需要新增店铺筛选。",
-                }
-            )
             orchestrator = RecordingOrchestrator(
                 ledger=ledger,
                 resolver=resolver,
@@ -2909,80 +3121,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 run_root=root / "runs",
                 workspace_root=root / "workspaces",
                 runner_router=FakeRouter(FakeRunner()),
-                feishu_project_reader=reader,
-            )
-            gateway = FakeGateway()
-
-            result = orchestrator.handle_gateway_event(
-                FakeGatewayEvent("/coding task https://project.feishu.cn/z9b9t3/story/detail/6983769492"),
-                gateway=gateway,
-            )
-
-            self.assertEqual(result["action"], "skip")
-            self.assertEqual(len(orchestrator.auto_started), 1)
-            task_id = orchestrator.auto_started[0][0]
-            task = ledger.get_task(task_id)
-            self.assertEqual(task["status"], "planned")
-            self.assertEqual(task["source"]["type"], "feishu_project_story")
-            self.assertIn("订单列表需要新增店铺筛选", task["requirement_summary"])
-            draft = wiki.read(task["llm_wiki_refs"][0]["id"])
-            self.assertIn(
-                {
-                    "type": "feishu_project_story",
-                    "url": "https://project.feishu.cn/z9b9t3/story/detail/6983769492",
-                    "project_key": "z9b9t3",
-                    "work_item_type_key": "story",
-                    "work_item_id": "6983769492",
-                },
-                draft["source_refs"],
-            )
-            self.assertIn("BPS运营后台订单列表新增筛选", gateway.messages[0])
-
-    def test_feishu_project_link_without_readable_detail_requires_human(self):
-        class RecordingOrchestrator(CodingOrchestrator):
-            def __post_init__(self):
-                super().__post_init__()
-                self.auto_started = []
-
-            def _start_background_plan_only(self, task_id, gateway, event):
-                self.auto_started.append((task_id, gateway, event))
-
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            project = root / "bps-admin"
-            project.mkdir()
-            _write_workflow(project)
-            ledger = TaskLedger(root / "ledger.db")
-            wiki = LocalLlmWikiAdapter(root / "wiki")
-            resolver = ProjectResolver(
-                ProjectRegistry(
-                    [
-                        {
-                            "name": "bps-admin",
-                            "aliases": ["BPS运营后台"],
-                            "path": str(project),
-                            "keywords": ["订单列表"],
-                        }
-                    ]
-                )
-            )
-            reader = FakeFeishuProjectReader(
-                {
-                    "read_status": "failed",
-                    "source_type": "feishu_project_story",
-                    "url": "https://project.feishu.cn/z9b9t3/story/detail/6983769492",
-                    "error": "Feishu Project reader is not configured.",
-                    "requires_human_context": True,
-                }
-            )
-            orchestrator = RecordingOrchestrator(
-                ledger=ledger,
-                resolver=resolver,
-                wiki=wiki,
-                run_root=root / "runs",
-                workspace_root=root / "workspaces",
-                runner_router=FakeRouter(FakeRunner()),
-                feishu_project_reader=reader,
+                feishu_project_reader=FakeFeishuProjectReader({"read_status": "success"}),
             )
             gateway = FakeGateway()
 
@@ -2994,14 +3133,279 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             )
 
             self.assertEqual(result["action"], "skip")
-            self.assertEqual(orchestrator.auto_started, [])
-            task_id = _task_id_from_message(gateway.messages[0])
+            self.assertEqual(len(orchestrator.auto_started), 1)
+            task_id = orchestrator.auto_started[0][0]
             task = ledger.get_task(task_id)
-            self.assertEqual(task["status"], "needs_human")
-            self.assertIn("无法读取飞书来源内容", gateway.messages[0])
-            self.assertIn("FEISHU_PROJECT_PLUGIN_TOKEN", gateway.messages[0])
+            self.assertEqual(task["status"], "planned")
+            self.assertEqual(task["source"]["type"], "feishu_project_story")
+            self.assertEqual(reader.calls if (reader := orchestrator.feishu_project_reader) else [], [])
+            self.assertIn("https://project.feishu.cn/z9b9t3/story/detail/6983769492", task["requirement_summary"])
+            source_context = task["source"]["source_context"]
+            self.assertEqual(source_context["read_status"], "indexed")
+            self.assertTrue(source_context["codex_resolvable"])
+            draft = wiki.read(task["llm_wiki_refs"][0]["id"])
+            source_ref = next(
+                ref for ref in draft["source_refs"] if ref.get("type") == "feishu_project_story"
+            )
+            self.assertEqual(source_ref["url"], "https://project.feishu.cn/z9b9t3/story/detail/6983769492")
+            self.assertEqual(source_ref["project_key"], "z9b9t3")
+            self.assertEqual(source_ref["work_item_type_key"], "story")
+            self.assertEqual(source_ref["work_item_id"], "6983769492")
+            self.assertEqual(source_ref["codex_resolvable"], "True")
+            self.assertEqual(source_ref["resolution_owner"], "codex")
+            self.assertIn("https://project.feishu.cn/z9b9t3/story/detail/6983769492", gateway.messages[0])
 
-    def test_feishu_wiki_link_enriches_requirement_before_plan_only(self):
+    def test_feishu_project_link_without_reader_still_starts_plan(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "bps-admin",
+                            "aliases": ["BPS运营后台"],
+                            "path": str(project),
+                            "keywords": ["订单列表"],
+                        }
+                    ]
+                )
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+                feishu_project_reader=FakeFeishuProjectReader(
+                    {"read_status": "failed", "requires_human_context": True}
+                ),
+            )
+            gateway = FakeGateway()
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(
+                    "/coding task BPS运营后台 https://project.feishu.cn/z9b9t3/story/detail/6983769492"
+                ),
+                gateway=gateway,
+            )
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(len(orchestrator.auto_started), 1)
+            task_id = orchestrator.auto_started[0][0]
+            task = ledger.get_task(task_id)
+            self.assertEqual(task["status"], "planned")
+            self.assertEqual(orchestrator.feishu_project_reader.calls, [])
+            self.assertTrue(task["source"]["source_context"]["codex_resolvable"])
+            self.assertNotIn("无法读取飞书来源内容", gateway.messages[0])
+
+    def test_task_creation_never_invokes_feishu_project_reader(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bestvoy-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(ProjectRegistry([]))
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+                feishu_project_reader=ExplodingFeishuProjectReader(),
+            )
+            gateway = FakeGateway()
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(
+                    f"/coding task 项目名称：商户后台，项目路径为 {project}。"
+                    "需求来源：https://bestfulfill.feishu.cn/docx/MarketplaceDocxToken123。"
+                    "新增 MarketPlace APP 后台模块。"
+                ),
+                gateway=gateway,
+            )
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(len(orchestrator.auto_started), 1)
+            task_id = orchestrator.auto_started[0][0]
+            task = ledger.get_task(task_id)
+            self.assertEqual(task["status"], "planned")
+            self.assertEqual(task["project_path"], str(project.resolve()))
+            source_context = task["source"]["source_context"]
+            self.assertEqual(source_context["read_status"], "indexed")
+            self.assertEqual(source_context["source_type"], "feishu_docx")
+            self.assertTrue(source_context["codex_resolvable"])
+            self.assertEqual(source_context["resolution_owner"], "codex")
+            self.assertIn("lark-cli docs +fetch", source_context["lark_cli_command"])
+
+    def test_failed_docx_source_context_with_project_folder_still_plans_without_url(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bestvoy-admin"
+            project.mkdir()
+            _write_workflow(project)
+            sibling = root / "known-project"
+            sibling.mkdir()
+            _write_workflow(sibling)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "known-project",
+                            "path": str(sibling),
+                        }
+                    ]
+                )
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            source_context = {
+                "read_status": "failed",
+                "source_type": "feishu_docx",
+                "url": "V1.136：Marketplace App",
+                "error": (
+                    "network、API call failed: need_user_authorization (user: )、"
+                    "current command requires scope(s): docx:document:readonly"
+                ),
+                "requires_human_context": True,
+            }
+
+            created = orchestrator._create_task_from_text(
+                "项目名称：商户后台，文件夹名称为 bestvoy-admin。"
+                "需求：MarketPlace APP后台模块。"
+                "需求来源：V1.136：Marketplace App。",
+                auto_plan_on_ready=True,
+                source_context=source_context,
+                event=FakeGatewayEvent("/coding task"),
+            )
+
+            self.assertFalse(created.needs_human)
+            self.assertTrue(created.auto_plan_started)
+            self.assertNotIn("任务需要人工确认", created.message)
+            task = ledger.get_task(created.task_id)
+            self.assertEqual(task["status"], "planned")
+            self.assertEqual(task["project_path"], str(project.resolve()))
+            stored_context = task["source"]["source_context"]
+            self.assertEqual(stored_context["read_status"], "failed")
+            self.assertFalse(stored_context["requires_human_context"])
+            self.assertTrue(stored_context["codex_resolvable"])
+            self.assertEqual(stored_context["resolution_owner"], "codex")
+            self.assertEqual(stored_context["url"], "V1.136：Marketplace App")
+
+    def test_feishu_wiki_link_is_indexed_without_reader_before_plan_only(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "fulfill-ui"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "fulfill-ui",
+                            "aliases": ["fulfill-ui"],
+                            "path": str(project),
+                            "keywords": ["嵌入式界面"],
+                        }
+                    ]
+                )
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+                feishu_project_reader=FakeFeishuProjectReader({"read_status": "success"}),
+            )
+            gateway = FakeGateway()
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(
+                    "/coding task fulfill-ui 嵌入式界面新增引导 https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe"
+                ),
+                gateway=gateway,
+            )
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(len(orchestrator.auto_started), 1)
+            task_id = orchestrator.auto_started[0][0]
+            task = ledger.get_task(task_id)
+            self.assertEqual(task["status"], "planned")
+            self.assertEqual(task["source"]["type"], "feishu_wiki")
+            self.assertEqual(orchestrator.feishu_project_reader.calls, [])
+            source_context = task["source"]["source_context"]
+            self.assertEqual(source_context["read_status"], "indexed")
+            self.assertTrue(source_context["codex_resolvable"])
+            self.assertIn("lark-cli docs +fetch", source_context["lark_cli_command"])
+            draft = wiki.read(task["llm_wiki_refs"][0]["id"])
+            self.assertIn(
+                {
+                    "type": "feishu_wiki",
+                    "url": "https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe",
+                    "document_kind": "wiki",
+                    "document_token": "FLArwwLCaikbg6kVhWRcxpFQnTe",
+                    "codex_resolvable": "True",
+                    "resolution_owner": "codex",
+                    "lark_cli_command": "lark-cli docs +fetch --api-version v2 --doc https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe --doc-format markdown --format json",
+                    "recovery_action": "Let Codex run lark-cli in its task session. If it is not bound, run `rtk lark-cli config bind --source codex --identity user-default` or paste the document content into the task.",
+                },
+                draft["source_refs"],
+            )
+            self.assertIn("https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe", gateway.messages[0])
+
+    def test_feishu_wiki_read_failure_still_starts_plan_for_codex_resolution(self):
         class RecordingOrchestrator(CodingOrchestrator):
             def __post_init__(self):
                 super().__post_init__()
@@ -3031,15 +3435,16 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             )
             reader = FakeFeishuProjectReader(
                 {
-                    "read_status": "success",
+                    "read_status": "failed",
                     "source_type": "feishu_wiki",
                     "url": "https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe",
                     "document_kind": "wiki",
                     "document_token": "FLArwwLCaikbg6kVhWRcxpFQnTe",
-                    "document_id": "Amt4d85oXoHvVTxqkiqcmmLTnBe",
-                    "revision_id": "212",
-                    "title": "店铺联系方式接口",
-                    "summary_markdown": "## 店铺联系方式接口\n\n### 更新店铺接口(新增)\n请求体包含 contact_info。",
+                    "error": "lark-cli is not bound to Hermes",
+                    "requires_human_context": True,
+                    "codex_resolvable": True,
+                    "resolution_owner": "codex",
+                    "lark_cli_command": "lark-cli docs +fetch --api-version v2 --doc https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe --doc-format markdown --format json",
                 }
             )
             orchestrator = RecordingOrchestrator(
@@ -3066,20 +3471,161 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             task = ledger.get_task(task_id)
             self.assertEqual(task["status"], "planned")
             self.assertEqual(task["source"]["type"], "feishu_wiki")
-            self.assertIn("更新店铺接口", task["requirement_summary"])
-            draft = wiki.read(task["llm_wiki_refs"][0]["id"])
-            self.assertIn(
-                {
-                    "type": "feishu_wiki",
-                    "url": "https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe",
-                    "document_kind": "wiki",
-                    "document_token": "FLArwwLCaikbg6kVhWRcxpFQnTe",
-                    "document_id": "Amt4d85oXoHvVTxqkiqcmmLTnBe",
-                    "revision_id": "212",
-                },
-                draft["source_refs"],
+            self.assertTrue(task["source"]["source_context"]["codex_resolvable"])
+            self.assertIn("lark-cli docs +fetch", task["source"]["source_context"]["lark_cli_command"])
+            self.assertNotIn("无法读取飞书来源内容", gateway.messages[0])
+
+    def test_gateway_docx_authorization_failure_with_project_folder_still_plans(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bestvoy = root / "bestvoy-admin"
+            bestvoy.mkdir()
+            _write_workflow(bestvoy)
+            known = root / "known-project"
+            known.mkdir()
+            _write_workflow(known)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "known-project",
+                            "aliases": ["known-project"],
+                            "path": str(known),
+                            "keywords": ["known"],
+                        }
+                    ]
+                )
             )
-            self.assertIn("店铺联系方式接口", gateway.messages[0])
+            reader = FakeFeishuProjectReader(
+                {
+                    "read_status": "failed",
+                    "source_type": "feishu_docx",
+                    "url": "V1.136：Marketplace App",
+                    "error": "network、API call failed: need_user_authorization (user: )、current command requires scope(s): docx:document:readonly",
+                    "requires_human_context": True,
+                }
+            )
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+                feishu_project_reader=reader,
+            )
+            gateway = FakeGateway()
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(
+                    "/coding task 项目名称：商户后台，文件夹名称为 bestvoy-admin。"
+                    "新增需求：MarketPlace APP 后台模块。需求来源："
+                    "https://bestfulfill.feishu.cn/docx/MarketplaceDocxToken123"
+                ),
+                gateway=gateway,
+            )
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(len(orchestrator.auto_started), 1)
+            task_id = orchestrator.auto_started[0][0]
+            task = ledger.get_task(task_id)
+            self.assertEqual(task["status"], "planned")
+            self.assertEqual(task["source"]["project_name"], "bestvoy-admin")
+            self.assertEqual(task["project_path"], str(bestvoy.resolve()))
+            source_context = task["source"]["source_context"]
+            self.assertEqual(source_context["source_type"], "feishu_docx")
+            self.assertFalse(source_context["requires_human_context"])
+            self.assertTrue(source_context["codex_resolvable"])
+            self.assertEqual(source_context["url"], "https://bestfulfill.feishu.cn/docx/MarketplaceDocxToken123")
+            self.assertEqual(source_context["document_token"], "MarketplaceDocxToken123")
+            self.assertIn("lark-cli docs +fetch", source_context["lark_cli_command"])
+            self.assertNotIn("任务需要人工确认", gateway.messages[0])
+
+    def test_existing_needs_human_docx_task_repairs_context_before_plan_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            bestvoy = root / "bestvoy-admin"
+            bestvoy.mkdir()
+            _write_workflow(bestvoy)
+            known = root / "known-project"
+            known.mkdir()
+            _write_workflow(known)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "known-project",
+                            "aliases": ["known-project"],
+                            "path": str(known),
+                            "keywords": ["known"],
+                        }
+                    ]
+                )
+            )
+            task_id = "task_449a0649f70c"
+            raw_text = (
+                "项目名称：商户后台，文件夹名称为 bestvoy-admin。"
+                "新增需求：MarketPlace APP 后台模块。需求来源："
+                "https://bestfulfill.feishu.cn/docx/MarketplaceDocxToken123"
+            )
+            ledger.create_task(
+                task_id=task_id,
+                source={
+                    "type": "feishu_docx",
+                    "raw_text": raw_text,
+                    "normalized_text": raw_text,
+                    "source_context": {
+                        "read_status": "failed",
+                        "source_type": "feishu_docx",
+                        "url": "V1.136：Marketplace App",
+                        "error": "need_user_authorization, current command requires scope(s): docx:document:readonly",
+                        "requires_human_context": True,
+                    },
+                    "project_name": None,
+                    "project_confidence": 0.0,
+                    "match_evidence": [],
+                },
+                requirement_summary=raw_text,
+                project_path=None,
+                status="needs_human",
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase="draft",
+                task_session={"runner": {"provider": "codex_cli"}},
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            result = orchestrator.start_run(task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
+
+            self.assertEqual(result["status"], "success")
+            task = ledger.get_task(task_id)
+            self.assertEqual(task["status"], "planned")
+            self.assertEqual(task["source"]["project_name"], "bestvoy-admin")
+            self.assertEqual(task["project_path"], str(bestvoy.resolve()))
+            source_context = task["source"]["source_context"]
+            self.assertFalse(source_context["requires_human_context"])
+            self.assertTrue(source_context["codex_resolvable"])
+            self.assertEqual(source_context["url"], "https://bestfulfill.feishu.cn/docx/MarketplaceDocxToken123")
+            self.assertIn("lark-cli docs +fetch", source_context["lark_cli_command"])
 
     def test_human_clarification_with_project_folder_updates_task_and_starts_plan(self):
         class RecordingOrchestrator(CodingOrchestrator):

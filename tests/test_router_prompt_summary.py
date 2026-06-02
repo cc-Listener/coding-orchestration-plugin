@@ -146,6 +146,42 @@ class RouterPromptSummaryTest(unittest.TestCase):
         self.assertIn("返回 `status=success`", instructions)
         self.assertIn("不要返回 `ready_for_implementation`", instructions)
         self.assertIn("Hermes 内部 task 状态", instructions)
+        self.assertIn("lark-cli docs +fetch", instructions)
+        self.assertIn("不要因为 Hermes 预读飞书文档失败就停止", instructions)
+
+    def test_prompt_source_block_exposes_codex_resolvable_document_context(self):
+        prompt = PromptBuilder().build(
+            requirement_summary="按飞书文档实现嵌入式界面",
+            source={
+                "type": "feishu_wiki",
+                "source_context": {
+                    "read_status": "failed",
+                    "source_type": "feishu_wiki",
+                    "url": "https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe",
+                    "document_kind": "wiki",
+                    "document_token": "FLArwwLCaikbg6kVhWRcxpFQnTe",
+                    "error": "lark-cli is not bound to Hermes",
+                    "codex_resolvable": True,
+                    "resolution_owner": "codex",
+                    "lark_cli_command": "lark-cli docs +fetch --api-version v2 --doc https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe --doc-format markdown --format json",
+                },
+            },
+            project_path="/repo/fulfill-ui",
+            workflow=WorkflowSpec(
+                project_path="/repo/fulfill-ui",
+                allowed_paths=["src/"],
+                forbidden_paths=[".env"],
+                default_test_commands=["rtk pnpm test"],
+            ),
+            wiki_refs=[],
+            mode=RunMode.PLAN_ONLY,
+            runner_name="codex_cli",
+        )
+
+        self.assertIn("外部来源上下文", prompt)
+        self.assertIn("resolution_owner: codex", prompt)
+        self.assertIn("lark_cli_command", prompt)
+        self.assertIn("Hermes 未预读成功", prompt)
 
     def test_prompt_builder_incremental_prompt_is_chinese(self):
         prompt = PromptBuilder().build_incremental(

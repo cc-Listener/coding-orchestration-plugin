@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 73：Project-First 与低置信度 Skill 化（complete）
+阶段 80：未提交变更汇总与提交前更新（complete）
 
 ## 各阶段
 
@@ -373,8 +373,8 @@
 ### 阶段 58：飞书 Wiki/Doc 链接读取修复
 - [x] 排查真实 `task_f9eae60e8f1a`：需求中的 `bestfulfill.feishu.cn/wiki/...` 被保存为普通文本，`source_context` 为空，Codex plan-only 兜底读取 `lark-cli docs +fetch` 时因 Hermes context 未绑定而 blocked。
 - [x] 测试：`FeishuProjectReader` 能识别 `/wiki/` 和 `/docx/` 文档链接，并把 `lark-cli docs +fetch` 返回内容规范成 `feishu_wiki` / `feishu_docx` source context。
-- [x] 测试：文档读取失败时 task 进入 `needs_human`，不会启动 Codex plan-only 后再 blocked。
-- [x] 实现：在现有 source reader 中增加 Feishu Wiki/Doc reader，优先 Gateway adapter，兜底 `lark-cli docs +fetch --api-version v2`。
+- [x] 历史测试：旧方案中文档读取失败会停在人工补充；阶段 78 已改为创建 task 时只索引来源。
+- [x] 历史实现：旧方案曾在 source reader 中增加 Feishu Wiki/Doc reader；阶段 78 已从创建 task 主链路移除预读。
 - [x] 实现：source refs 和 ledger source context 保存 `document_kind`、`document_token`、`document_id`、`revision_id`。
 - [x] 验证：focused/相关/full unittest、`git diff --check`。
 - **状态：** complete
@@ -400,7 +400,7 @@
 - [x] 测试：plan-only resume session 同样保持 `sandbox_mode="read-only"` 和 `approval_policy="never"`。
 - [x] 测试：plan-only 若异常修改项目文件，会被 diff guard 标记为 `blocked`。
 - [x] 实现：`RunManifest` 增加 `permission_profile`，所有 run 写入当前权限 profile。
-- [x] 实现：plan-only manifest 写入 `permission_profile=plan_read_only` 且 `dangerous_bypass=false`；外部飞书/Swagger 等上下文由 Hermes source reader 读取后注入 artifact。
+- [x] 实现：plan-only manifest 写入 `permission_profile=plan_read_only` 且 `dangerous_bypass=false`；外部飞书/Swagger 等上下文以来源索引、读取建议或 artifact 形式注入。
 - [x] 实现：implementation/QA/merge-test 保持原受控高权限 profile，并继续由 task worktree、manifest/prompt 和 diff guard 收口。
 - [x] 验证：focused/相关/full unittest、`git diff --check`。
 - **状态：** complete
@@ -516,6 +516,66 @@
 - [x] 实现：新增 plugin 内置 skill `coding_orchestration/skills/hermes-coding-operator/SKILL.md`，并在 plugin register 中注册。
 - [x] 实现：扩展 handoff prompt，明确低置信度不创建 task、不启动 runner、不写 LLM Wiki。
 - [x] 验证：全量 unittest、py_compile、`git diff --check`、尾随空白检查，并按需同步 Hermes 实际插件目录。
+- **状态：** complete
+
+### 阶段 74：上午聊天回溯与项目/状态建议修复
+- [x] 回溯 2026-06-02 上午 Gateway 日志和 prod ledger，确认 `task_7802123463ab` 已收到 `bestvoy-admin` 项目补充但没有回写 `project_path`。
+- [x] 测试：创建 task 时，需求文本里的“项目名称/文件夹名称/路径”能解析为本地项目并写入 task。
+- [x] 测试：已有 active_project 时，对缺项目 task 执行 `/coding run <task_id>` 会先回填项目再启动 plan-only。
+- [x] 测试：缺项目 task 收到 `/coding continue <项目补充>` 时记录为 human clarification，不再误归类为 plan_feedback。
+- [x] 测试：低置信度 handoff 会给 active task 注入 phase 和可执行 next_step。
+- [x] 实现：项目候选解析支持反引号 repo、文件夹名称、项目路径、普通“路径/目录”表达和 active_project 回填。
+- [x] 实现：`hermes-coding-operator` skill 补齐 failed、runner_failed、blocked、plan_revision 的下一步建议。
+- [x] 验证：相关测试、全量 unittest、`git diff --check`。
+- **状态：** complete
+
+### 阶段 75：Codex-owned 飞书文档读取与全局链路降阻
+- [x] 方案：飞书 Wiki/Doc/Docx 链接由 Hermes 记录来源索引；飞书权限失败不再让 task 进入 `needs_human`。
+- [x] 测试：`lark-cli docs +fetch` 失败时，文档 source context 标记为 `codex_resolvable`，保留 URL/token/error/推荐命令。
+- [x] 测试：带飞书 Wiki 链接的 `/coding task` 在项目已确定时仍创建 `planned` task 并自动 plan-only。
+- [x] 测试：首次 plan prompt 展示外部来源上下文，run instructions 明确 Codex 在 session 内调用 `lark-cli`。
+- [x] 实现：更新 source reader、orchestrator、prompt/context-index 和文档口径。
+- [x] 验证：focused/full unittest、py_compile、`git diff --check`。
+- **状态：** complete
+
+### 阶段 76：`/coding help` 参数展示完善
+- [x] 测试：help/listing/rewriter prompt 均从 command catalog 展示必填参数。
+- [x] 测试：`/coding task` 展示 `--project`、`--runner`、`--bug-of`、`--parent-task`。
+- [x] 测试：`/coding merge-test` 展示 `--accept-risk`、`--confirm-qa-risk`。
+- [x] 测试：`/coding delete` 展示 `--keep-artifacts`、`--keep-wiki`、`--force`。
+- [x] 实现：command catalog 增加 `options` 字段，help/listing/rewriter 统一使用参数渲染。
+- [x] 验证：focused/full unittest、py_compile、`git diff --check`，并重启 Hermes。
+- **状态：** complete
+
+### 阶段 77：Gateway 文档失败 context 归一与历史 task 修复
+- [x] 测试：Gateway/adapter 返回 `read_status=failed`、`requires_human_context=true`、`docx:document:readonly` 时，归一为 Codex 可解析文档来源。
+- [x] 测试：需求文本包含“文件夹名称为 bestvoy-admin”时，即使飞书文档权限失败，也能识别项目并自动 plan-only。
+- [x] 测试：已有 `needs_human` 历史 task 在 `/coding run` / `start_run` 前自动修复项目和 source_context。
+- [x] 实现：reader 与 orchestrator 双边界归一失败文档 context；Ledger 增加 source_context 更新能力；run 前自动修复历史 task。
+- [x] 验证：focused/full unittest、py_compile、`git diff --check`，并重启 Hermes。
+- **状态：** complete
+
+### 阶段 78：移除创建 task 时的 FeishuProjectReader 预读环节
+- [x] 测试：创建 task 时即使注入 `FeishuProjectReader`，也不会调用 `read_from_text`。
+- [x] 测试：飞书 Project/Wiki/Docx 链接只写入 indexed source context，并继续启动 plan-only。
+- [x] 实现：`CodingOrchestrator._read_source_context()` 只做链接索引，不再调用 reader/gateway 预读飞书正文。
+- [x] 文档：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION、findings、progress 统一改成 Codex-owned 飞书读取口径。
+- [x] 验证：focused/full unittest、py_compile、`git diff --check`。
+- **状态：** complete
+
+### 阶段 79：外部 failed source context 创建 task 归一化
+- [x] 排查：真实回复仍来自旧 `render_task_needs_source_context`，且实际加载目录 `/Users/xiaojing/.hermes/plugins/coding-orchestration-plugin/` 仍是旧 orchestrator。
+- [x] 测试：当 Gateway/adapter 传入 `read_status=failed`、`requires_human_context=true`、`docx:document:readonly`，即使没有真实文档 URL，只要文本里有项目文件夹，也应创建 planned task。
+- [x] 实现：`_create_task_from_text()` 开头对传入的 failed 文档 source context 做 Codex-owned 归一化。
+- [x] 实现：`render_task_needs_source_context()` 删除旧 `FEISHU_PROJECT_PLUGIN_TOKEN` / `lark-cli --source hermes` 指引。
+- [x] 验证：focused unittest、py_compile、全量 unittest、`git diff --check`。
+- **状态：** complete
+
+### 阶段 80：未提交变更汇总与提交前更新
+- [x] 汇总：当前未提交 diff 涉及 18 个文件，约 1433 insertions / 184 deletions。
+- [x] 汇总：核心变更包括 command catalog/help 参数展示、project-first active_project、低置信度 handoff operator skill、飞书来源 Codex-owned resolution、项目文件夹回填和历史 task 修复。
+- [x] 汇总：实际 Hermes 插件目录已同步并重启 Gateway，避免运行旧 `FeishuProjectReader` 逻辑。
+- [x] 验证：全量 unittest、py_compile、`git diff --check`、Gateway health。
 - **状态：** complete
 
 ## 关键问题

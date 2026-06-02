@@ -55,6 +55,23 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         self.assertIn("rtk hermes plugins update coding_orchestration", readme)
         self.assertIn("rtk git pull --ff-only", readme)
 
+    def test_operator_skill_next_steps_match_current_statuses(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        skill = (
+            repo_root
+            / "coding_orchestration"
+            / "skills"
+            / "hermes-coding-operator"
+            / "SKILL.md"
+        ).read_text(encoding="utf-8")
+
+        for status in ("failed", "runner_failed", "blocked", "plan_revision"):
+            with self.subTest(status=status):
+                self.assertIn(status, skill)
+        self.assertIn("/coding run <task_id>", skill)
+        self.assertIn("/coding merge-test <task_id> --accept-risk", skill)
+        self.assertIn("/coding continue <项目或来源补充>", skill)
+
     def test_install_script_runs_when_invoked_by_path(self):
         repo_root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as tmp:

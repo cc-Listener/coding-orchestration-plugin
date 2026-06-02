@@ -43,10 +43,10 @@ def render_task_needs_source_context(task_id: str, summary: str, source_url: str
         f"任务需要人工确认： {task_id}\n"
         f"需求：{summary}\n"
         f"飞书来源：{source_url}\n"
-        f"原因：无法读取飞书来源内容。{reason}\n"
-        "下一步：如果是飞书 Project，请配置 FEISHU_PROJECT_PLUGIN_TOKEN / FEISHU_PROJECT_USER_KEY；"
-        "如果是飞书 Wiki/Doc，请执行 lark-cli config bind --source hermes --identity user-default，"
-        "或在飞书消息里补充/粘贴来源内容后重新提交。"
+        f"原因：飞书来源暂未进入 Codex 可解析上下文。{reason}\n"
+        "下一步：补充可访问的飞书链接或直接粘贴来源内容后继续；"
+        "如果项目已识别，Codex plan-only 应在自己的 session 内使用 rtk lark-cli 读取来源，"
+        "读取失败后再结构化返回绑定或补充内容的恢复动作。"
     )
 
 

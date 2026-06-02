@@ -17,7 +17,6 @@ from typing import Any
 
 from .diff_guard import DiffGuard
 from .feishu_messages import render_task_created, render_task_needs_human, render_task_needs_source_context
-from .feishu_project_reader import FeishuProjectReader
 from .ledger import TaskLedger
 from .llm_wiki_adapter import LocalLlmWikiAdapter
 from .command_rewriter import HermesCommandRewriter
@@ -64,6 +63,18 @@ _PENDING_ACTION_TASK_ID = "__coding_pending_action__"
 _ACTIVE_PROJECT_TASK_ID_PREFIX = "__coding_project__:"
 _RECOMMENDED_OPERATOR_SKILL = "coding_orchestration:hermes-coding-operator"
 _CODING_REWRITE_CONFIDENCE_THRESHOLD = 0.85
+_FEISHU_PROJECT_LINK_RE = re.compile(
+    r"(?P<url>https?://project\.feishu\.cn/"
+    r"(?P<project_key>[^/\s]+)/"
+    r"(?P<work_item_type_key>[^/\s]+)/detail/"
+    r"(?P<work_item_id>[A-Za-z0-9_-]+))"
+)
+_FEISHU_DOCUMENT_LINK_RE = re.compile(
+    r"(?P<url>https?://[^\s<>)\"']+/"
+    r"(?P<document_kind>wiki|docx)/"
+    r"(?P<document_token>[A-Za-z0-9_-]+)"
+    r"(?:[^\s<>)\"']*)?)"
+)
 
 
 @dataclass(frozen=True)
@@ -104,8 +115,6 @@ class CodingOrchestrator:
         self.workspace_root.mkdir(parents=True, exist_ok=True)
         if self.runner_router is None:
             self.runner_router = RunnerRouter.from_config({"default_runner": "codex_cli"})
-        if self.feishu_project_reader is None:
-            self.feishu_project_reader = FeishuProjectReader()
         self.workspace_manager = WorkspaceManager(self.workspace_root)
         self.summary_writer = RunSummaryWriter(self.wiki)
 
@@ -600,6 +609,10 @@ class CodingOrchestrator:
     ) -> CreatedTask:
         raw_text = text
         text = normalize_project_text(text)
+        source_context = self._normalize_document_source_context_for_codex(
+            text,
+            source_context if isinstance(source_context, dict) else None,
+        )
         explicit_project = self._extract_flag(text, "--project")
         active_project_context = None
         if not explicit_project and event is not None:
@@ -612,9 +625,17 @@ class CodingOrchestrator:
         requirement_summary = self._requirement_summary(clean_text, source_context)
         message_summary = self._message_summary(clean_text, source_context)
         resolved = self.resolver.resolve(requirement_summary, explicit_project=explicit_project)
+        if not resolved.project_path:
+            resolved = (
+                self._resolve_local_project_from_human_text(
+                    requirement_summary,
+                    extra_candidates=[explicit_project] if explicit_project else (),
+                )
+                or resolved
+            )
         source_context = source_context or {}
         source_type = str(source_context.get("source_type") or "feishu_chat")
-        source_needs_human = bool(source_context.get("requires_human_context"))
+        source_needs_human = self._source_context_requires_human(source_context)
         task_id = f"task_{uuid.uuid4().hex[:12]}"
         initial_status = "needs_human" if resolved.needs_human or source_needs_human else "planned"
         initial_phase = (
@@ -704,36 +725,139 @@ class CodingOrchestrator:
         )
 
     def _read_source_context(self, text: str, gateway: Any) -> dict[str, Any] | None:
-        reader = self.feishu_project_reader
-        if reader is None or not hasattr(reader, "read_from_text"):
-            return None
-        try:
-            return reader.read_from_text(text, gateway=gateway)
-        except Exception as exc:
-            link = FeishuProjectReader.extract_first_link(text)
-            document_link = FeishuProjectReader.extract_first_document_link(text)
-            if link is None and document_link is None:
-                return None
-            if document_link is not None:
-                return {
-                    "read_status": "failed",
-                    "source_type": "feishu_wiki" if document_link.document_kind == "wiki" else "feishu_docx",
-                    "url": document_link.url,
-                    "document_kind": document_link.document_kind,
-                    "document_token": document_link.document_token,
-                    "error": str(exc),
-                    "requires_human_context": True,
-                }
+        del gateway
+        return self._index_external_source_context(text)
+
+    @staticmethod
+    def _index_external_source_context(text: str) -> dict[str, Any] | None:
+        document_link = CodingOrchestrator._extract_first_feishu_document_link(text)
+        if document_link is not None:
+            source_type = "feishu_wiki" if document_link["document_kind"] == "wiki" else "feishu_docx"
             return {
-                "read_status": "failed",
-                "source_type": f"feishu_project_{link.work_item_type_key}",
-                "url": link.url,
-                "project_key": link.project_key,
-                "work_item_type_key": link.work_item_type_key,
-                "work_item_id": link.work_item_id,
-                "error": str(exc),
-                "requires_human_context": True,
+                "read_status": "indexed",
+                "source_type": source_type,
+                "url": document_link["url"],
+                "document_kind": document_link["document_kind"],
+                "document_token": document_link["document_token"],
+                "requires_human_context": False,
+                "codex_resolvable": True,
+                "resolution_owner": "codex",
+                "lark_cli_command": (
+                    "lark-cli docs +fetch --api-version v2 "
+                    f"--doc {document_link['url']} --doc-format markdown --format json"
+                ),
+                "recovery_action": (
+                    "Let Codex run lark-cli in its task session. If it is not bound, run "
+                    "`rtk lark-cli config bind --source codex --identity user-default` or paste the document "
+                    "content into the task."
+                ),
             }
+        project_link = CodingOrchestrator._extract_first_feishu_project_link(text)
+        if project_link is not None:
+            return {
+                "read_status": "indexed",
+                "source_type": f"feishu_project_{project_link['work_item_type_key']}",
+                "url": project_link["url"],
+                "project_key": project_link["project_key"],
+                "work_item_type_key": project_link["work_item_type_key"],
+                "work_item_id": project_link["work_item_id"],
+                "requires_human_context": False,
+                "codex_resolvable": True,
+                "resolution_owner": "codex",
+                "recovery_action": "Let Codex inspect this Feishu Project link in its task session or ask for pasted content if it cannot access it.",
+            }
+        return None
+
+    @staticmethod
+    def _extract_first_feishu_document_link(text: str) -> dict[str, str] | None:
+        match = _FEISHU_DOCUMENT_LINK_RE.search(text or "")
+        if not match:
+            return None
+        return {
+            "url": match.group("url"),
+            "document_kind": match.group("document_kind"),
+            "document_token": match.group("document_token"),
+        }
+
+    @staticmethod
+    def _extract_first_feishu_project_link(text: str) -> dict[str, str] | None:
+        match = _FEISHU_PROJECT_LINK_RE.search(text or "")
+        if not match:
+            return None
+        return {
+            "url": match.group("url"),
+            "project_key": match.group("project_key"),
+            "work_item_type_key": match.group("work_item_type_key"),
+            "work_item_id": match.group("work_item_id"),
+        }
+
+    @staticmethod
+    def _normalize_document_source_context_for_codex(
+        text: str,
+        context: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if not isinstance(context, dict) or not context:
+            return context
+        if context.get("codex_resolvable") or context.get("resolution_owner") == "codex":
+            return context
+        if not CodingOrchestrator._looks_like_failed_feishu_document_context(context):
+            return context
+        normalized = dict(context)
+        document_link = CodingOrchestrator._extract_first_feishu_document_link(text)
+        source_type = str(normalized.get("source_type") or "").strip()
+        document_kind = str(normalized.get("document_kind") or "").strip()
+        if document_link is not None:
+            normalized["url"] = document_link["url"]
+            normalized["document_kind"] = document_link["document_kind"]
+            normalized["document_token"] = document_link["document_token"]
+        elif not document_kind:
+            if "wiki" in source_type:
+                normalized["document_kind"] = "wiki"
+            elif "docx" in source_type or "doc" in source_type:
+                normalized["document_kind"] = "docx"
+        if not source_type:
+            kind = str(normalized.get("document_kind") or "")
+            normalized["source_type"] = "feishu_wiki" if kind == "wiki" else "feishu_docx"
+        normalized["read_status"] = normalized.get("read_status") or "failed"
+        normalized["requires_human_context"] = False
+        normalized["codex_resolvable"] = True
+        normalized["resolution_owner"] = "codex"
+        url = str(normalized.get("url") or "").strip()
+        if url.startswith("http") and not normalized.get("lark_cli_command"):
+            normalized["lark_cli_command"] = (
+                "lark-cli docs +fetch --api-version v2 "
+                f"--doc {url} --doc-format markdown --format json"
+            )
+        normalized["recovery_action"] = normalized.get("recovery_action") or (
+            "Let Codex run lark-cli in its task session. If it is not bound, run "
+            "`rtk lark-cli config bind --source codex --identity user-default` or paste the document "
+            "content into the task."
+        )
+        return normalized
+
+    @staticmethod
+    def _looks_like_failed_feishu_document_context(context: dict[str, Any]) -> bool:
+        status = str(context.get("read_status") or "").strip().lower()
+        if status and status != "failed":
+            return False
+        source_type = str(context.get("source_type") or "").strip().lower()
+        document_kind = str(context.get("document_kind") or "").strip().lower()
+        error = str(context.get("error") or "").strip().lower()
+        if document_kind in {"wiki", "docx"}:
+            return True
+        if source_type in {"feishu_wiki", "feishu_docx"}:
+            return True
+        if source_type.startswith("feishu_doc") or source_type.startswith("feishu_wiki"):
+            return True
+        document_markers = (
+            "docx:document:readonly",
+            "docx",
+            "wiki",
+            "lark document",
+            "feishu document",
+        )
+        auth_markers = ("need_user_authorization", "requires scope", "scope(s)")
+        return any(marker in error for marker in document_markers) and any(marker in error for marker in auth_markers)
 
     @staticmethod
     def _requirement_summary(clean_text: str, source_context: dict[str, Any] | None) -> str:
@@ -768,8 +892,20 @@ class CodingOrchestrator:
             "revision_id",
             "error",
             "requires_human_context",
+            "codex_resolvable",
+            "resolution_owner",
+            "lark_cli_command",
+            "recovery_action",
         }
         return {key: source_context[key] for key in allowed_keys if key in source_context}
+
+    @staticmethod
+    def _source_context_requires_human(source_context: dict[str, Any]) -> bool:
+        if not source_context:
+            return False
+        if source_context.get("codex_resolvable") or source_context.get("resolution_owner") == "codex":
+            return False
+        return bool(source_context.get("requires_human_context"))
 
     @staticmethod
     def _event_source_for_ledger(event: Any | None) -> dict[str, Any]:
@@ -856,7 +992,19 @@ class CodingOrchestrator:
                 "type": str(source_context.get("source_type") or "feishu_source"),
                 "url": source_url,
             }
-            for key in ("project_key", "work_item_type_key", "work_item_id", "document_kind", "document_token", "document_id", "revision_id"):
+            for key in (
+                "project_key",
+                "work_item_type_key",
+                "work_item_id",
+                "document_kind",
+                "document_token",
+                "document_id",
+                "revision_id",
+                "codex_resolvable",
+                "resolution_owner",
+                "lark_cli_command",
+                "recovery_action",
+            ):
                 value = source_context.get(key)
                 if value is not None and str(value) != "":
                     source_ref[key] = str(value)
@@ -941,6 +1089,7 @@ class CodingOrchestrator:
             if self._task_is_cancelled(task):
                 self._reply_if_possible(gateway, event, self._cancelled_task_message(task))
                 return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+            task = self._apply_active_project_to_task_if_missing(task, event)
             if str(task.get("status") or "") in {TaskStatus.QUEUED.value, TaskStatus.RUNNING.value}:
                 self._reply_if_possible(gateway, event, self._plan_only_already_running_message(task))
                 return {"action": "skip", "reason": "handled_by_coding_orchestration"}
@@ -956,6 +1105,7 @@ class CodingOrchestrator:
             if self._task_is_cancelled(task):
                 self._reply_if_possible(gateway, event, self._cancelled_task_message(task))
                 return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+            task = self._apply_active_project_to_task_if_missing(task, event)
             if not self._task_is_plan_ready_for_implementation(task):
                 self._record_implementation_confirmation_before_plan_ready(task_id, text, event)
                 self._reply_if_possible(gateway, event, self._implementation_blocked_before_plan_ready_message(task))
@@ -1205,9 +1355,11 @@ class CodingOrchestrator:
             active_context = {
                 "task_id": str(active_task.get("task_id") or ""),
                 "status": str(active_task.get("status") or ""),
+                "phase": str(active_task.get("phase") or ""),
                 "status_label": task_status_display(active_task.get("status")),
                 "project": self._task_project_label(active_task),
                 "summary": self._task_description_label(active_task),
+                "next_step": self._task_next_step_hint(active_task, event),
             }
         known_tasks = self.ledger.list_recent_tasks(statuses=self._active_coding_statuses(), limit=10)
         return {
@@ -1219,8 +1371,10 @@ class CodingOrchestrator:
                 {
                     "task_id": str(task.get("task_id") or ""),
                     "status": str(task.get("status") or ""),
+                    "phase": str(task.get("phase") or ""),
                     "project": self._task_project_label(task),
                     "summary": self._task_description_label(task),
+                    "next_step": self._task_next_step_hint(task, event),
                 }
                 for task in known_tasks
             ],
@@ -1232,6 +1386,45 @@ class CodingOrchestrator:
             "media_types": [str(item.get("type") or "") for item in media if item.get("type")],
             "allowed_commands": self._coding_rewrite_allowed_commands(),
         }
+
+    def _task_next_step_hint(self, task: dict[str, Any], event: Any | None) -> str:
+        task_id = str(task.get("task_id") or "<task_id>")
+        status = str(task.get("status") or "")
+        phase = str(task.get("phase") or "")
+        if status == TaskStatus.CANCELLED.value:
+            return f"只能使用 /coding restore {task_id} 恢复误取消任务。"
+        if status in {TaskStatus.QUEUED.value, TaskStatus.RUNNING.value}:
+            return "已有 run 正在执行；不要启动新 run，先查看当前 run 或等待完成。"
+        if not task.get("project_path"):
+            if self._active_project_for_event(event):
+                return (
+                    f"task 缺项目但当前会话有 active_project；可使用 /coding run {task_id} "
+                    "让插件先回填 active_project 再启动 plan-only。"
+                )
+            return f"task 缺项目；先使用 /coding continue <项目或来源补充>。"
+        if status == TaskStatus.NEEDS_HUMAN.value:
+            return f"先使用 /coding continue <项目或来源补充> 补齐人工信息。"
+        if status == TaskStatus.PLANNED.value and phase in {TaskPhase.PLAN_READY.value, TaskPhase.PLAN_APPROVED.value}:
+            return f"计划已可执行；使用 /coding implement {task_id}。"
+        if status == TaskStatus.PLANNED.value:
+            return f"计划仍需刷新或确认；使用 /coding run {task_id}。"
+        if status in {TaskStatus.FAILED.value, TaskStatus.RUNNER_FAILED.value}:
+            return f"项目已确定；使用 /coding run {task_id} 重跑 plan-only，或查看 /coding status {task_id}。"
+        if status == TaskStatus.BLOCKED.value:
+            return (
+                f"先查看 /coding status {task_id} 的 reason/impact/recovery_action；"
+                f"若已有 source branch/worktree 且接受风险，可使用 /coding merge-test {task_id} --accept-risk。"
+            )
+        if status in {
+            TaskStatus.READY_FOR_MERGE_TEST.value,
+            TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
+        }:
+            return f"使用 /coding merge-test {task_id}。"
+        if status == TaskStatus.MERGED_TEST.value:
+            return f"人工验收 test 后使用 /coding complete {task_id}。"
+        if status == TaskStatus.DONE.value:
+            return "任务已完成；无需继续操作。"
+        return f"先查看 /coding status {task_id}。"
 
     @staticmethod
     def _coding_rewrite_allowed_commands() -> list[dict[str, str]]:
@@ -2048,6 +2241,13 @@ class CodingOrchestrator:
         if status in {TaskStatus.QUEUED.value, TaskStatus.RUNNING.value}:
             self._record_runtime_feedback(task, raw_args, event)
             return self._runtime_feedback_received_message(task)
+        if not task.get("project_path"):
+            project_resolved = self._record_human_clarification(task, raw_args, event)
+            updated_task = self.ledger.get_task(task["task_id"]) or task
+            if project_resolved:
+                self._start_background_plan_only(task["task_id"], gateway, event)
+                return self._human_clarification_project_resolved_message(updated_task)
+            return self._human_clarification_received_message(updated_task)
         if status == TaskStatus.NEEDS_HUMAN.value:
             project_resolved = self._record_human_clarification(task, raw_args, event)
             updated_task = self.ledger.get_task(task["task_id"]) or task
@@ -2351,35 +2551,140 @@ class CodingOrchestrator:
         self.ledger.update_phase(task["task_id"], TaskPhase.PLANNING.value)
         return resolved
 
-    def _resolve_local_project_from_human_text(self, text: str) -> ProjectResolveResult | None:
-        for candidate in self._project_folder_candidates_from_text(text):
-            project_path = self._local_project_path_for_candidate(candidate)
-            if project_path is None:
-                continue
-            project_name = project_path.name
-            aliases = self._project_aliases_from_human_text(text, project_name)
-            self._upsert_human_project_profile(
-                project_name=project_name,
-                project_path=project_path,
-                aliases=aliases,
-                body=text,
-            )
-            return ProjectResolveResult(
-                project_name=project_name,
-                project_path=str(project_path),
-                confidence=1.0,
-                match_evidence=[MatchEvidence("human_project_folder", candidate, 1.0)],
-                candidates=[],
-                needs_human=False,
-            )
+    def _repair_task_context_from_existing_task(self, task: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(task.get("task_id") or "")
+        if not task_id:
+            return task
+        source = dict(task.get("source") or {})
+        combined_text = "\n".join(
+            part
+            for part in [
+                str(source.get("raw_text") or ""),
+                str(source.get("normalized_text") or ""),
+                str(task.get("requirement_summary") or ""),
+            ]
+            if part
+        )
+        source_context = source.get("source_context")
+        normalized_context = self._normalize_document_source_context_for_codex(
+            combined_text,
+            source_context if isinstance(source_context, dict) else None,
+        )
+        if isinstance(normalized_context, dict) and normalized_context != source_context:
+            self.ledger.update_source_context(task_id, normalized_context)
+            task = self.ledger.get_task(task_id) or task
+        if not task.get("project_path"):
+            resolved = self.resolver.resolve(combined_text)
+            if not resolved.project_path:
+                resolved = self._resolve_local_project_from_human_text(combined_text) or resolved
+            if resolved and resolved.project_path and resolved.project_name:
+                evidence = [
+                    {"source": item.source, "value": item.value, "score": item.score}
+                    for item in resolved.match_evidence
+                ]
+                self.ledger.update_project_context(
+                    task_id,
+                    project_name=resolved.project_name,
+                    project_path=resolved.project_path,
+                    confidence=resolved.confidence,
+                    match_evidence=evidence,
+                )
+                task = self.ledger.get_task(task_id) or task
+        source_context = (task.get("source") or {}).get("source_context")
+        if (
+            task.get("project_path")
+            and str(task.get("status") or "") == TaskStatus.NEEDS_HUMAN.value
+            and not self._source_context_requires_human(source_context if isinstance(source_context, dict) else {})
+        ):
+            self.ledger.update_status(task_id, TaskStatus.PLANNED.value)
+            self.ledger.update_phase(task_id, TaskPhase.PLANNING.value)
+            task = self.ledger.get_task(task_id) or task
+        return task
+
+    def _resolve_local_project_from_human_text(
+        self,
+        text: str,
+        *,
+        extra_candidates: tuple[str, ...] | list[str] = (),
+    ) -> ProjectResolveResult | None:
+        for candidate in self._unique_project_candidates([*extra_candidates, *self._project_folder_candidates_from_text(text)]):
+            resolved = self._resolve_local_project_candidate(candidate, text)
+            if resolved is not None:
+                return resolved
         return None
+
+    def _resolve_local_project_candidate(self, candidate: str, text: str) -> ProjectResolveResult | None:
+        project_path = self._local_project_path_for_candidate(candidate)
+        if project_path is None:
+            return None
+        project_name = project_path.name
+        aliases = self._project_aliases_from_human_text(text, project_name)
+        normalized_candidate = normalize_project_text(candidate).strip()
+        if normalized_candidate and normalized_candidate not in aliases:
+            aliases.append(normalized_candidate)
+        self._upsert_human_project_profile(
+            project_name=project_name,
+            project_path=project_path,
+            aliases=aliases,
+            body=text,
+        )
+        return ProjectResolveResult(
+            project_name=project_name,
+            project_path=str(project_path),
+            confidence=1.0,
+            match_evidence=[MatchEvidence("human_project_folder", candidate, 1.0)],
+            candidates=[],
+            needs_human=False,
+        )
+
+    @staticmethod
+    def _unique_project_candidates(candidates: list[str]) -> list[str]:
+        seen: set[str] = set()
+        unique: list[str] = []
+        for candidate in candidates:
+            value = normalize_project_text(str(candidate or "")).strip().strip("，,。；;")
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            unique.append(value)
+        return unique
+
+    def _apply_active_project_to_task_if_missing(self, task: dict[str, Any], event: Any | None) -> dict[str, Any]:
+        if task.get("project_path"):
+            return task
+        active_project = self._active_project_for_event(event)
+        if not active_project:
+            return task
+        project_name = str(active_project.get("name") or active_project.get("project") or "").strip()
+        project_path = str(active_project.get("path") or "").strip()
+        if not project_name or not project_path:
+            return task
+        evidence = [{"source": "active_project", "value": project_name, "score": 1.0}]
+        self.ledger.update_project_context(
+            task["task_id"],
+            project_name=project_name,
+            project_path=project_path,
+            confidence=1.0,
+            match_evidence=evidence,
+        )
+        self.ledger.append_human_decision(
+            task["task_id"],
+            {
+                "type": "project_context_applied_from_active_project",
+                "project_name": project_name,
+                "project_path": project_path,
+                "gateway_source": self._event_source_for_ledger(event),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        return self.ledger.get_task(task["task_id"]) or task
 
     @staticmethod
     def _project_folder_candidates_from_text(text: str) -> list[str]:
         candidates: list[str] = []
         candidates.extend(match.strip() for match in re.findall(r"`([^`]+)`", text) if match.strip())
         patterns = [
-            r"(?:项目(?:文件夹|目录)?名称|文件夹名称|项目文件夹|项目目录|项目路径|本地目录|本地路径)\s*(?:为|是|叫|=|:|：)?\s*([~/A-Za-z0-9_.\-/]+)",
+            r"(?:项目(?:文件夹|目录)?名称|文件夹名称|项目文件夹|项目目录|项目路径|本地目录|本地路径|路径|目录)\s*(?:为|是|叫|=|:|：)?\s*([~/A-Za-z0-9_.\-/]+)",
             r"(?:folder|directory|repo|repository)\s*(?:is|=|:)?\s*([~/A-Za-z0-9_.\-/]+)",
         ]
         for pattern in patterns:
@@ -2653,6 +2958,7 @@ class CodingOrchestrator:
             raise KeyError(task_id)
         if self._task_is_cancelled(task):
             raise ValueError(f"task is cancelled and cannot start run: {task_id}")
+        task = self._repair_task_context_from_existing_task(task)
         if not task.get("project_path"):
             self.ledger.update_status(task_id, TaskStatus.NEEDS_HUMAN.value)
             raise ValueError(f"task has no project_path: {task_id}")
@@ -3917,6 +4223,9 @@ class CodingOrchestrator:
             ],
             "artifacts": dict(artifacts),
         }
+        source_context = source.get("source_context")
+        if isinstance(source_context, dict) and source_context:
+            index["source"]["source_context"] = source_context
         context_index_path.write_text(self._json(index), encoding="utf-8")
         return artifacts
 

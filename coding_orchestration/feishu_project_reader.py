@@ -225,19 +225,7 @@ class FeishuProjectReader:
         return None
 
     def _read_document_via_lark_cli(self, link: FeishuDocumentLink) -> dict[str, Any] | None:
-        command = [
-            os.getenv("FEISHU_DOC_LARK_CLI", "lark-cli"),
-            "docs",
-            "+fetch",
-            "--api-version",
-            "v2",
-            "--doc",
-            link.url,
-            "--doc-format",
-            "markdown",
-            "--format",
-            "json",
-        ]
+        command = self._document_lark_cli_command(link)
         try:
             result = subprocess.run(
                 command,
@@ -315,6 +303,8 @@ class FeishuProjectReader:
                 "document_token": link.document_token,
                 **value,
             }
+        if value.get("read_status") == "failed":
+            return self._failed_document_context(link, self._text(value.get("error")) or "Feishu document read failed.")
         if value.get("ok") is False:
             return self._failed_document_context(link, self._text(value.get("error")) or "lark-cli docs +fetch failed.")
         data = value.get("data") if isinstance(value.get("data"), dict) else value
@@ -502,6 +492,7 @@ class FeishuProjectReader:
         }
 
     def _failed_document_context(self, link: FeishuDocumentLink, error: str) -> dict[str, Any]:
+        command = " ".join(self._document_lark_cli_command(link))
         return {
             "read_status": "failed",
             "source_type": self._document_source_type(link),
@@ -509,5 +500,29 @@ class FeishuProjectReader:
             "document_kind": link.document_kind,
             "document_token": link.document_token,
             "error": error,
-            "requires_human_context": True,
+            "requires_human_context": False,
+            "codex_resolvable": True,
+            "resolution_owner": "codex",
+            "lark_cli_command": command,
+            "recovery_action": (
+                "Let Codex run the lark-cli command in the task session. "
+                "If lark-cli is not bound, run `rtk lark-cli config bind --source codex --identity user-default` "
+                "or paste the document content into the task."
+            ),
         }
+
+    @staticmethod
+    def _document_lark_cli_command(link: FeishuDocumentLink) -> list[str]:
+        return [
+            os.getenv("FEISHU_DOC_LARK_CLI", "lark-cli"),
+            "docs",
+            "+fetch",
+            "--api-version",
+            "v2",
+            "--doc",
+            link.url,
+            "--doc-format",
+            "markdown",
+            "--format",
+            "json",
+        ]

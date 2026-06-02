@@ -35,6 +35,28 @@
 |--------|------|---------|---------|
 | 2026-05-19 | 初始无规划文件 | 1 | 已创建三份规划文件 |
 
+### 阶段 74：上午聊天回溯与项目/状态建议修复
+- **状态：** complete
+- 执行的操作：
+  - 回溯 2026-06-02 上午 Feishu/Gateway 日志和 prod ledger。
+  - 确认 `task_7802123463ab` 的 raw text 含“商户后台 / bestvoy-admin”，但 `source.project_name=null`、`project_path` 为空。
+  - 确认 12:18 的项目补充创建了 `active_project=bestvoy-admin`，但未回填已有 active task；12:24 的 `/coding continue` 又被当作 `plan_feedback`，没有触发项目澄清逻辑。
+  - 新增回归测试覆盖 task 创建阶段项目解析、active_project 回填、continue 项目补充归类和 low-confidence handoff next_step。
+  - 修复 orchestrator 项目候选解析、run/implement 启动前 active_project 回填、continue 缺项目前置澄清，以及 operator skill 状态建议。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/skills/hermes-coding-operator/SKILL.md`
+  - `tests/test_orchestrator_run_flow.py`
+  - `tests/test_docs_and_install_entry.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 验证结果：
+  - 相关回归：`rtk python3 -m unittest ...`：10 tests passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：204 tests passed。
+  - 语法检查：`rtk python3 -m py_compile coding_orchestration/orchestrator.py`：passed。
+  - 空白检查：`rtk git diff --check`：passed。
+
 ### 阶段 46：`task_26603ef00507` 真实流程跟踪文档
 - **状态：** complete
 - 执行的操作：
@@ -1130,13 +1152,13 @@
   - Codex plan-only 只能从 prompt 看到 URL，随后自己调用 `rtk lark-cli docs +fetch ...`，失败为 `hermes context detected but lark-cli is not bound to it`，最终 blocked。
 - 根因：
   - 现有 `FeishuProjectReader` 只支持 `project.feishu.cn/<project>/<type>/detail/<id>`，不识别 `*.feishu.cn/wiki/<token>` 或 `/docx/<token>`。
-  - 飞书文档读取属于 Hermes source enrichment，应在 task 创建前完成，不应让 Codex session 自己处理认证和读取。
+  - 历史判断是飞书文档读取属于 Hermes source enrichment；阶段 78 已推翻这点，当前改为 Codex plan-only session 自己处理认证和读取。
 - 已完成：
   - 新增 `/wiki/`、`/docx/` 链接识别。
   - 文档读取优先走 Gateway adapter，兜底 `lark-cli docs +fetch --api-version v2 --doc <url> --doc-format markdown --format json`。
   - 成功读取后 source type 为 `feishu_wiki` / `feishu_docx`，内容合并进 requirement summary 和 LLM Wiki draft。
   - source refs/ledger source context 记录 `document_kind`、`document_token`、`document_id`、`revision_id`。
-  - 文档读取失败时 task 进入 `needs_human` 并提示绑定 lark-cli 或粘贴文档内容，不再启动 Codex 后 blocked。
+  - 历史行为：文档读取失败时 task 停在人工补充。阶段 78 已改为创建 task 时只索引来源，Codex 读取失败后再结构化 blocked。
 - 创建/修改的文件：
   - `coding_orchestration/feishu_project_reader.py`
   - `coding_orchestration/orchestrator.py`
@@ -1611,6 +1633,157 @@
   - 尾随空白检查：`rtk rg -n '[ \t]+$' ...`：passed，未发现匹配。
   - Hermes 实际插件：已同步 `coding_orchestration/` 到 `/Users/xiaojing/.hermes/plugins/coding-orchestration-plugin/`，`rtk hermes gateway restart` 成功。
   - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 ok；`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 75：Codex-owned 飞书文档读取与全局链路降阻
+- **状态：** complete
+- 问题：
+  - 飞书 Wiki/Doc 链接在飞书权限失败时会进入 `needs_human`，导致 task 创建后不能自动 plan。
+  - 用户期望飞书文档由 Codex 自己在 task session 内调用 `lark-cli` 读取，Hermes 不应在创建阶段硬阻断。
+- 已完成：
+  - 调整飞书文档失败 context：保留 URL、document_kind、document_token、error、`lark_cli_command`，并标记 `codex_resolvable/resolution_owner=codex`。
+  - 调整 task 创建：Codex 可解析的文档来源不再触发 `needs_human`。
+  - 调整 prompt/context index：Codex 能在 plan-only 中看到外部来源上下文和推荐读取命令。
+  - 调整 plan-only run instructions：明确优先在 Codex session 内用 `rtk lark-cli docs +fetch ...` 读取飞书文档，Codex 自己读取失败后才结构化 blocked。
+- 创建/修改的文件：
+  - `coding_orchestration/feishu_project_reader.py`
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/prompt_builder.py`
+  - `tests/test_feishu_project_reader.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `tests/test_router_prompt_summary.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_feishu_project_reader tests.test_router_prompt_summary`：16 tests passed。
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_feishu_project_link_without_readable_detail_requires_human tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_feishu_wiki_link_enriches_requirement_before_plan_only tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_feishu_wiki_read_failure_still_starts_plan_for_codex_resolution`：3 tests passed。
+  - py_compile：`rtk python3 -m py_compile coding_orchestration/feishu_project_reader.py coding_orchestration/orchestrator.py coding_orchestration/prompt_builder.py`：passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：206 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes Gateway：首次 `rtk hermes gateway restart` 被沙箱拒绝写 `~/.hermes/gateway.lock`；提升权限重试后成功。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 ok；`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 76：`/coding help` 参数展示完善
+- **状态：** complete
+- 问题：
+  - `/coding help` 只展示命令主形态和说明，没有把支持的必填参数、可选 flag 展开。
+  - 用户需要在 help 中直接看到 `--project`、`--runner`、`--accept-risk`、`--keep-artifacts` 等参数。
+- 已完成：
+  - `CodingCommand` 增加 `options` 字段。
+  - `/coding help` 每条命令下方输出 `参数` 和 `可选参数`。
+  - `/commands` listing 和 Coding Mode rewriter prompt 也复用同一套参数渲染，避免 help 与 rewrite 可用命令漂移。
+- 创建/修改的文件：
+  - `coding_orchestration/command_catalog.py`
+  - `tests/test_command_catalog.py`
+  - `task_plan.md`
+  - `progress.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_command_catalog`：4 tests passed。
+  - py_compile：`rtk python3 -m py_compile coding_orchestration/command_catalog.py`：passed。
+  - 输出抽检：直接调用 `command_help_lines()`，确认必填参数和可选参数按命令显示。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：207 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes Gateway：首次 `rtk hermes gateway restart` 被沙箱拒绝写 `~/.hermes/gateway.lock`；提升权限重试后成功。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 ok；`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 77：Gateway 文档失败 context 归一与历史 task 修复
+- **状态：** complete
+- 问题：
+  - 真实 `task_449a0649f70c` 中，飞书 adapter 返回了 `need_user_authorization` / `docx:document:readonly` 的失败 context，插件仍按 `requires_human_context=true` 输出人工确认。
+  - 同一条需求里已经包含“文件夹名称为 bestvoy-admin”，但 source 失败路径让用户感知为项目也没识别。
+- 已完成：
+  - `FeishuProjectReader._coerce_document_context()` 对 gateway failed document context 也返回 `codex_resolvable`。
+  - `CodingOrchestrator._read_source_context()` 返回后再兜底归一失败飞书文档 context，避免任意 adapter 直接把文档权限失败变成人工阻断。
+  - `TaskLedger.update_source_context()` 支持修复历史 task 的 source context。
+  - `start_run()` 前自动从历史 task 的 raw/normalized/summary 中修复项目文件夹和 source_context；`task_449a0649f70c` 这类任务可通过 `/coding run <task_id>` 继续。
+- 创建/修改的文件：
+  - `coding_orchestration/ledger.py`
+  - `coding_orchestration/feishu_project_reader.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_feishu_project_reader.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_feishu_project_reader.FeishuProjectReaderTest.test_gateway_failed_document_context_is_codex_resolvable tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_docx_authorization_failure_with_project_folder_still_plans tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_existing_needs_human_docx_task_repairs_context_before_plan_run`：3 tests passed。
+  - py_compile：`rtk python3 -m py_compile coding_orchestration/ledger.py coding_orchestration/feishu_project_reader.py coding_orchestration/orchestrator.py`：passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：210 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - Hermes Gateway：首次 `rtk hermes gateway restart` 被沙箱拒绝写 `~/.hermes/gateway.lock`；提升权限重试后成功。
+  - Hermes 健康：`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 ok；`rtk hermes plugins list` 显示 `coding_orchestration enabled`。
+
+### 阶段 78：移除创建 task 时的 FeishuProjectReader 预读环节
+- **状态：** complete
+- 问题：
+  - 旧流程在创建 task 前读取飞书 Project/Wiki/Docx，会因为 `need_user_authorization`、`docx:document:readonly` 等权限问题阻断用户，即使需求里已经提供项目名称或文件夹名称。
+  - 用户期望飞书来源交给 Codex plan-only session 自己通过 `lark-cli` 读取，Hermes 不要在创建阶段替 Codex 预读。
+- 已完成：
+  - `CodingOrchestrator._read_source_context()` 改为只调用 `_index_external_source_context()`，不再调用 `FeishuProjectReader.read_from_text()`。
+  - 飞书 Wiki/Docx 链接记录 `read_status=indexed`、`codex_resolvable=true`、`resolution_owner=codex` 和推荐 `lark-cli docs +fetch` 命令。
+  - 飞书 Project 链接记录 project key、work item type、work item id、URL 和 `codex_resolvable=true`。
+  - 文档口径更新为 Hermes 只索引来源；Codex 在 plan-only 内读取，失败再结构化 blocked。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `README.md`
+  - `PLUGIN_USAGE.md`
+  - `PLUGIN_TECHNICAL_SOLUTION.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_task_creation_never_invokes_feishu_project_reader tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_feishu_project_link_is_indexed_without_reader_before_plan_only tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_feishu_project_link_without_reader_still_starts_plan tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_feishu_wiki_link_is_indexed_without_reader_before_plan_only tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_docx_authorization_failure_with_project_folder_still_plans`：5 tests passed。
+  - py_compile：`rtk python3 -m py_compile coding_orchestration/orchestrator.py tests/test_orchestrator_run_flow.py`：passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：211 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+- 验证受限：
+  - reason：`rtk hermes gateway restart` 需要写 `~/.hermes/gateway.lock`，沙箱内 PermissionError；提升权限请求被自动审批系统拒绝。
+  - impact：当前仓库代码已更新并通过测试，但 Hermes Gateway 运行进程可能尚未加载这次改动。
+  - recovery_action：手动执行 `rtk hermes gateway restart`，或后续明确授权后重试同一命令。
+  - fallback_evidence：focused unittest、py_compile、全量 unittest 和 `git diff --check` 均已通过。
+
+### 阶段 79：外部 failed source context 创建 task 归一化
+- **状态：** complete
+- 问题：
+  - 用户新建 `task_7850f63e6563` 后仍收到旧回复，内容包含 `无法读取飞书来源内容`、`FEISHU_PROJECT_PLUGIN_TOKEN` 和 `lark-cli config bind --source hermes`。
+  - 排查发现 `/Users/xiaojing/.hermes/plugins/coding-orchestration-plugin/coding_orchestration/orchestrator.py` 仍是旧代码，会 import/实例化 `FeishuProjectReader`；同时仓库内 `render_task_needs_source_context()` 仍保留旧恢复文案。
+  - 真实消息没有可解析 docx URL，只有飞书来源标题和 adapter 权限失败 context，因此仅修 `_read_source_context()` 不够，必须在 `_create_task_from_text()` 入口归一化外部传入的 source context。
+- 已完成：
+  - `_create_task_from_text()` 开头调用 `_normalize_document_source_context_for_codex()`，把 failed doc/wiki context 转成 `codex_resolvable=true`、`resolution_owner=codex`、`requires_human_context=false`。
+  - 新增回归测试覆盖“文件夹名称为 bestvoy-admin + failed docx source_context + 无真实 URL”仍创建 planned task。
+  - 更新 `render_task_needs_source_context()`，删除旧 Hermes Project token 和 `--source hermes` 绑定指引。
+- 创建/修改的文件：
+  - `coding_orchestration/orchestrator.py`
+  - `coding_orchestration/feishu_messages.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `task_plan.md`
+  - `progress.md`
+- 已验证：
+  - focused：`rtk python3 -m unittest tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_failed_docx_source_context_with_project_folder_still_plans_without_url tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_task_creation_never_invokes_feishu_project_reader tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_gateway_docx_authorization_failure_with_project_folder_still_plans tests.test_orchestrator_run_flow.OrchestratorRunFlowTest.test_existing_needs_human_docx_task_repairs_context_before_plan_run`：4 tests passed。
+  - py_compile：`rtk python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/feishu_messages.py tests/test_orchestrator_run_flow.py`：passed。
+  - 全量测试：`rtk python3 -m unittest discover -s tests`：212 tests passed。
+  - 空白检查：`rtk git diff --check`：passed，无输出。
+  - 实际插件目录：已同步到 `/Users/xiaojing/.hermes/plugins/coding-orchestration-plugin/coding_orchestration/`；扫描确认实际目录不再 import/实例化 `FeishuProjectReader`，也没有旧 token/`--source hermes` 指引。
+  - Hermes Gateway：`rtk hermes gateway restart` 成功；`rtk proxy curl -sS http://127.0.0.1:8642/health` 返回 ok。
+
+### 阶段 80：未提交变更汇总与提交前更新
+- **状态：** complete
+- 未提交变更规模：
+  - `rtk git diff --stat`：18 files changed，1433 insertions，184 deletions。
+  - 当前变更仍未提交，工作区包含前几轮连续优化。
+- 变更分组：
+  - 命令体系：`command_catalog.py` 作为 `/coding` 单一事实源，help/listing/rewriter 展示必填参数和可选参数。
+  - Project-first：新增/完善 active_project、项目初始化/选择/状态/清除、低置信度 handoff 中的 known_projects 和 next_step。
+  - Operator skill：`hermes-coding-operator` 补齐 project-first workflow、failed/runner_failed/blocked/plan_revision 下一步建议。
+  - 飞书来源：创建 task 不再调用 `FeishuProjectReader` 预读；飞书 Project/Wiki/Docx 只索引 URL/token/推荐读取命令，Codex plan-only 自行读取。
+  - 历史修复：`needs_human`/failed task 在 `/coding run` 或 `start_run` 前自动修复项目和 source context；文本中的“文件夹名称/项目路径”可回填本地项目并写入 LLM Wiki。
+  - 文档同步：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION、task_plan、findings、progress 同步最新职责边界。
+- 关键验证：
+  - focused Feishu/project 回归：通过。
+  - `rtk python3 -m unittest discover -s tests`：212 tests passed。
+  - `rtk git diff --check`：passed。
+  - 实际 Hermes 插件目录已同步；`rtk hermes gateway restart` 成功；health 返回 ok。
 
 ---
 *每个阶段完成后或遇到错误时更新此文件*

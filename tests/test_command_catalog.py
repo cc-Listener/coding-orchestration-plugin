@@ -44,6 +44,20 @@ class CommandCatalogTest(unittest.TestCase):
             self.assertIn(item.command, listing_text)
             self.assertIn(item.command, HermesCommandRewriter._system_prompt())
 
+    def test_help_shows_required_and_optional_parameters(self):
+        help_text = "\n".join(command_help_lines())
+        listing_text = "\n".join(command_listing_lines())
+        prompt_text = HermesCommandRewriter._system_prompt()
+
+        self.assertIn("参数：`task_id`", help_text)
+        self.assertIn("参数：`project_path_or_name`", help_text)
+        self.assertIn("可选参数：`--project <项目名|路径>`", help_text)
+        self.assertIn("`--runner <runner_name>`", help_text)
+        self.assertIn("可选参数：`--accept-risk`、`--confirm-qa-risk`", help_text)
+        self.assertIn("可选参数：`--keep-artifacts`、`--keep-wiki`、`--force`", help_text)
+        self.assertIn("可选参数：`--project <项目名|路径>`", listing_text)
+        self.assertIn("`--runner <runner_name>`", prompt_text)
+
 
 if __name__ == "__main__":
     unittest.main()

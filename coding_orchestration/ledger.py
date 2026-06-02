@@ -190,6 +190,25 @@ class TaskLedger:
                 (requirement_summary, task_id),
             )
 
+    def update_source_context(self, task_id: str, source_context: dict[str, Any]) -> None:
+        task = self.get_task(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        source = dict(task.get("source") or {})
+        source["source_context"] = source_context
+        source_type = source_context.get("source_type")
+        if source_type:
+            source["type"] = source_type
+        with self._connect() as conn:
+            conn.execute(
+                """
+                update tasks
+                set source_json = ?, updated_at = current_timestamp
+                where task_id = ?
+                """,
+                (json.dumps(source, ensure_ascii=False), task_id),
+            )
+
     def update_project_context(
         self,
         task_id: str,

@@ -13,6 +13,7 @@ class CodingCommand:
     required_args: tuple[str, ...]
     description: str
     examples: tuple[str, ...] = ()
+    options: tuple[str, ...] = ()
 
     def rewrite_context(self) -> dict[str, object]:
         return {
@@ -22,6 +23,7 @@ class CodingCommand:
             "category": self.category,
             "risk_level": self.risk_level,
             "required_args": list(self.required_args),
+            "options": list(self.options),
             "description": self.description,
             "examples": list(self.examples),
         }
@@ -47,6 +49,12 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         ("需求",),
         "创建编码任务，自动识别项目并进入 plan-only。",
         ("新增订单筛选", "做一个商品搜索优化"),
+        (
+            "--project <项目名|路径>",
+            "--runner <runner_name>",
+            "--bug-of <task_id>",
+            "--parent-task <task_id>",
+        ),
     ),
     CodingCommand(
         "list",
@@ -207,6 +215,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         ("task_id",),
         "人工触发 merge-to-test run。",
         ("合并到 test",),
+        ("--accept-risk", "--confirm-qa-risk"),
     ),
     CodingCommand(
         "complete",
@@ -247,6 +256,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         ("task_id",),
         "删除 task，并按参数清理 artifacts / LLM Wiki 记录。",
         ("删除 task_xxx",),
+        ("--keep-artifacts", "--keep-wiki", "--force"),
     ),
 )
 
@@ -293,8 +303,22 @@ def intent_values() -> str:
     return "|".join(dict.fromkeys(values))
 
 
+def _parameter_line(item: CodingCommand) -> str:
+    parts: list[str] = []
+    if item.required_args:
+        parts.append("参数：" + "、".join(f"`{arg}`" for arg in item.required_args))
+    if item.options:
+        parts.append("可选参数：" + "、".join(f"`{option}`" for option in item.options))
+    return "；".join(parts)
+
+
 def command_prompt_lines() -> list[str]:
-    return [f"- `{item.command}`：{item.description}" for item in COMMAND_CATALOG]
+    lines = []
+    for item in COMMAND_CATALOG:
+        parameter_text = _parameter_line(item)
+        suffix = f"（{parameter_text}）" if parameter_text else ""
+        lines.append(f"- `{item.command}`{suffix}：{item.description}")
+    return lines
 
 
 def command_help_lines() -> list[str]:
@@ -306,12 +330,21 @@ def command_help_lines() -> list[str]:
         if lines:
             lines.append("")
         lines.append(label)
-        lines.extend(f"- {item.command}：{item.description}" for item in items)
+        for item in items:
+            lines.append(f"- {item.command}：{item.description}")
+            parameter_text = _parameter_line(item)
+            if parameter_text:
+                lines.append(f"  {parameter_text}")
     return lines
 
 
 def command_listing_lines() -> list[str]:
-    return [f"`{item.command}` -- {item.description}" for item in COMMAND_CATALOG]
+    lines = []
+    for item in COMMAND_CATALOG:
+        parameter_text = _parameter_line(item)
+        suffix = f" ({parameter_text})" if parameter_text else ""
+        lines.append(f"`{item.command}`{suffix} -- {item.description}")
+    return lines
 
 
 def allowed_top_level_actions() -> set[str]:

@@ -136,7 +136,7 @@ coding_orchestration:
 
 ## Runner 权限与自动测试
 
-plan-only run 使用 `plan_read_only` 权限 profile：Codex CLI 以只读沙箱运行，只做规划不改项目文件。飞书/Lark 文档、Swagger/OpenAPI、私有 API 元数据、依赖元信息和必要网络上下文优先由 Hermes source reader 在创建 task 前读取，并作为 source context 或 artifact 注入给 Codex。
+plan-only run 使用 `plan_read_only` 权限 profile：Codex CLI 以只读沙箱运行，只做规划不改项目文件。Hermes 创建 task 时只负责识别项目、索引飞书 Project/Wiki/Docx 链接和其他动态来源，不再预读飞书正文，也不因飞书权限失败让 task 停在 `needs_human`。飞书 Wiki/Doc/Docx 链接会保留 URL、token 和 `lark-cli docs +fetch` 建议命令，由 Codex 在 plan-only session 内自行调用 `rtk lark-cli` 读取；仍失败时再结构化返回恢复动作。
 
 implementation 和 QA run 使用受控高权限 Codex CLI session。这样 Codex 可以在任务 worktree 内实现代码，并在需要时自动安装依赖、访问私有源、启动测试或 dev server、执行浏览器 QA、写入 `.gstack` QA 报告/截图，以及提交 QA 修复。
 
@@ -279,7 +279,7 @@ LLM 必须输出的 JSON schema：
 ```text
 /coding task <需求>
   -> Hermes 拦截显式 /coding 命令
-  -> 读取飞书 Project / Wiki / Doc 来源
+  -> 索引飞书 Project / Wiki / Doc 来源，不预读正文
   -> 从 LLM Wiki 读取 project_profile 识别项目
   -> 创建 Task Ledger 记录和 active binding
   -> 写 LLM Wiki draft_knowledge

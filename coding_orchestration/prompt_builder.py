@@ -97,6 +97,33 @@ class PromptBuilder:
     def _source_block(source: dict[str, Any]) -> str:
         allowed_keys = ("type", "title", "url", "project_name", "message_summary", "related_task_id")
         lines = [f"- {key}: {source[key]}" for key in allowed_keys if source.get(key)]
+        source_context = source.get("source_context")
+        if isinstance(source_context, dict) and source_context:
+            context_keys = (
+                "read_status",
+                "source_type",
+                "url",
+                "document_kind",
+                "document_token",
+                "project_key",
+                "work_item_type_key",
+                "work_item_id",
+                "resolution_owner",
+                "error",
+            )
+            context_lines = [
+                f"  - {key}: {source_context[key]}"
+                for key in context_keys
+                if source_context.get(key)
+            ]
+            command = str(source_context.get("lark_cli_command") or "").strip()
+            if command:
+                context_lines.append(f"  - lark_cli_command: `{command}`")
+            if source_context.get("codex_resolvable"):
+                context_lines.append("  - note: Hermes 未预读成功；请在本轮 Codex plan 中自行读取该来源。")
+            if context_lines:
+                lines.append("- 外部来源上下文：")
+                lines.extend(context_lines)
         return "\n".join(lines) or "- 未记录"
 
     @staticmethod
@@ -158,7 +185,10 @@ class PromptBuilder:
             return """## 执行要求
 - 只输出计划，不修改文件。
 - 可以读取完成计划所需的上下文，包括项目文件、Swagger/OpenAPI、飞书/Lark 文档、API 元数据和依赖元信息。
-- 如果外部上下文读取失败，返回 `status=blocked`，并写清需要绑定权限、补充链接内容或提供可访问凭证。
+- 所有 shell 命令使用 `rtk` 前缀。
+- 如果来源里包含飞书 Wiki/Doc/Docx 链接，先在 Codex session 内使用 `lark-cli docs +fetch --api-version v2 --doc <url> --doc-format markdown --format json` 读取；如果来源中给了 `lark_cli_command`，优先执行该命令的 `rtk` 前缀版本。
+- 不要因为 Hermes 预读飞书文档失败就停止；只有 Codex 自己使用 `lark-cli` 仍失败时，才返回 `status=blocked`。
+- Codex 读取飞书文档仍失败时，写清需要执行的绑定命令、补充链接内容或提供可访问凭证。
 - 计划需要包含：范围、涉及模块、实现步骤、风险、待确认问题。
 - 计划完整且可以进入人工确认/implementation 时，返回 `status=success`。
 - 如果信息不足，返回 `status=blocked`，并说明需要人工补充什么。"""
