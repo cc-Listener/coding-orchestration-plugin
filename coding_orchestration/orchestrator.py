@@ -74,10 +74,10 @@ _FEISHU_PROJECT_LINK_RE = re.compile(
     r"(?P<work_item_id>[A-Za-z0-9_-]+))"
 )
 _FEISHU_DOCUMENT_LINK_RE = re.compile(
-    r"(?P<url>https?://[^\s<>)\"']+/"
+    r"(?P<url>https?://[^\s<>)\"'，。；、]+/"
     r"(?P<document_kind>wiki|docx)/"
     r"(?P<document_token>[A-Za-z0-9_-]+)"
-    r"(?:[^\s<>)\"']*)?)"
+    r"(?:[^\s<>)\"'，。；、]*)?)"
 )
 
 
@@ -217,7 +217,7 @@ class CodingOrchestrator:
             parts.extend(["--runner", runner])
         parts.append(requirement)
 
-        source_context = self.feishu_project_reader.read_from_text(source_url) if source_url else None
+        source_context = self._index_external_source_context(source_url) if source_url else None
         created = self._create_task_from_text(" ".join(parts), source_context=source_context)
         task = self.ledger.get_task(created.task_id)
         return {
@@ -1031,6 +1031,8 @@ class CodingOrchestrator:
 
     def _read_source_context(self, text: str, gateway: Any) -> dict[str, Any] | None:
         indexed = self._index_external_source_context(text)
+        if indexed is not None:
+            return self._normalize_document_source_context_for_codex(text, indexed)
         reader = self.feishu_project_reader
         if reader is None:
             return indexed
@@ -1074,16 +1076,16 @@ class CodingOrchestrator:
                 "document_kind": document_link["document_kind"],
                 "document_token": document_link["document_token"],
                 "requires_human_context": False,
-                "codex_resolvable": False,
+                "codex_resolvable": True,
                 "deferred_source_resolution": True,
-                "resolution_owner": "hermes_or_human",
+                "resolution_owner": "codex",
                 "lark_cli_command": (
                     "rtk lark-cli docs +fetch --api-version v2 "
                     f"--doc {document_link['url']} --doc-format markdown --format json"
                 ),
                 "recovery_action": (
-                    "Authorize the Hermes/Feishu document reader or paste the document content into the task. "
-                    "Codex task sessions should not rely on binding lark-cli themselves."
+                    "Let the Codex plan session run the recorded lark_cli_command. "
+                    "If Codex cannot read it, report the lark-cli auth/scope error and ask the user to authorize or paste the source content."
                 ),
             }
         project_link = CodingOrchestrator._extract_first_feishu_project_link(text)
@@ -1096,10 +1098,13 @@ class CodingOrchestrator:
                 "work_item_type_key": project_link["work_item_type_key"],
                 "work_item_id": project_link["work_item_id"],
                 "requires_human_context": False,
-                "codex_resolvable": False,
+                "codex_resolvable": True,
                 "deferred_source_resolution": True,
-                "resolution_owner": "hermes_or_human",
-                "recovery_action": "Authorize the Hermes/Feishu Project reader or paste the work item content into the task.",
+                "resolution_owner": "codex",
+                "recovery_action": (
+                    "Let the Codex plan session resolve this Feishu Project source if a supported lark-cli command is available. "
+                    "If Codex cannot read it, ask the user to authorize or paste the work item content."
+                ),
             }
         return None
 
@@ -1150,14 +1155,15 @@ class CodingOrchestrator:
                 or context.get("resolution_owner") in {"codex", "hermes_or_human"}
             )
         ):
-            if is_feishu_source and status in {"failed", "indexed"} and not context.get("deferred_source_resolution"):
+            if is_feishu_source and status in {"failed", "indexed"}:
                 normalized = dict(context)
-                normalized["codex_resolvable"] = False
+                normalized["requires_human_context"] = False
+                normalized["codex_resolvable"] = True
                 normalized["deferred_source_resolution"] = True
-                normalized["resolution_owner"] = "hermes_or_human"
+                normalized["resolution_owner"] = "codex"
                 normalized["recovery_action"] = (
-                    "Authorize the Hermes/Feishu reader or paste the source content into the task. "
-                    "Codex task sessions should not rely on binding lark-cli themselves."
+                    "Let the Codex plan session read the source with lark-cli when possible. "
+                    "If Codex cannot read it, report the exact auth/scope error and ask the user to authorize or paste the source content."
                 )
                 return normalized
             return context
@@ -1172,11 +1178,12 @@ class CodingOrchestrator:
                 normalized["source_type"] = f"feishu_project_{project_link['work_item_type_key']}"
             normalized["read_status"] = normalized.get("read_status") or "failed"
             normalized["requires_human_context"] = False
-            normalized["codex_resolvable"] = False
+            normalized["codex_resolvable"] = True
             normalized["deferred_source_resolution"] = True
-            normalized["resolution_owner"] = "hermes_or_human"
+            normalized["resolution_owner"] = "codex"
             normalized["recovery_action"] = normalized.get("recovery_action") or (
-                "Authorize the Hermes/Feishu Project reader or paste the work item content into the task."
+                "Let the Codex plan session resolve this Feishu Project source if a supported lark-cli command is available. "
+                "If Codex cannot read it, ask the user to authorize or paste the work item content."
             )
             return normalized
         if not CodingOrchestrator._looks_like_failed_feishu_document_context(context):
@@ -1199,9 +1206,9 @@ class CodingOrchestrator:
             normalized["source_type"] = "feishu_wiki" if kind == "wiki" else "feishu_docx"
         normalized["read_status"] = normalized.get("read_status") or "failed"
         normalized["requires_human_context"] = False
-        normalized["codex_resolvable"] = False
+        normalized["codex_resolvable"] = True
         normalized["deferred_source_resolution"] = True
-        normalized["resolution_owner"] = "hermes_or_human"
+        normalized["resolution_owner"] = "codex"
         url = str(normalized.get("url") or "").strip()
         if url.startswith("http") and not normalized.get("lark_cli_command"):
             normalized["lark_cli_command"] = (
@@ -1209,8 +1216,8 @@ class CodingOrchestrator:
                 f"--doc {url} --doc-format markdown --format json"
             )
         normalized["recovery_action"] = normalized.get("recovery_action") or (
-            "Authorize the Hermes/Feishu document reader or paste the document content into the task. "
-            "Codex task sessions should not rely on binding lark-cli themselves."
+            "Let the Codex plan session run the recorded lark_cli_command. "
+            "If Codex cannot read it, report the exact auth/scope error and ask the user to authorize or paste the document content."
         )
         return normalized
 
@@ -2587,6 +2594,8 @@ class CodingOrchestrator:
     def _next_actions_for_task_payload(task: dict[str, Any], source_context: dict[str, Any]) -> list[str]:
         source_status = CodingOrchestrator._source_status_from_context(source_context)
         if source_status in {"deferred", "auth_needed", "permission_missing"}:
+            if source_context.get("codex_resolvable") or source_context.get("resolution_owner") == "codex":
+                return ["coding_task_run", "coding_task_status"]
             return ["coding_lark_preflight", "coding_source_resolve", "coding_task_status"]
         status = str(task.get("status") or "")
         if status in {TaskStatus.PLANNED.value, TaskStatus.NEW.value}:
@@ -3134,6 +3143,8 @@ class CodingOrchestrator:
         status = str(source_context.get("read_status") or "").strip().lower()
         if status == "success":
             return source_context
+        if source_context.get("codex_resolvable") or source_context.get("resolution_owner") == "codex":
+            return source_context
         if not self._is_deferred_feishu_source_context(source_context):
             return source_context
         reader = self.feishu_project_reader
@@ -3675,17 +3686,23 @@ class CodingOrchestrator:
             timeout_seconds=timeout,
             run_dir=run_dir,
         )
+        run_uses_controlled_bypass = self._run_uses_controlled_bypass(mode, source)
         if resume_session_id:
             manifest.resume_session_id = resume_session_id
             manifest.session_id = resume_session_id
             manifest.attach_command = self._codex_attach_command(resume_session_id)
-            manifest.resume_command = self._codex_resume_command(resume_session_id, mode=mode)
+            manifest.resume_command = self._codex_resume_command(
+                resume_session_id,
+                mode=mode,
+                dangerous_bypass=run_uses_controlled_bypass,
+            )
             manifest.session_visibility = "visible"
-        if self._mode_uses_controlled_bypass(mode):
+        if run_uses_controlled_bypass:
             manifest.dangerous_bypass = True
-            manifest.permission_profile = self._permission_profile(mode)
-            manifest.elevated_permissions_reason = self._elevated_permissions_reason(mode)
-            manifest.elevated_permission_scope = self._elevated_permission_scope(mode)
+            source_elevated = mode == RunMode.PLAN_ONLY
+            manifest.permission_profile = self._permission_profile(mode, source_elevated=source_elevated)
+            manifest.elevated_permissions_reason = self._elevated_permissions_reason(mode, source_elevated=source_elevated)
+            manifest.elevated_permission_scope = self._elevated_permission_scope(mode, source_elevated=source_elevated)
             manifest.source_modification_boundary = self._source_modification_boundary(mode, workspace_path, project_path)
         if mode == RunMode.MERGE_TEST:
             manifest.target_branch = "test"
@@ -3777,7 +3794,11 @@ class CodingOrchestrator:
             manifest.resume_session_id = manifest.resume_session_id or session_id
             if self._is_codex_session_runner(runner.name):
                 manifest.attach_command = self._codex_attach_command(session_id)
-                manifest.resume_command = self._codex_resume_command(session_id, mode=mode)
+                manifest.resume_command = self._codex_resume_command(
+                    session_id,
+                    mode=mode,
+                    dangerous_bypass=manifest.dangerous_bypass,
+                )
                 manifest.session_visibility = manifest.session_visibility or "visible"
             self._update_manifest_session_metadata(
                 manifest_path=result.artifacts.manifest,
@@ -5161,11 +5182,16 @@ class CodingOrchestrator:
         return f"codex resume {session_id}" if session_id else ""
 
     @staticmethod
-    def _codex_resume_command(session_id: str, mode: RunMode | str | None = None) -> str:
+    def _codex_resume_command(
+        session_id: str,
+        mode: RunMode | str | None = None,
+        *,
+        dangerous_bypass: bool = False,
+    ) -> str:
         if not session_id:
             return ""
         mode_value = mode.value if isinstance(mode, RunMode) else str(mode or "")
-        if mode_value in {
+        if dangerous_bypass or mode_value in {
             RunMode.IMPLEMENTATION.value,
             RunMode.QA.value,
             RunMode.MERGE_TEST.value,
@@ -5178,8 +5204,40 @@ class CodingOrchestrator:
         return mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}
 
     @staticmethod
-    def _permission_profile(mode: RunMode) -> str:
+    def _run_uses_controlled_bypass(mode: RunMode, source: dict[str, Any] | None = None) -> bool:
+        if CodingOrchestrator._mode_uses_controlled_bypass(mode):
+            return True
+        return mode == RunMode.PLAN_ONLY and CodingOrchestrator._source_requires_codex_plan_permissions(source)
+
+    @staticmethod
+    def _source_requires_codex_plan_permissions(source: dict[str, Any] | None) -> bool:
+        if not isinstance(source, dict):
+            return False
+        source_context = source.get("source_context")
+        if not isinstance(source_context, dict) or not source_context:
+            return False
+        if str(source_context.get("read_status") or "").strip().lower() == "success":
+            return False
+        source_type = str(source_context.get("source_type") or source.get("type") or "").strip().lower()
+        url = str(source_context.get("url") or "").strip().lower()
+        if (
+            source_context.get("codex_resolvable")
+            or source_context.get("resolution_owner") == "codex"
+            or source_context.get("lark_cli_command")
+        ):
+            return True
+        return (
+            source_type.startswith("feishu_doc")
+            or source_type.startswith("feishu_wiki")
+            or source_type.startswith("feishu_project_")
+            or "feishu.cn" in url
+        )
+
+    @staticmethod
+    def _permission_profile(mode: RunMode, *, source_elevated: bool = False) -> str:
         if mode == RunMode.PLAN_ONLY:
+            if source_elevated:
+                return "plan_source_read_elevated"
             return "plan_read_only"
         if mode == RunMode.IMPLEMENTATION:
             return "implementation_controlled_elevated"
@@ -5190,8 +5248,14 @@ class CodingOrchestrator:
         return "default"
 
     @staticmethod
-    def _elevated_permissions_reason(mode: RunMode) -> str:
+    def _elevated_permissions_reason(mode: RunMode, *, source_elevated: bool = False) -> str:
         if mode == RunMode.PLAN_ONLY:
+            if source_elevated:
+                return (
+                    "Plan-only has an unresolved external source. Codex needs the same terminal-level "
+                    "access as an interactive Codex session to run rtk lark-cli, read Feishu/Lark documents, "
+                    "and inspect authenticated planning context before producing a safe plan."
+                )
             return (
                 "Plan-only may need to read Feishu/Lark documents, Swagger/OpenAPI specs, "
                 "private API metadata, package metadata, and authenticated context sources before producing a plan."
@@ -5209,8 +5273,18 @@ class CodingOrchestrator:
         return "Merge-test requires git merge and push operations against the test branch."
 
     @staticmethod
-    def _elevated_permission_scope(mode: RunMode) -> list[str]:
+    def _elevated_permission_scope(mode: RunMode, *, source_elevated: bool = False) -> list[str]:
         if mode == RunMode.PLAN_ONLY:
+            if source_elevated:
+                return [
+                    "project file reads",
+                    "rtk lark-cli document reads",
+                    "Feishu/Lark auth cache reads or refreshes available to the Codex CLI session",
+                    "Swagger/OpenAPI reads",
+                    "private API metadata reads",
+                    "network reads for planning context",
+                    "no project file writes",
+                ]
             return [
                 "project file reads",
                 "Feishu/Lark document reads",
@@ -5256,7 +5330,11 @@ class CodingOrchestrator:
         manifest["resume_session_id"] = manifest.get("resume_session_id") or session_id
         if self._is_codex_session_runner(runner_name):
             manifest["attach_command"] = self._codex_attach_command(session_id)
-            manifest["resume_command"] = self._codex_resume_command(session_id, mode=manifest.get("mode"))
+            manifest["resume_command"] = self._codex_resume_command(
+                session_id,
+                mode=manifest.get("mode"),
+                dangerous_bypass=bool(manifest.get("dangerous_bypass")),
+            )
             manifest["session_visibility"] = manifest.get("session_visibility") or "visible"
         manifest_path.write_text(self._json(manifest), encoding="utf-8")
 

@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 84：状态机与 Coding 流程图产出（complete）
+阶段 90：Feishu 来源新需求 rewrite 阻断修复（complete）
 
 ## 各阶段
 
@@ -529,11 +529,11 @@
 - [x] 验证：相关测试、全量 unittest、`git diff --check`。
 - **状态：** complete
 
-### 阶段 75：飞书文档读取降阻（旧 Codex-owned 口径，已由阶段 81 替代）
+### 阶段 75：飞书文档读取降阻（旧 Codex-owned 口径，已由阶段 81 替代；阶段 86 重新收敛为 Codex plan-owned）
 - [x] 方案：飞书 Wiki/Doc/Docx 链接由 Hermes 记录来源索引；飞书权限失败不再让 task 进入 `needs_human`。
 - [x] 测试：`lark-cli docs +fetch` 失败时，文档 source context 标记为 `codex_resolvable`，保留 URL/token/error/推荐命令。
 - [x] 测试：带飞书 Wiki 链接的 `/coding task` 在项目已确定时仍创建 `planned` task 并自动 plan-only。
-- [x] 测试：首次 plan prompt 展示外部来源上下文。（后续阶段 81 已取消 Codex 自行绑定/读取 `lark-cli` 的要求。）
+- [x] 测试：首次 plan prompt 展示外部来源上下文。（阶段 86 重新要求 Codex plan session 使用 `rtk lark-cli` 读取来源。）
 - [x] 实现：更新 source reader、orchestrator、prompt/context-index 和文档口径。
 - [x] 验证：focused/full unittest、py_compile、`git diff --check`。
 - **状态：** complete
@@ -559,7 +559,7 @@
 - [x] 测试：创建 task 时即使注入 `FeishuProjectReader`，也不会调用 `read_from_text`。
 - [x] 测试：飞书 Project/Wiki/Docx 链接只写入 indexed source context，并继续启动 plan-only。
 - [x] 实现：`CodingOrchestrator._read_source_context()` 只做链接索引，不再调用 reader/gateway 预读飞书正文。
-- [x] 文档：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION、findings、progress 曾统一为 Codex-owned 飞书读取口径；阶段 81 已再次修正为 Hermes-first deferred。
+- [x] 文档：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION、findings、progress 曾统一为 Codex-owned 飞书读取口径；阶段 81 曾修正为 Hermes-first deferred，阶段 86 已重新收敛为 Codex plan-owned。
 - [x] 验证：focused/full unittest、py_compile、`git diff --check`。
 - **状态：** complete
 
@@ -578,7 +578,7 @@
 - [x] 验证：全量 unittest、py_compile、`git diff --check`、Gateway health。
 - **状态：** complete
 
-### 阶段 81：飞书来源读取从 Codex-owned 改为 Hermes-first deferred
+### 阶段 81：飞书来源读取从 Codex-owned 改为 Hermes-first deferred（历史口径，已由阶段 86 替代）
 - [x] 排查：真实 `task_b859b49449e9` 中 Codex plan-only 无法稳定拿到 `lark-cli` 用户授权，导致需求文档无法读取并 blocked。
 - [x] 测试：Gateway / Feishu reader 读取成功时，source context 合并 URL/token/source_type 并把正文摘要注入 plan。
 - [x] 测试：Gateway / Feishu reader 读取失败、异常或无权限时，不阻断 task 创建；source context 标记 `deferred_source_resolution=true`、`resolution_owner=hermes_or_human`。
@@ -588,7 +588,7 @@
 - [x] 验证：focused/full unittest、py_compile、`git diff --check`。
 - **状态：** complete
 
-### 阶段 82：lark-cli 调用收口到 Hermes source enrichment
+### 阶段 82：lark-cli 调用收口到 Hermes source enrichment（历史口径，已由阶段 86 替代）
 - [x] 测试：已有 deferred 飞书来源的 task 在 `/coding run` 前会重新 enrichment；reader 成功后更新 source context 和 requirement_summary，Codex prompt 使用注入正文。
 - [x] 实现：`FeishuProjectReader` 默认通过 `rtk lark-cli docs +fetch ...` 兜底读取文档，避免裸 `lark-cli`。
 - [x] 实现：`_repair_task_context_from_existing_task()` 对 failed/indexed/deferred 飞书来源执行非阻塞 preflight enrichment；成功清理 deferred 字段，失败继续保留恢复动作。
@@ -609,6 +609,58 @@
 - [x] 核对：当前 `TaskStatus`、`TaskStateMachine`、README/技术方案中的状态口径。
 - [x] 产出：生成 `docs/coding-state-machine-flow-20260602.md`，包含整体 Coding 流程图、TaskStatus 状态机图、中文状态表和人工动作速查表。
 - [x] 验证：`rtk git diff --check`。
+- **状态：** complete
+
+### 阶段 86：外部来源读取改为 Codex plan-owned + source-aware plan 高权限
+- [x] 测试：创建 task 时只索引飞书 Project/Wiki/Docx 链接，不调用 `FeishuProjectReader.read_from_text()` 预读正文。
+- [x] 测试：失败或 indexed 的飞书来源归一为 `codex_resolvable=true`、`deferred_source_resolution=true`、`resolution_owner=codex`，并保留 `lark_cli_command`。
+- [x] 测试：带外部来源的 plan-only manifest 使用 `permission_profile=plan_source_read_elevated`、`dangerous_bypass=true`，resume command 同步带 bypass。
+- [x] 测试：普通 plan-only 仍保持 `plan_read_only`，不使用 bypass。
+- [x] 实现：`_read_source_context()` 改为先索引外部来源并直接返回 Codex-owned source context，不把 Hermes 飞书权限作为 task 创建 gate。
+- [x] 实现：`_enrich_deferred_source_context_before_run()` 对 Codex-owned 来源不再重试 Hermes reader，避免再次卡在 Hermes 身份/scope。
+- [x] 实现：Codex CLI runner 根据 `run-manifest.json.dangerous_bypass` 为 plan-only 新 session 和 resume session 开启受控高权限。
+- [x] 实现：plan prompt 明确要求 Codex 使用 `lark_cli_command` 或等价 `rtk lark-cli` 读取来源；若失败必须结构化 blocked，并写 reason、impact、recovery_action、fallback_evidence。
+- [x] 文档：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION 同步普通 plan 和外部来源 plan 的权限边界。
+- [x] 验证：focused/full unittest、`git diff --check`。
+- **状态：** complete
+
+### 阶段 87：queued 误报与飞书 URL 解析修复
+- [x] 排查：最近 task `task_9e5c6e0676ec` 创建后显示 `queued`，但 run manifest 中 `pid=null`，stdout/report 显示 Hermes runtime 返回 `{"error": "Unknown tool: terminal"}`。
+- [x] 排查：该 run 并非真实排队，而是 Hermes runtime dispatch 错误被误包装为 `queued`。
+- [x] 排查：同一 task 的 Feishu Wiki URL 被中文分号后的“背景/目标”文本污染，导致 `lark_cli_command --doc` 不是纯 URL。
+- [x] 测试：Hermes runtime 返回 `Unknown tool: terminal` 时，`HermesRuntime.start_command()` 返回 `ok=false`。
+- [x] 测试：Codex runner 收到 runtime 启动失败时返回 `runner_failed`，不再写 `queued`。
+- [x] 测试：Feishu Wiki/Docx 链接后跟中文标点和正文时，只提取纯链接。
+- [x] 实现：`HermesRuntime.start_command()` 识别 dispatch 返回的 `error` / `ok=false`，并透传 reason/raw。
+- [x] 实现：收紧 orchestrator 与 Feishu reader 的文档链接正则，排除中文逗号、句号、分号和顿号。
+- [x] 验证：focused/full unittest、py_compile、`git diff --check`。
+- **状态：** complete
+
+### 阶段 89：终端 lark-cli 与 Hermes appId 一致性安装门禁
+- [x] 测试：`coding_lark_preflight` 在终端默认 `lark-cli` appId 不等于 Hermes `FEISHU_APP_ID` 时返回 `app_mismatch`。
+- [x] 测试：`coding_lark_preflight` 在 appId 一致且 scope 足够时返回 ok。
+- [x] 测试：安装前置检查能从 Hermes `.env` 读取 `FEISHU_APP_ID`。
+- [x] 实现：`SourceResolver.preflight_lark()` 增加 `rtk lark-cli config show` appId 一致性检查。
+- [x] 实现：`scripts/install_symlink.py` 默认执行 appId 一致性 preflight；`--skip-preflight` 仅用于隔离测试。
+- [x] 文档：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION 写入“终端默认 `lark-cli` appId 必须等于 Hermes `FEISHU_APP_ID`”硬规范、修复命令和验收命令。
+- [x] 验证：focused unittest、全量 unittest、安装脚本真实 preflight、`git diff --check`。
+- **状态：** complete
+
+### 阶段 90：Feishu 来源新需求 rewrite 阻断修复
+- [x] 排查：Marketplace 需求仍被回复“未授权”，根因不是终端 `lark-cli` 不可用，而是 Coding Mode rewriter 把包含飞书/source/授权词的明确开发需求统一降级 handoff。
+- [x] 实现：rewriter prompt 改为区分“纯授权/source 诊断”和“明确项目 + 明确开发需求 + 飞书来源链接”；后者高置信度生成 `/coding task <原需求> --project <项目>`。
+- [x] 实现：`hermes-coding-operator` skill 同步新规则，低置信度 handoff 不再要求先授权或粘贴正文来阻止明确项目的新 task。
+- [x] 测试：提示词不再包含旧 blanket handoff 规则，并包含 Codex plan 阶段使用 `rtk lark-cli` 读取来源的规则。
+- [x] 测试：Coding Mode 中带 `bestvoy-admin` 和 Feishu Wiki 的 Marketplace 需求会创建 `source_deferred` task，不调用 Hermes 侧飞书预读 reader。
+- [x] 验证：focused unittest、py_compile、全量 unittest、`git diff --check`。
+- **状态：** complete
+
+### 阶段 91：Plugin 使用前置准备清单
+- [x] 文档：新增 `PLUGIN_PREREQUISITES.md`，整理使用 plugin 前必须准备的 Hermes `.env`、Codex CLI 绝对路径、`lark-cli` appId、飞书 user scope / bot 权限、项目 LLM Wiki、Kanban/Dashboard 和最小验收流程。
+- [x] 本地草稿：`docs/deployment.md` 和 `docs/plugin-prerequisites.md` 也已收口为当前安装与快速验收口径，但 `docs/` 目录按仓库规则被 ignore，不作为正式版本化入口。
+- [x] 文档：README、PLUGIN_USAGE、PLUGIN_TECHNICAL_SOLUTION 增加前置准备清单入口。
+- [x] 测试：文档测试覆盖 `PLUGIN_PREREQUISITES.md` 的硬规范，并防止重新引入旧 Git 安装命令、旧仓库 SSH 检查和旧运行根环境变量赋值。
+- [x] 验证：focused 文档测试、py_compile、`git diff --check` 和全量 unittest 通过。
 - **状态：** complete
 
 ## 关键问题

@@ -4,6 +4,8 @@
 
 当前硬约束：Hermes 必须直接加载本地软链接 `~/.hermes/plugins/coding_orchestration`，运行根固定为 `~/.hermes/coding-orchestration`。不要使用 Git 安装副本，也不要使用其他运行根。
 
+正式使用前先按 [PLUGIN_PREREQUISITES.md](PLUGIN_PREREQUISITES.md) 完成前置检查：Hermes `.env`、Codex CLI 绝对路径、终端默认 `lark-cli` appId、飞书 user scope / bot 权限、项目 LLM Wiki 初始化和 Kanban/Dashboard 可用性。
+
 当前仓库已经是 Hermes plugin；使用时重点是让 Hermes 主 agent 直接复用插件暴露的 Hermes native tools，而不是继续依赖不可控的 skill 建议或自然语言 rewrite。插件注册 `pre_llm_call` 注入 active task/source health/next actions，并注册 `coding_task_create`、`coding_task_status`、`coding_task_run`、`coding_source_resolve`、`coding_lark_preflight`。`/coding <action>` 仍是人工入口和 fallback。
 
 当前方案不引入 MCP。飞书 Wiki/Docx、Meegle/飞书 Project 的读取和权限诊断由插件内 `SourceResolver`、`MeegleReader` 和文档 reader 处理；Lark/Meegle 权限问题会回到结构化 source 状态与 recovery action。blocked 只表示 hard human-blocked，`needs_refresh`、scope 缺失、source deferred 和 runner unstructured output 不再默认变成 blocked。
@@ -29,7 +31,38 @@ Hermes `.env` 至少包含：
 
 ```text
 CODEX_CLI_COMMAND=/absolute/path/to/codex
+FEISHU_APP_ID=<Hermes Gateway 飞书应用 App ID>
+FEISHU_APP_SECRET=<Hermes Gateway 飞书应用 App Secret>
 ```
+
+飞书来源读取的安装硬规范：终端默认 `lark-cli` 的 appId 必须等于 Hermes 的 `FEISHU_APP_ID`。如果两边 appId 不一致，OAuth 授权不能共享，coding task 里的飞书 Wiki/Docx 来源读取会出现权限漂移。
+
+安装前检查：
+
+```bash
+rtk lark-cli config show
+```
+
+如果 `appId` 不等于 `~/.hermes/.env` 里的 `FEISHU_APP_ID`，先执行：
+
+```bash
+rtk lark-cli config bind --source hermes --identity user-default
+```
+
+无法 bind 时，再使用 Hermes app 显式初始化：
+
+```bash
+rtk lark-cli config init --app-id <FEISHU_APP_ID> --app-secret-stdin --brand feishu
+```
+
+同一个 app 还必须完成文档读取授权：
+
+```bash
+rtk lark-cli auth login --scope "docx:document:readonly wiki:node:read wiki:node:retrieve" --no-wait --json
+rtk lark-cli auth status --verify
+```
+
+`scripts/install_symlink.py` 默认会执行 appId 一致性前置检查；不一致时安装失败，并输出恢复动作。`--skip-preflight` 只允许用于隔离测试，不作为团队安装流程。
 
 插件启用后需要重启 Gateway 或开启新的 Hermes session 才会生效：
 
@@ -122,11 +155,11 @@ coding_orchestration:
 
 ## Runner 权限与自动测试
 
-plan-only run 使用 `plan_read_only` 权限 profile：Codex CLI 以只读沙箱运行，只做规划不改项目文件。Hermes 创建 task 时负责识别项目，并在 source enrichment 层统一通过 `lark-cli` 读取飞书 Project/Wiki/Docx；读取成功就把正文摘要注入来源上下文，读取失败也不因飞书权限问题让 task 停在 `needs_human`，而是记录 URL、token、错误和恢复动作。启动 plan 前，Hermes 会对 failed/indexed/deferred 飞书来源再重试一次 enrichment。Codex plan-only 优先使用已注入正文；没有正文时不要求自行绑定 `lark-cli`，而是结构化返回需要修复 Hermes `lark-cli` 绑定、补充可访问内容或粘贴正文。
+普通 plan-only run 使用 `plan_read_only` 权限 profile：Codex CLI 以只读沙箱运行，只做规划不改项目文件。Hermes 创建 task 时负责识别项目并索引飞书 Project/Wiki/Docx 来源，不再提前读取飞书正文，也不会因为 Hermes 飞书权限不足让 task 停在 `needs_human`。来源正文未注入时，task 会记录 URL、token、`lark_cli_command` 和恢复动作。带外部来源的 plan-only run 使用 `plan_source_read_elevated`：Codex CLI 以受控高权限运行，让 Codex 在自己的 session 中执行 `rtk lark-cli` 读取飞书文档、Swagger/OpenAPI 和 API 元数据；如果 Codex 也读不到，必须结构化返回授权/scope/网络问题和可执行恢复方案。
 
 implementation 和 QA run 使用受控高权限 Codex CLI session。这样 Codex 可以在任务 worktree 内实现代码，并在需要时自动安装依赖、访问私有源、启动测试或 dev server、执行浏览器 QA、写入 `.gstack` QA 报告/截图，以及提交 QA 修复。
 
-安全边界由 Hermes 继续收口：plan-only 不使用 bypass；implementation/QA/merge-test 的 Codex 子进程 cwd 固定为当前 task worktree；源码修改只允许落在当前 workspace；项目外写入只允许依赖缓存、git metadata、dev server/browser 临时文件和 QA artifact；run-manifest 会记录高权限 run 的 `dangerous_bypass`、权限原因和修改边界；Hermes diff guard 仍会审计 workspace 内 diff，越权项目改动不能直接进入可合并状态。
+安全边界由 Hermes 继续收口：plan-only 无论是否提权都不能修改项目文件；implementation/QA/merge-test 的 Codex 子进程 cwd 固定为当前 task worktree；源码修改只允许落在当前 workspace；项目外写入只允许依赖缓存、git metadata、dev server/browser 临时文件和 QA artifact；run-manifest 会记录高权限 run 的 `dangerous_bypass`、权限原因和修改边界；Hermes diff guard 仍会审计 workspace 内 diff，越权项目改动不能直接进入可合并状态。
 
 ## Coding 命令入口
 

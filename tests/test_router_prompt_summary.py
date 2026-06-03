@@ -147,7 +147,8 @@ class RouterPromptSummaryTest(unittest.TestCase):
         self.assertIn("不要返回 `ready_for_implementation`", instructions)
         self.assertIn("Hermes 内部 task 状态", instructions)
         self.assertIn("Hermes 已在来源上下文中注入飞书正文", instructions)
-        self.assertIn("不要要求 Codex session 自行绑定 `lark-cli`", instructions)
+        self.assertIn("优先使用来源上下文中的 `lark_cli_command`", instructions)
+        self.assertIn("Plan-only 不允许修改项目文件", instructions)
 
     def test_prompt_source_block_exposes_codex_resolvable_document_context(self):
         prompt = PromptBuilder().build(
@@ -181,7 +182,7 @@ class RouterPromptSummaryTest(unittest.TestCase):
         self.assertIn("外部来源上下文", prompt)
         self.assertIn("resolution_owner: codex", prompt)
         self.assertIn("lark_cli_command", prompt)
-        self.assertIn("不要绑定 lark-cli", prompt)
+        self.assertIn("请优先在本 Codex session 中使用 lark_cli_command", prompt)
 
     def test_prompt_builder_incremental_prompt_is_chinese(self):
         prompt = PromptBuilder().build_incremental(

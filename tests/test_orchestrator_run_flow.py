@@ -361,6 +361,68 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["source"]["raw_text"], "订单系统新增发货状态筛选")
             self.assertIn("已创建编码任务", gateway.messages[-1])
 
+    def test_gateway_coding_mode_project_task_with_feishu_wiki_source_creates_deferred_task(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.auto_started = []
+
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self.auto_started.append((task_id, gateway, event))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bestvoy-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            raw_text = (
+                "项目名称：商户后台，文件夹名称为 bestvoy-admin。"
+                "新增需求：MarketPlace APP 后台模块。"
+                "需求来源：https://bestfulfill.feishu.cn/wiki/YNU8wYMwBiJv5AkYQIJcQ4donsh。"
+                "目标：按照需求文档 11. Marketplace APP 点实现。"
+            )
+            rewriter = FakeCommandRewriter(_rewrite_response(f"/coding task {raw_text} --project bestvoy-admin"))
+            orchestrator = RecordingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(
+                    ProjectRegistry(
+                        [
+                            {
+                                "name": "bestvoy-admin",
+                                "aliases": ["商户后台"],
+                                "path": str(project),
+                            }
+                        ]
+                    )
+                ),
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+                command_rewriter=rewriter,
+                feishu_project_reader=ExplodingFeishuProjectReader(),
+            )
+            gateway = FakeGateway()
+
+            orchestrator.handle_gateway_event(FakeGatewayEvent("进入coding"), gateway=gateway)
+            result = orchestrator.handle_gateway_event(FakeGatewayEvent(raw_text), gateway=gateway)
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(result["reason"], "coding_rewrite_executed")
+            self.assertEqual(len(orchestrator.auto_started), 1)
+            task = ledger.get_task(orchestrator.auto_started[0][0])
+            self.assertEqual(task["status"], TaskStatus.SOURCE_DEFERRED.value)
+            self.assertEqual(task["source"]["project_name"], "bestvoy-admin")
+            self.assertEqual(Path(task["project_path"]).resolve(), project.resolve())
+            source_context = task["source"]["source_context"]
+            self.assertEqual(source_context["read_status"], "indexed")
+            self.assertEqual(source_context["source_type"], "feishu_wiki")
+            self.assertTrue(source_context["codex_resolvable"])
+            self.assertEqual(source_context["resolution_owner"], "codex")
+            self.assertIn("rtk lark-cli docs +fetch", source_context["lark_cli_command"])
+
     def test_gateway_coding_mode_low_confidence_natural_language_hands_off_to_hermes(self):
         class RecordingOrchestrator(CodingOrchestrator):
             def __post_init__(self):
@@ -3136,13 +3198,14 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(len(orchestrator.auto_started), 1)
             task_id = orchestrator.auto_started[0][0]
             task = ledger.get_task(task_id)
-            self.assertEqual(task["status"], "planned")
+            self.assertEqual(task["status"], TaskStatus.SOURCE_DEFERRED.value)
             self.assertEqual(task["source"]["type"], "feishu_project_story")
-            self.assertEqual(len(reader.calls if (reader := orchestrator.feishu_project_reader) else []), 1)
+            self.assertEqual(len(reader.calls if (reader := orchestrator.feishu_project_reader) else []), 0)
             self.assertIn("https://project.feishu.cn/z9b9t3/story/detail/6983769492", task["requirement_summary"])
             source_context = task["source"]["source_context"]
-            self.assertEqual(source_context["read_status"], "success")
-            self.assertNotIn("codex_resolvable", source_context)
+            self.assertEqual(source_context["read_status"], "indexed")
+            self.assertTrue(source_context["codex_resolvable"])
+            self.assertEqual(source_context["resolution_owner"], "codex")
             draft = wiki.read(task["llm_wiki_refs"][0]["id"])
             source_ref = next(
                 ref for ref in draft["source_refs"] if ref.get("type") == "feishu_project_story"
@@ -3151,8 +3214,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(source_ref["project_key"], "z9b9t3")
             self.assertEqual(source_ref["work_item_type_key"], "story")
             self.assertEqual(source_ref["work_item_id"], "6983769492")
-            self.assertNotIn("codex_resolvable", source_ref)
-            self.assertNotIn("resolution_owner", source_ref)
+            self.assertEqual(source_ref["codex_resolvable"], "True")
+            self.assertEqual(source_ref["resolution_owner"], "codex")
             self.assertIn("https://project.feishu.cn/z9b9t3/story/detail/6983769492", gateway.messages[0])
 
     def test_feishu_project_link_without_reader_marks_source_deferred_and_starts_plan(self):
@@ -3208,10 +3271,10 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             task_id = orchestrator.auto_started[0][0]
             task = ledger.get_task(task_id)
             self.assertEqual(task["status"], TaskStatus.SOURCE_DEFERRED.value)
-            self.assertEqual(len(orchestrator.feishu_project_reader.calls), 1)
-            self.assertFalse(task["source"]["source_context"]["codex_resolvable"])
+            self.assertEqual(len(orchestrator.feishu_project_reader.calls), 0)
+            self.assertTrue(task["source"]["source_context"]["codex_resolvable"])
             self.assertTrue(task["source"]["source_context"]["deferred_source_resolution"])
-            self.assertEqual(task["source"]["source_context"]["resolution_owner"], "hermes_or_human")
+            self.assertEqual(task["source"]["source_context"]["resolution_owner"], "codex")
             self.assertNotIn("无法读取飞书来源内容", gateway.messages[0])
 
     def test_task_creation_falls_back_to_index_when_reader_fails(self):
@@ -3258,11 +3321,11 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["status"], TaskStatus.SOURCE_DEFERRED.value)
             self.assertEqual(task["project_path"], str(project.resolve()))
             source_context = task["source"]["source_context"]
-            self.assertEqual(source_context["read_status"], "failed")
+            self.assertEqual(source_context["read_status"], "indexed")
             self.assertEqual(source_context["source_type"], "feishu_docx")
-            self.assertFalse(source_context["codex_resolvable"])
+            self.assertTrue(source_context["codex_resolvable"])
             self.assertTrue(source_context["deferred_source_resolution"])
-            self.assertEqual(source_context["resolution_owner"], "hermes_or_human")
+            self.assertEqual(source_context["resolution_owner"], "codex")
             self.assertIn("lark-cli docs +fetch", source_context["lark_cli_command"])
 
     def test_failed_docx_source_context_with_project_folder_marks_auth_needed_without_url(self):
@@ -3331,9 +3394,9 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             stored_context = task["source"]["source_context"]
             self.assertEqual(stored_context["read_status"], "failed")
             self.assertFalse(stored_context["requires_human_context"])
-            self.assertFalse(stored_context["codex_resolvable"])
+            self.assertTrue(stored_context["codex_resolvable"])
             self.assertTrue(stored_context["deferred_source_resolution"])
-            self.assertEqual(stored_context["resolution_owner"], "hermes_or_human")
+            self.assertEqual(stored_context["resolution_owner"], "codex")
             self.assertEqual(stored_context["url"], "V1.136：Marketplace App")
 
     def test_feishu_wiki_link_is_indexed_without_reader_before_plan_only(self):
@@ -3386,22 +3449,21 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(len(orchestrator.auto_started), 1)
             task_id = orchestrator.auto_started[0][0]
             task = ledger.get_task(task_id)
-            self.assertEqual(task["status"], "planned")
+            self.assertEqual(task["status"], TaskStatus.SOURCE_DEFERRED.value)
             self.assertEqual(task["source"]["type"], "feishu_wiki")
-            self.assertEqual(len(orchestrator.feishu_project_reader.calls), 1)
+            self.assertEqual(len(orchestrator.feishu_project_reader.calls), 0)
             source_context = task["source"]["source_context"]
-            self.assertEqual(source_context["read_status"], "success")
+            self.assertEqual(source_context["read_status"], "indexed")
             self.assertEqual(source_context["source_type"], "feishu_wiki")
+            self.assertTrue(source_context["codex_resolvable"])
+            self.assertEqual(source_context["resolution_owner"], "codex")
             draft = wiki.read(task["llm_wiki_refs"][0]["id"])
-            self.assertIn(
-                {
-                    "type": "feishu_wiki",
-                    "url": "https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe",
-                    "document_kind": "wiki",
-                    "document_token": "FLArwwLCaikbg6kVhWRcxpFQnTe",
-                },
-                draft["source_refs"],
-            )
+            source_ref = next(ref for ref in draft["source_refs"] if ref.get("type") == "feishu_wiki")
+            self.assertEqual(source_ref["url"], "https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe")
+            self.assertEqual(source_ref["document_kind"], "wiki")
+            self.assertEqual(source_ref["document_token"], "FLArwwLCaikbg6kVhWRcxpFQnTe")
+            self.assertEqual(source_ref["codex_resolvable"], "True")
+            self.assertEqual(source_ref["resolution_owner"], "codex")
             self.assertIn("https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe", gateway.messages[0])
 
     def test_feishu_wiki_read_failure_marks_source_deferred_and_starts_plan(self):
@@ -3470,9 +3532,10 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             task = ledger.get_task(task_id)
             self.assertEqual(task["status"], TaskStatus.SOURCE_DEFERRED.value)
             self.assertEqual(task["source"]["type"], "feishu_wiki")
-            self.assertFalse(task["source"]["source_context"]["codex_resolvable"])
+            self.assertEqual(len(reader.calls), 0)
+            self.assertTrue(task["source"]["source_context"]["codex_resolvable"])
             self.assertTrue(task["source"]["source_context"]["deferred_source_resolution"])
-            self.assertEqual(task["source"]["source_context"]["resolution_owner"], "hermes_or_human")
+            self.assertEqual(task["source"]["source_context"]["resolution_owner"], "codex")
             self.assertIn("lark-cli docs +fetch", task["source"]["source_context"]["lark_cli_command"])
             self.assertNotIn("无法读取飞书来源内容", gateway.messages[0])
 
@@ -3540,15 +3603,16 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(len(orchestrator.auto_started), 1)
             task_id = orchestrator.auto_started[0][0]
             task = ledger.get_task(task_id)
-            self.assertEqual(task["status"], TaskStatus.SOURCE_AUTH_NEEDED.value)
+            self.assertEqual(task["status"], TaskStatus.SOURCE_DEFERRED.value)
             self.assertEqual(task["source"]["project_name"], "bestvoy-admin")
             self.assertEqual(task["project_path"], str(bestvoy.resolve()))
             source_context = task["source"]["source_context"]
+            self.assertEqual(source_context["read_status"], "indexed")
             self.assertEqual(source_context["source_type"], "feishu_docx")
             self.assertFalse(source_context["requires_human_context"])
-            self.assertFalse(source_context["codex_resolvable"])
+            self.assertTrue(source_context["codex_resolvable"])
             self.assertTrue(source_context["deferred_source_resolution"])
-            self.assertEqual(source_context["resolution_owner"], "hermes_or_human")
+            self.assertEqual(source_context["resolution_owner"], "codex")
             self.assertEqual(source_context["url"], "https://bestfulfill.feishu.cn/docx/MarketplaceDocxToken123")
             self.assertEqual(source_context["document_token"], "MarketplaceDocxToken123")
             self.assertIn("lark-cli docs +fetch", source_context["lark_cli_command"])
@@ -3626,9 +3690,9 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["project_path"], str(bestvoy.resolve()))
             source_context = task["source"]["source_context"]
             self.assertFalse(source_context["requires_human_context"])
-            self.assertFalse(source_context["codex_resolvable"])
+            self.assertTrue(source_context["codex_resolvable"])
             self.assertTrue(source_context["deferred_source_resolution"])
-            self.assertEqual(source_context["resolution_owner"], "hermes_or_human")
+            self.assertEqual(source_context["resolution_owner"], "codex")
             self.assertEqual(source_context["url"], "https://bestfulfill.feishu.cn/docx/MarketplaceDocxToken123")
             self.assertIn("lark-cli docs +fetch", source_context["lark_cli_command"])
 
@@ -3651,12 +3715,12 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             context,
         )
 
-        self.assertFalse(normalized["codex_resolvable"])
+        self.assertTrue(normalized["codex_resolvable"])
         self.assertTrue(normalized["deferred_source_resolution"])
-        self.assertEqual(normalized["resolution_owner"], "hermes_or_human")
-        self.assertIn("Hermes/Feishu", normalized["recovery_action"])
+        self.assertEqual(normalized["resolution_owner"], "codex")
+        self.assertIn("Codex", normalized["recovery_action"])
 
-    def test_deferred_feishu_source_is_enriched_again_before_plan_run(self):
+    def test_deferred_feishu_source_is_left_for_codex_before_plan_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "bestvoy-admin"
@@ -3736,13 +3800,15 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             result = orchestrator.start_run(task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
 
             self.assertEqual(result["status"], "success")
-            self.assertEqual(len(reader.calls), 1)
+            self.assertEqual(len(reader.calls), 0)
             task = ledger.get_task(task_id)
             source_context = task["source"]["source_context"]
-            self.assertEqual(source_context["read_status"], "success")
-            self.assertNotIn("deferred_source_resolution", source_context)
-            self.assertIn("Marketplace APP：供应商商品", task["requirement_summary"])
-            self.assertIn("Marketplace APP：供应商商品", runner.calls[0]["prompt_at_start"])
+            self.assertEqual(source_context["read_status"], "failed")
+            self.assertTrue(source_context["codex_resolvable"])
+            self.assertTrue(source_context["deferred_source_resolution"])
+            self.assertEqual(source_context["resolution_owner"], "codex")
+            self.assertNotIn("Marketplace APP：供应商商品", task["requirement_summary"])
+            self.assertIn("lark_cli_command", runner.calls[0]["prompt_at_start"])
 
     def test_human_clarification_with_project_folder_updates_task_and_starts_plan(self):
         class RecordingOrchestrator(CodingOrchestrator):
@@ -4034,6 +4100,67 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIsNone(manifest["source_modification_boundary"])
             summaries = wiki.search("计划完成", {"project": "order-system"})
             self.assertEqual(summaries[0]["kind"], "run_summary")
+
+    def test_plan_run_with_codex_resolvable_source_uses_elevated_source_read_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bestvoy-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "bestvoy-admin",
+                            "aliases": ["商户后台"],
+                            "path": str(project),
+                            "keywords": ["Marketplace"],
+                        }
+                    ]
+                )
+            )
+            fake_runner = FakeRunner(stdout_text='{"type":"thread.started","thread_id":"019e-source-plan"}\n')
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+
+            created = orchestrator._create_task_from_text(
+                "项目名称：商户后台，文件夹名称为 bestvoy-admin。"
+                "需求来源：https://bestfulfill.feishu.cn/docx/MarketplaceDocxToken123。"
+                "新增 MarketPlace APP 后台模块。",
+                auto_plan_on_ready=True,
+                source_context={
+                    "read_status": "failed",
+                    "source_type": "feishu_docx",
+                    "url": "https://bestfulfill.feishu.cn/docx/MarketplaceDocxToken123",
+                    "document_kind": "docx",
+                    "document_token": "MarketplaceDocxToken123",
+                    "error": "docx:document:readonly",
+                    "requires_human_context": True,
+                },
+                event=FakeGatewayEvent("/coding task"),
+            )
+
+            orchestrator.start_run(created.task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
+
+            call = fake_runner.calls[0]
+            manifest = call["manifest_at_start"]
+            self.assertTrue(manifest["dangerous_bypass"])
+            self.assertEqual(manifest["permission_profile"], "plan_source_read_elevated")
+            self.assertIn("rtk lark-cli document reads", manifest["elevated_permission_scope"])
+            self.assertIn("must not modify project files", manifest["source_modification_boundary"])
+            self.assertIn("lark_cli_command", call["prompt_at_start"])
+            task = ledger.get_task(created.task_id)
+            self.assertEqual(task["source"]["source_context"]["resolution_owner"], "codex")
+            final_manifest = json.loads(Path(task["artifacts"][0]["manifest"]).read_text(encoding="utf-8"))
+            self.assertIn("--dangerously-bypass-approvals-and-sandbox", final_manifest["resume_command"])
 
     def test_plan_only_runner_task_status_is_normalized_before_state_machine(self):
         with tempfile.TemporaryDirectory() as tmp:

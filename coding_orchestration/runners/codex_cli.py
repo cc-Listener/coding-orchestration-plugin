@@ -45,9 +45,15 @@ class CodexCliRunner(CodingAgentRunner):
         mode: RunMode,
     ) -> list[str]:
         session_id = self._resume_session_id(run_dir)
+        dangerous_bypass = self._manifest_dangerous_bypass(run_dir)
         if session_id:
-            return self._build_resume_command(run_dir=run_dir, mode=mode, session_id=session_id)
-        if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}:
+            return self._build_resume_command(
+                run_dir=run_dir,
+                mode=mode,
+                session_id=session_id,
+                dangerous_bypass=dangerous_bypass,
+            )
+        if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST} or dangerous_bypass:
             cwd = workspace_path or project_path
             command = [
                 self.command,
@@ -90,14 +96,21 @@ class CodexCliRunner(CodingAgentRunner):
             "-",
         ]
 
-    def _build_resume_command(self, *, run_dir: Path, mode: RunMode, session_id: str) -> list[str]:
+    def _build_resume_command(
+        self,
+        *,
+        run_dir: Path,
+        mode: RunMode,
+        session_id: str,
+        dangerous_bypass: bool = False,
+    ) -> list[str]:
         command = [
             self.command,
             "exec",
             "resume",
             "--json",
         ]
-        if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}:
+        if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST} or dangerous_bypass:
             command.append("--dangerously-bypass-approvals-and-sandbox")
         else:
             command.extend(
@@ -773,3 +786,14 @@ class CodexCliRunner(CodingAgentRunner):
         except Exception:
             return ""
         return str(manifest.get("resume_session_id") or "").strip()
+
+    @staticmethod
+    def _manifest_dangerous_bypass(run_dir: Path) -> bool:
+        manifest_path = run_dir / "run-manifest.json"
+        if not manifest_path.exists():
+            return False
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            return False
+        return bool(manifest.get("dangerous_bypass"))

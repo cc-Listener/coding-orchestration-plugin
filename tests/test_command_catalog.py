@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 
 from coding_orchestration.command_catalog import (
     COMMAND_CATALOG,
@@ -67,6 +68,25 @@ class CommandCatalogTest(unittest.TestCase):
         self.assertIn("coding_lark_preflight", text)
         self.assertIn("coding_source_resolve", text)
         self.assertIn("preferred_native_tools", text)
+
+    def test_rewriter_prompt_does_not_blanket_handoff_feishu_source_tasks(self):
+        prompt_text = HermesCommandRewriter._system_prompt()
+
+        self.assertNotIn(
+            "如果用户说 Lark、飞书、Meegle、source、授权、scope、needs_refresh、权限卡点，输出 `canonical_command=null`",
+            prompt_text,
+        )
+        self.assertIn("不要把所有包含 Lark、飞书、Meegle、source、授权、scope、needs_refresh 的消息都降级", prompt_text)
+        self.assertIn("明确项目/文件夹/active_project 和新的开发需求", prompt_text)
+        self.assertIn("/coding task <原需求> --project <项目名或文件夹>", prompt_text)
+        self.assertIn("飞书正文交给 Codex plan 阶段用 `rtk lark-cli` 读取", prompt_text)
+
+    def test_operator_skill_treats_feishu_source_as_deferred_for_clear_project_tasks(self):
+        skill = Path("coding_orchestration/skills/hermes-coding-operator/SKILL.md").read_text(encoding="utf-8")
+
+        self.assertIn("飞书 Wiki/Docx/Meegle 来源读不到也不应阻止 task 创建", skill)
+        self.assertIn("/coding task <原需求> --project <项目名或文件夹>", skill)
+        self.assertIn("不要先要求授权或粘贴正文", skill)
 
 
 if __name__ == "__main__":

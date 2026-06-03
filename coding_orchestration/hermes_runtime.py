@@ -21,15 +21,27 @@ class HermesRuntime:
         if not self.available():
             return {"ok": False, "reason": "dispatch_tool_unavailable"}
         shell_command = f"{command} < {stdin_path}"
-        result = self.dispatch_tool(
-            "terminal",
-            {
-                "command": shell_command,
-                "cwd": cwd,
-                "background": True,
-                "pty": True,
-                "notify_on_complete": True,
-                "watch_patterns": watch_patterns,
-            },
-        )
+        try:
+            result = self.dispatch_tool(
+                "terminal",
+                {
+                    "command": shell_command,
+                    "cwd": cwd,
+                    "background": True,
+                    "pty": True,
+                    "notify_on_complete": True,
+                    "watch_patterns": watch_patterns,
+                },
+            )
+        except Exception as exc:
+            return {"ok": False, "reason": f"dispatch_tool_exception: {exc}"}
+        if isinstance(result, dict):
+            if result.get("error"):
+                return {"ok": False, "reason": str(result.get("error")), "raw": result}
+            if result.get("ok") is False:
+                return {
+                    "ok": False,
+                    "reason": str(result.get("reason") or result.get("message") or "dispatch_tool_failed"),
+                    "raw": result,
+                }
         return {"ok": True, "raw": result}

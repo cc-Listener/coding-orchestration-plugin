@@ -40,6 +40,16 @@ def _make_orchestrator(tmp: str, *, source_context=None) -> CodingOrchestrator:
 
 
 class OrchestratorToolsTest(unittest.TestCase):
+    def test_extracts_document_link_without_chinese_punctuation_suffix(self):
+        link = CodingOrchestrator._extract_first_feishu_document_link(
+            "需求来源：https://bestfulfill.feishu.cn/wiki/YNU8wYMwBiJv5AkYQIJcQ4donsh；背景：供应商模块"
+        )
+
+        self.assertIsNotNone(link)
+        self.assertEqual(link["document_kind"], "wiki")
+        self.assertEqual(link["document_token"], "YNU8wYMwBiJv5AkYQIJcQ4donsh")
+        self.assertEqual(link["url"], "https://bestfulfill.feishu.cn/wiki/YNU8wYMwBiJv5AkYQIJcQ4donsh")
+
     def test_tool_task_create_uses_structured_args_without_gateway_rewrite(self):
         with tempfile.TemporaryDirectory() as tmp:
             orchestrator = _make_orchestrator(tmp)
@@ -90,7 +100,7 @@ class OrchestratorToolsTest(unittest.TestCase):
             self.assertNotEqual(result.get("task_status"), "blocked")
             self.assertIn("needs_refresh", result["error"])
 
-    def test_tool_task_create_marks_source_auth_needed_without_blocking(self):
+    def test_tool_task_create_indexes_source_without_blocking(self):
         with tempfile.TemporaryDirectory() as tmp:
             orchestrator = _make_orchestrator(
                 tmp,
@@ -113,7 +123,7 @@ class OrchestratorToolsTest(unittest.TestCase):
             )
 
             self.assertTrue(result["ok"])
-            self.assertEqual(result["status"], "source_auth_needed")
+            self.assertEqual(result["status"], "source_deferred")
             self.assertNotEqual(result["status"], "blocked")
 
 

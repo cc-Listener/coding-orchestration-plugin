@@ -26,6 +26,16 @@ class FeishuProjectReaderTest(unittest.TestCase):
         self.assertEqual(link.document_token, "FLArwwLCaikbg6kVhWRcxpFQnTe")
         self.assertEqual(link.url, "https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe")
 
+    def test_extracts_wiki_document_link_without_chinese_punctuation_suffix(self):
+        link = FeishuProjectReader.extract_first_document_link(
+            "需求来源：https://bestfulfill.feishu.cn/wiki/YNU8wYMwBiJv5AkYQIJcQ4donsh；背景：供应商模块"
+        )
+
+        self.assertIsNotNone(link)
+        self.assertEqual(link.document_kind, "wiki")
+        self.assertEqual(link.document_token, "YNU8wYMwBiJv5AkYQIJcQ4donsh")
+        self.assertEqual(link.url, "https://bestfulfill.feishu.cn/wiki/YNU8wYMwBiJv5AkYQIJcQ4donsh")
+
     def test_normalizes_work_item_payload_to_codex_context(self):
         reader = FeishuProjectReader()
         link = FeishuProjectReader.extract_first_link(
@@ -76,7 +86,7 @@ class FeishuProjectReaderTest(unittest.TestCase):
         self.assertEqual(context["document_id"], "Amt4d85oXoHvVTxqkiqcmmLTnBe")
         self.assertIn("更新店铺接口", context["summary_markdown"])
 
-    def test_lark_cli_document_failure_is_deferred_to_hermes_or_human(self):
+    def test_lark_cli_document_failure_is_deferred_to_codex(self):
         reader = FeishuProjectReader()
 
         with patch("coding_orchestration.feishu_project_reader.subprocess.run") as run:
@@ -94,13 +104,13 @@ class FeishuProjectReaderTest(unittest.TestCase):
         self.assertEqual(context["read_status"], "failed")
         self.assertEqual(context["source_type"], "feishu_wiki")
         self.assertFalse(context["requires_human_context"])
-        self.assertFalse(context["codex_resolvable"])
+        self.assertTrue(context["codex_resolvable"])
         self.assertTrue(context["deferred_source_resolution"])
-        self.assertEqual(context["resolution_owner"], "hermes_or_human")
+        self.assertEqual(context["resolution_owner"], "codex")
         self.assertIn("lark-cli docs +fetch", context["lark_cli_command"])
         self.assertIn("not bound", context["error"])
 
-    def test_gateway_failed_document_context_is_deferred_to_hermes_or_human(self):
+    def test_gateway_failed_document_context_is_deferred_to_codex(self):
         reader = FeishuProjectReader()
         link = FeishuProjectReader.extract_first_document_link(
             "需求文档：https://bestfulfill.feishu.cn/docx/DocxToken123"
@@ -119,9 +129,9 @@ class FeishuProjectReaderTest(unittest.TestCase):
         self.assertEqual(context["read_status"], "failed")
         self.assertEqual(context["source_type"], "feishu_docx")
         self.assertFalse(context["requires_human_context"])
-        self.assertFalse(context["codex_resolvable"])
+        self.assertTrue(context["codex_resolvable"])
         self.assertTrue(context["deferred_source_resolution"])
-        self.assertEqual(context["resolution_owner"], "hermes_or_human")
+        self.assertEqual(context["resolution_owner"], "codex")
         self.assertEqual(context["document_token"], "DocxToken123")
         self.assertIn("lark-cli docs +fetch", context["lark_cli_command"])
 

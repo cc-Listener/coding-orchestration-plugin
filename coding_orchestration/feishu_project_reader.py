@@ -20,10 +20,10 @@ _PROJECT_LINK_RE = re.compile(
 )
 
 _DOCUMENT_LINK_RE = re.compile(
-    r"(?P<url>https?://[^\s<>)\"']+/"
+    r"(?P<url>https?://[^\s<>)\"'，。；、]+/"
     r"(?P<document_kind>wiki|docx)/"
     r"(?P<document_token>[A-Za-z0-9_-]+)"
-    r"(?:[^\s<>)\"']*)?)"
+    r"(?:[^\s<>)\"'，。；、]*)?)"
 )
 
 
@@ -502,13 +502,13 @@ class FeishuProjectReader:
             "document_token": link.document_token,
             "error": error,
             "requires_human_context": False,
-            "codex_resolvable": False,
+            "codex_resolvable": True,
             "deferred_source_resolution": True,
-            "resolution_owner": "hermes_or_human",
+            "resolution_owner": "codex",
             "lark_cli_command": command,
             "recovery_action": (
-                "Authorize the Hermes/Feishu document reader, or paste the document content into the task. "
-                "Codex task sessions should not rely on binding lark-cli themselves."
+                "Let the Codex plan session run the recorded lark_cli_command. "
+                "If Codex cannot read it, authorize the active lark-cli identity or paste the document content into the task."
             ),
         }
 

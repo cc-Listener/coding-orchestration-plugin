@@ -3,10 +3,23 @@ import unittest
 
 from coding_orchestration.source_resolver import SourceResolver
 
+ISOLATED_HERMES_HOME = "/tmp/nonexistent-hermes-home-for-source-resolver-tests"
+
 
 def _runner(stdout="", stderr="", returncode=0):
     def run(command):
         return subprocess.CompletedProcess(command, returncode=returncode, stdout=stdout, stderr=stderr)
+
+    return run
+
+
+def _lark_runner(config_stdout="", auth_stdout="", config_returncode=0, auth_returncode=0):
+    def run(command):
+        if command == ["rtk", "lark-cli", "config", "show"]:
+            return subprocess.CompletedProcess(command, returncode=config_returncode, stdout=config_stdout, stderr="")
+        if command == ["rtk", "lark-cli", "auth", "status"]:
+            return subprocess.CompletedProcess(command, returncode=auth_returncode, stdout=auth_stdout, stderr="")
+        raise AssertionError(f"unexpected command: {command}")
 
     return run
 
@@ -24,7 +37,7 @@ scopes:
             )
         )
 
-        result = resolver.preflight_lark({})
+        result = resolver.preflight_lark({"hermes_home": ISOLATED_HERMES_HOME})
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], "auth_needed")
@@ -44,11 +57,57 @@ scopes:
             )
         )
 
-        result = resolver.preflight_lark({})
+        result = resolver.preflight_lark({"hermes_home": ISOLATED_HERMES_HOME})
 
         self.assertTrue(result["ok"])
         self.assertEqual(result["status"], "ok")
         self.assertFalse(result["missing_scopes"])
+
+    def test_lark_preflight_requires_terminal_app_to_match_hermes_app(self):
+        resolver = SourceResolver(
+            command_runner=_lark_runner(
+                config_stdout='{"appId": "cli_terminal"}',
+                auth_stdout="""
+user identity: available
+scopes:
+  - docx:document:readonly
+  - wiki:node:read
+""",
+            )
+        )
+
+        result = resolver.preflight_lark({"expected_app_id": "cli_hermes"})
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "app_mismatch")
+        self.assertEqual(result["expected_app_id"], "cli_hermes")
+        self.assertEqual(result["actual_app_id"], "cli_terminal")
+        self.assertIn("config bind --source hermes", result["recovery_action"])
+
+    def test_lark_preflight_accepts_matching_terminal_and_hermes_app(self):
+        resolver = SourceResolver(
+            command_runner=_lark_runner(
+                config_stdout='Config file path: /tmp/config.json\n{"appId": "cli_hermes"}',
+                auth_stdout="""
+{
+  "appId": "cli_hermes",
+  "identities": {
+    "user": {
+      "status": "ready",
+      "scope": "docx:document:readonly wiki:node:retrieve"
+    }
+  }
+}
+""",
+            )
+        )
+
+        result = resolver.preflight_lark({"expected_app_id": "cli_hermes"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "ok")
+        self.assertEqual(result["expected_app_id"], "cli_hermes")
+        self.assertEqual(result["actual_app_id"], "cli_hermes")
 
     def test_lark_preflight_reports_missing_scopes(self):
         resolver = SourceResolver(
@@ -61,7 +120,7 @@ scopes:
             )
         )
 
-        result = resolver.preflight_lark({})
+        result = resolver.preflight_lark({"hermes_home": ISOLATED_HERMES_HOME})
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], "permission_missing")
@@ -70,7 +129,7 @@ scopes:
     def test_lark_preflight_reports_command_failure(self):
         resolver = SourceResolver(command_runner=_runner(stderr="command not found: lark-cli", returncode=127))
 
-        result = resolver.preflight_lark({})
+        result = resolver.preflight_lark({"hermes_home": ISOLATED_HERMES_HOME})
 
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], "failed")

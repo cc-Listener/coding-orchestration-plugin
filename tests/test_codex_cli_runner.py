@@ -33,6 +33,30 @@ class CodexCliRunnerTest(unittest.TestCase):
         self.assertIn("/repo/project", command)
         self.assertEqual(command[-1], "-")
 
+    def test_plan_only_command_uses_bypass_when_manifest_requires_source_permissions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "run-manifest.json").write_text(
+                json.dumps({"dangerous_bypass": True}),
+                encoding="utf-8",
+            )
+            runner = CodexCliRunner(command="codex")
+
+            command = runner.build_command(
+                run_dir=run_dir,
+                project_path=Path("/repo/project"),
+                workspace_path=None,
+                mode=RunMode.PLAN_ONLY,
+            )
+
+            self.assertEqual(command[:2], ["codex", "exec"])
+            self.assertIn("--dangerously-bypass-approvals-and-sandbox", command)
+            self.assertNotIn("--sandbox", command)
+            self.assertNotIn("approval_policy=\"never\"", command)
+            self.assertIn("-C", command)
+            self.assertIn("/repo/project", command)
+            self.assertEqual(command[-1], "-")
+
     def test_plan_only_resume_uses_read_only_sandbox(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
@@ -55,6 +79,29 @@ class CodexCliRunnerTest(unittest.TestCase):
             self.assertNotIn("--dangerously-bypass-approvals-and-sandbox", command)
             self.assertIn("sandbox_mode=\"read-only\"", command)
             self.assertIn("approval_policy=\"never\"", command)
+            self.assertEqual(command[-1], "-")
+
+    def test_plan_only_resume_uses_bypass_when_manifest_requires_source_permissions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "run-manifest.json").write_text(
+                json.dumps({"resume_session_id": "019e-plan-thread", "dangerous_bypass": True}),
+                encoding="utf-8",
+            )
+            runner = CodexCliRunner(command="codex")
+
+            command = runner.build_command(
+                run_dir=run_dir,
+                project_path=Path("/repo/project"),
+                workspace_path=None,
+                mode=RunMode.PLAN_ONLY,
+            )
+
+            self.assertEqual(command[:3], ["codex", "exec", "resume"])
+            self.assertIn("--dangerously-bypass-approvals-and-sandbox", command)
+            self.assertNotIn("sandbox_mode=\"read-only\"", command)
+            self.assertNotIn("approval_policy=\"never\"", command)
+            self.assertIn("019e-plan-thread", command)
             self.assertEqual(command[-1], "-")
 
     def test_implementation_command_uses_controlled_bypass_and_workspace_path(self):

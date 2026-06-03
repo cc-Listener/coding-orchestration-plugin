@@ -12,6 +12,8 @@ description: Use when Hermes Coding Mode handoff is low-confidence and the main 
 - 低置信度不创建 task、不启动 runner、不写 LLM Wiki。
 - 不默认使用插件仓库、Hermes 当前工作目录、当前 shell cwd 或 active project 之外的目录。
 - 只有用户明确指定项目、已有 active task、已有 active_project，或明确说明 Wiki 目标时，才能建议对应 `/coding` 命令。
+- 如果用户明确指定项目/文件夹并提出新的开发需求，飞书 Wiki/Docx/Meegle 来源读不到也不应阻止 task 创建；把来源作为 Codex plan 阶段读取项，建议 `/coding task <原需求> --project <项目名或文件夹>`。
+- 只有用户明确在问 `lark-cli` 授权、scope、source 读取失败、token 刷新等诊断时，才调用或建议 `coding_lark_preflight` / `coding_source_resolve`；不要把“带飞书链接的新需求”误判为授权诊断。
 - project init/use/list/status/clear 只处理项目上下文，不创建 task。
 - destructive 操作，例如 cancel/delete，必须要求人工确认，不要自动执行。
 
@@ -21,6 +23,7 @@ description: Use when Hermes Coding Mode handoff is low-confidence and the main 
 2. 如果用户在查询 coding 状态、任务、项目，建议只读命令，例如 `/coding list`、`/coding status <task_id>`、`/coding project list`。
 3. 如果用户在描述新需求，先检查是否有 active task 或 active_project。没有项目归属时，不建议创建 task，要求用户先 `/coding project init <path>` 或 `/coding project use <name>`。
 4. 如果用户在反馈当前任务，优先归入 active task，不让 active_project 抢走上下文。
+5. 如果用户在同一条消息里给了项目名称/文件夹和需求，即使需求来源是飞书 Wiki/Docx，仍按新 task 处理；不要先要求授权或粘贴正文。
 
 ## project-first workflow
 
@@ -31,6 +34,7 @@ description: Use when Hermes Coding Mode handoff is low-confidence and the main 
 - “清掉当前项目”：建议 `/coding project clear`。
 - “订单列表加筛选” 且 active_project 存在：建议 `/coding task <需求>`，说明 plugin 会注入 active_project。
 - “订单列表加筛选” 但没有 active_project、active task 或明确项目：低置信度回复，要求用户先选项目，不要创建 task。
+- “项目名称：商户后台，文件夹名称为 bestvoy-admin。实现 Marketplace APP 后台模块，需求来源：飞书 Wiki 链接”：建议 `/coding task <原需求> --project bestvoy-admin`。飞书正文由 Codex plan session 调用 `rtk lark-cli docs +fetch ...` 读取。
 
 ## task next step
 

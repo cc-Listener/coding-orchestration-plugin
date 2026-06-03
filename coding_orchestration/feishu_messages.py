@@ -44,7 +44,7 @@ def render_task_needs_source_context(task_id: str, summary: str, source_url: str
         f"需求：{summary}\n"
         f"飞书来源：{source_url}\n"
         f"原因：飞书来源暂未进入 Codex 可解析上下文。{reason}\n"
-        "下一步：授权 Hermes/Feishu reader 读取该来源，或直接粘贴来源正文后继续。"
+        "下一步：请保留来源链接交给 Codex plan 阶段读取；如果 Codex 也读取失败，再授权 lark-cli 或直接粘贴来源正文。"
     )
 
 
