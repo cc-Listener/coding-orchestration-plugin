@@ -2,6 +2,7 @@ import tempfile
 import unittest
 import subprocess
 import sys
+import os
 from pathlib import Path
 
 from coding_orchestration.install import install_from_current_repo, read_hermes_feishu_app_id
@@ -37,6 +38,7 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         self.assertTrue((repo_root / "PLUGIN_USAGE.md").exists())
         self.assertTrue((repo_root / "PLUGIN_PREREQUISITES.md").exists())
         self.assertTrue((repo_root / "scripts" / "install_symlink.py").exists())
+        self.assertTrue((repo_root / "scripts" / "uninstall_legacy.py").exists())
         self.assertTrue((repo_root / "examples" / "project-registry.json").exists())
         self.assertTrue((repo_root / "examples" / "WORKFLOW.md").exists())
 
@@ -54,8 +56,8 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         self.assertIn("~/.hermes/coding-orchestration", usage)
         self.assertNotIn("rtk hermes plugins " + "install", usage)
         self.assertNotIn("rtk git " + "ls-remote", usage)
-        self.assertNotIn("coding-orchestration-" + "prod", usage)
-        self.assertNotIn("coding-orchestration-" + "test", usage)
+        self.assertNotIn("CODING_ORCHESTRATION_ROOT=~/.hermes/coding-orchestration-" + "prod", usage)
+        self.assertNotIn("CODING_ORCHESTRATION_ROOT=~/.hermes/coding-orchestration-" + "test", usage)
         self.assertIn("CODEX_CLI_COMMAND=/absolute/path/to/codex", usage)
         self.assertIn("初始化时不需要带入 `project-registry.json`", usage)
         self.assertIn("索引飞书 Project/Wiki/Docx 来源", usage)
@@ -64,6 +66,9 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         self.assertNotIn("FEISHU_DOC" + "_LARK_CLI", usage)
         self.assertIn("rtk git pull --ff-only", usage)
         self.assertIn("rtk proxy curl -sS http://127.0.0.1:8642/health", usage)
+        self.assertIn("rtk python3 scripts/uninstall_legacy.py --hermes-home ~/.hermes", usage)
+        self.assertIn("确认卸载", usage)
+        self.assertIn("~/.hermes/plugins/coding_orchestration", usage)
 
         self.assertIn("CODEX_CLI_COMMAND=/absolute/path/to/codex", prerequisites)
         self.assertIn("FEISHU_APP_ID", prerequisites)
@@ -75,6 +80,8 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         self.assertIn("~/.hermes/coding-orchestration", prerequisites)
         self.assertIn("bot 权限和 user OAuth scope", prerequisites)
         self.assertIn("rtk hermes coding doctor", prerequisites)
+        self.assertIn("rtk python3 scripts/uninstall_legacy.py --hermes-home ~/.hermes", prerequisites)
+        self.assertIn("确认卸载", prerequisites)
         self.assertNotIn("rtk hermes plugins install git", prerequisites)
         self.assertNotIn("rtk git ls-remote git@github.com:cc-Listener/coding-orchestration-plugin.git", prerequisites)
         self.assertNotIn("CODING_ORCHESTRATION_ROOT=", prerequisites)
@@ -90,7 +97,7 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         self.assertIn("rtk hermes plugins enable coding_orchestration", readme)
         self.assertNotIn("rtk hermes plugins " + "install", readme)
         self.assertNotIn("rtk git " + "ls-remote", readme)
-        self.assertNotIn("coding-orchestration-" + "prod", readme)
+        self.assertNotIn("CODING_ORCHESTRATION_ROOT=~/.hermes/coding-orchestration-" + "prod", readme)
         self.assertIn("初始化时不需要带入 `project-registry.json`", readme)
         self.assertIn("CODEX_CLI_COMMAND=/absolute/path/to/codex", readme)
         self.assertIn("只在 Hermes 层索引来源", readme)
@@ -157,6 +164,132 @@ class DocsAndInstallEntryTest(unittest.TestCase):
 
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertTrue((hermes_home / "plugins" / "coding_orchestration").is_symlink())
+
+    def test_uninstall_script_dry_run_when_invoked_by_path(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            hermes_home = Path(tmp) / ".hermes"
+            (hermes_home / "plugins" / "coding-orchestration-plugin").mkdir(parents=True)
+            (hermes_home / "coding-orchestration").mkdir(parents=True)
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(repo_root / "scripts" / "uninstall_legacy.py"),
+                    "--hermes-home",
+                    str(hermes_home),
+                ],
+                cwd=repo_root,
+                check=False,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("模式：预览", completed.stdout)
+            self.assertIn("将删除", completed.stdout)
+            self.assertIn(str(hermes_home / "coding-orchestration"), completed.stdout)
+            self.assertTrue((hermes_home / "plugins" / "coding-orchestration-plugin").exists())
+            self.assertTrue((hermes_home / "coding-orchestration").exists())
+
+    def test_uninstall_script_execute_requires_confirmation_for_current_components(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            hermes_home = Path(tmp) / ".hermes"
+            (hermes_home / "plugins" / "coding_orchestration").mkdir(parents=True)
+            (hermes_home / "coding-orchestration").mkdir(parents=True)
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(repo_root / "scripts" / "uninstall_legacy.py"),
+                    "--hermes-home",
+                    str(hermes_home),
+                    "--execute",
+                ],
+                cwd=repo_root,
+                check=False,
+                input="取消\n",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+
+            self.assertEqual(completed.returncode, 3)
+            self.assertIn("请输入“确认卸载”继续", completed.stdout)
+            self.assertIn("已取消", completed.stdout)
+            self.assertNotIn("正在重启 Hermes Gateway", completed.stdout)
+            self.assertTrue((hermes_home / "plugins" / "coding_orchestration").exists())
+            self.assertTrue((hermes_home / "coding-orchestration").exists())
+
+    def test_uninstall_script_execute_removes_current_after_confirmation(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            hermes_home = Path(tmp) / ".hermes"
+            (hermes_home / "plugins" / "coding_orchestration").mkdir(parents=True)
+            (hermes_home / "coding-orchestration").mkdir(parents=True)
+            restart = Path(tmp) / "fake_restart.py"
+            restart.write_text("print('fake restart ok')\n", encoding="utf-8")
+            env = dict(os.environ)
+            env["HERMES_GATEWAY_RESTART_COMMAND"] = f"{sys.executable} {restart}"
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(repo_root / "scripts" / "uninstall_legacy.py"),
+                    "--hermes-home",
+                    str(hermes_home),
+                    "--execute",
+                ],
+                cwd=repo_root,
+                check=False,
+                input="确认卸载\n",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertIn("已删除", completed.stdout)
+            self.assertIn("正在重启 Hermes Gateway", completed.stdout)
+            self.assertIn("Hermes Gateway 已重启", completed.stdout)
+            self.assertIn("fake restart ok", completed.stdout)
+            self.assertFalse((hermes_home / "plugins" / "coding_orchestration").exists())
+            self.assertFalse((hermes_home / "coding-orchestration").exists())
+
+    def test_uninstall_script_reports_gateway_restart_failure(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmp:
+            hermes_home = Path(tmp) / ".hermes"
+            (hermes_home / "plugins" / "coding_orchestration").mkdir(parents=True)
+            restart = Path(tmp) / "fake_restart_fail.py"
+            restart.write_text("import sys\nprint('restart failed')\nsys.exit(9)\n", encoding="utf-8")
+            env = dict(os.environ)
+            env["HERMES_GATEWAY_RESTART_COMMAND"] = f"{sys.executable} {restart}"
+
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(repo_root / "scripts" / "uninstall_legacy.py"),
+                    "--hermes-home",
+                    str(hermes_home),
+                    "--execute",
+                ],
+                cwd=repo_root,
+                check=False,
+                input="确认卸载\n",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=env,
+            )
+
+            self.assertEqual(completed.returncode, 4)
+            self.assertIn("Hermes Gateway 重启失败", completed.stdout)
+            self.assertIn("restart failed", completed.stdout)
+            self.assertIn("恢复动作", completed.stdout)
 
 
 if __name__ == "__main__":

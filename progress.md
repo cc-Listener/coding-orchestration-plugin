@@ -2058,5 +2058,36 @@
   - `rtk git diff --check`：passed，无输出。
   - `rtk python3 -m unittest discover -s tests`：262 tests passed。
 
+### 阶段 92：Hermes 组件卸载脚本
+- **状态：** complete
+- 执行的操作：
+  - 新增 `scripts/uninstall_legacy.py`，用于清理 Hermes coding plugin 组件和运行根。
+  - `coding_orchestration/install.py` 新增卸载动作收集和执行逻辑，默认 dry-run，`--execute` 才真正删除。
+  - 默认清理历史组件和当前 `coding_orchestration` 软链接、当前 `~/.hermes/coding-orchestration` 运行根。
+  - 删除包含当前正式组件时，必须输入 `确认卸载` 做二次确认。
+  - 卸载执行完成后自动运行 `rtk hermes gateway restart`；重启失败时返回非 0 并提示手动恢复动作。
+  - README、PLUGIN_USAGE、PLUGIN_PREREQUISITES 已写入卸载命令和保护边界。
+  - `tests/test_install.py`、`tests/test_docs_and_install_entry.py` 已补卸载逻辑与脚本 dry-run 测试。
+  - 用户反馈 dry-run 不应保留当前组件后，已改为默认检查并卸载当前软链接和当前运行根；执行时用 `确认卸载` 做二次确认。
+- 已验证：
+  - `rtk python3 -m unittest tests.test_install tests.test_docs_and_install_entry`：12 tests passed。
+  - `rtk python3 -m py_compile coding_orchestration/install.py scripts/uninstall_legacy.py tests/test_install.py tests/test_docs_and_install_entry.py`：passed。
+  - `rtk git diff --check`：passed，无输出。
+  - `rtk python3 -m unittest discover -s tests`：266 tests passed。
+
+### 阶段 93：安装脚本完整硬门禁
+- **状态：** complete
+- 执行的操作：
+  - `coding_orchestration/install.py` 的 `run_install_preflight()` 已从单一 lark app 检查升级为聚合检查。
+  - 新检查项覆盖 Hermes `.env` 必填项、Hermes CLI/Gateway、Codex CLI 绝对路径和 runner flags、旧组件冲突、`lark-cli` appId 与 Docx/Wiki/Sheet scopes。
+  - `scripts/install_symlink.py` 失败时逐项输出 check status、error 和 recovery_action。
+  - README、PLUGIN_USAGE、PLUGIN_PREREQUISITES 已同步完整硬门禁口径。
+  - `tests/test_install.py`、`tests/test_source_resolver.py` 已补完整 preflight 和 sheets scope 回归。
+- 已验证：
+  - `rtk python3 -m unittest tests.test_install tests.test_docs_and_install_entry tests.test_source_resolver`：24 tests passed。
+  - `rtk python3 -m py_compile coding_orchestration/install.py coding_orchestration/source_resolver.py scripts/install_symlink.py scripts/uninstall_legacy.py tests/test_install.py tests/test_source_resolver.py tests/test_docs_and_install_entry.py`：passed。
+  - `rtk git diff --check`：passed，无输出。
+  - `rtk python3 -m unittest discover -s tests`：271 tests passed。
+
 ---
 *每个阶段完成后或遇到错误时更新此文件*

@@ -124,6 +124,7 @@ class SourceResolver:
         needs_refresh = "needs_refresh" in output
         has_docx = "docx:document:readonly" in output
         has_wiki = "wiki:node:read" in output or "wiki:node:retrieve" in output
+        has_sheets = "sheets:spreadsheet:read" in output
         if needs_refresh:
             return {
                 "ok": False,
@@ -142,6 +143,8 @@ class SourceResolver:
             missing.append("docx:document:readonly")
         if not has_wiki:
             missing.append("wiki:node:read or wiki:node:retrieve")
+        if args.get("require_sheets_scope") and not has_sheets:
+            missing.append("sheets:spreadsheet:read")
         if missing:
             return {
                 "ok": False,

@@ -126,6 +126,29 @@ scopes:
         self.assertEqual(result["status"], "permission_missing")
         self.assertIn("wiki:node:read or wiki:node:retrieve", result["missing_scopes"])
 
+    def test_lark_preflight_can_require_sheet_scope(self):
+        resolver = SourceResolver(
+            command_runner=_runner(
+                stdout="""
+user identity: available
+scopes:
+  - docx:document:readonly
+  - wiki:node:retrieve
+"""
+            )
+        )
+
+        result = resolver.preflight_lark(
+            {
+                "hermes_home": ISOLATED_HERMES_HOME,
+                "require_sheets_scope": True,
+            }
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "permission_missing")
+        self.assertIn("sheets:spreadsheet:read", result["missing_scopes"])
+
     def test_lark_preflight_reports_command_failure(self):
         resolver = SourceResolver(command_runner=_runner(stderr="command not found: lark-cli", returncode=127))
 

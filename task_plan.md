@@ -663,6 +663,25 @@
 - [x] 验证：focused 文档测试、py_compile、`git diff --check` 和全量 unittest 通过。
 - **状态：** complete
 
+### 阶段 92：Hermes 组件卸载脚本
+- [x] 实现：新增 `scripts/uninstall_legacy.py`，默认 dry-run，`--execute` 才删除。
+- [x] 实现：卸载逻辑默认清理旧插件副本、旧 `coding-orchestration-prod/test` 运行根、当前软链接和当前运行根。
+- [x] 保护：脚本不删除 `~/.hermes/.env`、Hermes auth、Codex auth 或 `lark-cli` 授权文件。
+- [x] 保护：如果实际删除包含当前正式组件，必须输入 `确认卸载` 做二次确认。
+- [x] 文档：README、PLUGIN_USAGE、PLUGIN_PREREQUISITES 增加卸载和清理旧组件命令。
+- [x] 测试：新增卸载函数与脚本 dry-run 测试。
+- [x] 验证：focused unittest、py_compile、`git diff --check`、全量 unittest 通过。
+- **状态：** complete
+
+### 阶段 93：安装脚本完整硬门禁
+- [x] 实现：`run_install_preflight()` 从单一 lark app 检查升级为聚合检查，覆盖 Hermes `.env`、Hermes CLI/Gateway、Codex CLI 路径与能力、旧组件冲突、`lark-cli` app/scope。
+- [x] 实现：安装脚本失败时逐项输出 check status、error 和 recovery_action。
+- [x] 实现：安装门禁要求 `sheets:spreadsheet:read`，避免需求文档内嵌 Sheet 时安装后才暴露权限缺口。
+- [x] 测试：新增完整成功、缺 env、旧组件冲突、缺 Sheet scope、脚本 dry-run 等回归。
+- [x] 文档：README、PLUGIN_USAGE、PLUGIN_PREREQUISITES 改为“完整硬门禁”口径。
+- [x] 验证：focused unittest、py_compile、`git diff --check`、全量 unittest 通过。
+- **状态：** complete
+
 ## 关键问题
 1. Coding Mode 是否默认只在当前会话生效，还是可跨会话保持？建议先做当前会话级。
 2. Codex 可见 session 的具体 attach/resume 命令需要以当前 Codex CLI 实际支持为准。

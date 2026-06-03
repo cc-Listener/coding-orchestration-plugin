@@ -55,6 +55,18 @@ rtk hermes plugins enable coding_orchestration
 rtk hermes gateway restart
 ```
 
+`install_symlink.py` 默认会执行完整硬门禁检查，全部通过后才创建软链接。检查项包括：
+
+- `~/.hermes/.env` 中存在 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`CODEX_CLI_COMMAND`。
+- `CODEX_CLI_COMMAND` 是可执行的绝对路径。
+- Codex CLI 支持 `codex exec`、`codex exec resume`、`--json`、`--output-schema`、`--output-last-message`、`--sandbox`、`--dangerously-bypass-approvals-and-sandbox`、`-C`。
+- Hermes CLI、plugin list 和 Gateway status 可用。
+- 不存在旧 plugin 副本或旧 `coding-orchestration-prod/test` 运行根。
+- 终端默认 `lark-cli` appId 等于 Hermes `FEISHU_APP_ID`。
+- user scope 包含 `docx:document:readonly`、Wiki 读取 scope 和 `sheets:spreadsheet:read`。
+
+如果只想在隔离测试里跳过检查，可以使用 `--skip-preflight`；团队安装流程不要使用这个参数。
+
 确认插件入口只有一个：
 
 ```bash
@@ -68,6 +80,22 @@ coding_orchestration -> /Users/xiaojing/Desktop/tools/hermes-codex-tools/coding_
 ```
 
 如果存在历史副本或另一个 `coding_orchestration` 目录，需要移除或停用，避免两个 Gateway hook 同时回复同一条消息。
+
+卸载 Hermes coding 相关组件时，先 dry-run：
+
+```bash
+rtk python3 scripts/uninstall_legacy.py --hermes-home ~/.hermes
+```
+
+确认输出后再真正删除：
+
+```bash
+rtk python3 scripts/uninstall_legacy.py --hermes-home ~/.hermes --execute
+```
+
+脚本默认会卸载旧插件副本、旧运行根、当前 `coding_orchestration` 软链接，以及当前 `~/.hermes/coding-orchestration` 里的 task ledger、runs、workspaces 和 LLM Wiki。执行删除前必须输入 `确认卸载` 做二次确认；未输入确认文本时不会删除任何文件。
+
+脚本不会删除 `~/.hermes/.env`、Hermes auth、Codex auth 或 `lark-cli` 授权文件。卸载完成后会自动执行 `rtk hermes gateway restart`；如果重启失败，脚本会提示手动恢复动作。
 
 更新插件：
 

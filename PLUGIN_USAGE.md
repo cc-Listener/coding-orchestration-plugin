@@ -62,7 +62,7 @@ rtk lark-cli auth login --scope "docx:document:readonly wiki:node:read wiki:node
 rtk lark-cli auth status --verify
 ```
 
-`scripts/install_symlink.py` 默认会执行 appId 一致性前置检查；不一致时安装失败，并输出恢复动作。`--skip-preflight` 只允许用于隔离测试，不作为团队安装流程。
+`scripts/install_symlink.py` 默认会执行完整前置检查：Hermes `.env`、Codex CLI 绝对路径和能力、Hermes CLI/Gateway、旧组件冲突、终端默认 `lark-cli` appId、Docx/Wiki/Sheet user scope 都必须通过。检查失败时会逐项输出错误和恢复动作。`--skip-preflight` 只允许用于隔离测试，不作为团队安装流程。
 
 插件启用后需要重启 Gateway 或开启新的 Hermes session 才会生效：
 
@@ -89,6 +89,35 @@ rtk hermes gateway status
 - `/commands` 第一页能看到 `/coding help`、`/coding task`、`/coding project list`、`/coding status`、`/coding delete`。
 - `/coding help` 能输出完整命令说明。
 - 默认普通自然语言不会进入 plugin；发送“进入coding”后，本会话自然语言会先交给 LLM rewrite。高置信度会直接执行为 `/coding <action>`；低置信度交给 Hermes 主 agent 基于插件上下文继续判断；高风险候选会要求确认。
+
+## 卸载和清理旧组件
+
+卸载 Hermes coding 相关组件时，先执行 dry-run：
+
+```bash
+rtk python3 scripts/uninstall_legacy.py --hermes-home ~/.hermes
+```
+
+确认输出后再真正删除：
+
+```bash
+rtk python3 scripts/uninstall_legacy.py --hermes-home ~/.hermes --execute
+```
+
+默认卸载范围：
+
+- `~/.hermes/plugins/coding-orchestration-plugin`
+- `~/.hermes/plugins/coding-orchestration`
+- `~/.hermes/plugins/coding_orchestration_prod`
+- `~/.hermes/plugins/coding_orchestration_test`
+- `~/.hermes/plugins/coding_orchestration`
+- `~/.hermes/coding-orchestration-prod`
+- `~/.hermes/coding-orchestration-test`
+- `~/.hermes/coding-orchestration`
+
+执行删除前必须输入 `确认卸载` 做二次确认；未输入确认文本时不会删除任何文件。
+
+脚本不会删除 `~/.hermes/.env`、Hermes auth、Codex auth 或 `lark-cli` 授权文件。卸载完成后会自动执行 `rtk hermes gateway restart`；如果重启失败，脚本会提示手动恢复动作。
 
 ## 更新插件
 

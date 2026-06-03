@@ -220,6 +220,10 @@
 | 终端默认 `lark-cli` appId 必须等于 Hermes `FEISHU_APP_ID` | 共享授权的前提是同一个飞书应用；OAuth token 按 appId 隔离。安装脚本和 `coding_lark_preflight` 需要把 appId 一致性作为硬门禁，避免团队成员装出“终端能读、Hermes/Codex task 读不到”的环境 |
 | Hermes 回复“未授权”可能来自主 agent 旧口径 | 当 Coding Mode rewriter 低置信度 handoff 后，插件未创建 task、未启动 runner，主 agent 可能直接按 source/auth 诊断回复“缺授权”。这不等价于 Codex plan session 读不到；明确项目 + 明确开发需求 + 飞书来源链接必须走 `/coding task ... --project ...`，来源留给 Codex plan 阶段读取 |
 | 前置准备必须独立成团队清单 | Hermes `.env`、Codex CLI 绝对路径、`lark-cli` appId、飞书 user scope / bot 权限、LLM Wiki 项目初始化和 Kanban 可用性缺一项都会让 plugin 表现为“能装但不好用”；这些检查不应散落在 README 和部署长文里，统一维护在可跟踪的 `PLUGIN_PREREQUISITES.md` |
+| 卸载当前组件必须二次确认 | 卸载脚本现在默认把当前 `~/.hermes/plugins/coding_orchestration` 和 `~/.hermes/coding-orchestration` 也纳入卸载范围；为避免误删 task ledger、runs、workspaces 和 LLM Wiki，`--execute` 时必须输入 `确认卸载`，未确认不删除任何文件 |
+| 安装门禁不能只检查 lark app | 真实团队安装问题会来自 Hermes `.env`、Codex 路径/flags、Gateway、旧组件、Docx/Wiki/Sheet scopes 任一缺口；`install_symlink.py` 需要聚合检查并逐项输出恢复动作，否则用户会装出“软链接成功但运行不可用”的环境 |
+| 卸载 dry-run 需要展示当前组件 | 用户执行卸载 dry-run 时，不仅要知道旧组件是否存在，也要看到当前 `~/.hermes/plugins/coding_orchestration` 和 `~/.hermes/coding-orchestration` 是否存在且会被删除；真正执行删除时再二次确认 |
+| 卸载完成后必须重启 Gateway | Hermes Gateway 不会热卸载 Python 插件；删除插件入口和运行根后，脚本需要自动执行 `rtk hermes gateway restart`，否则旧 hook 可能仍留在当前进程里 |
 
 ## 资源
 - `/Users/xiaojing/.hermes/coding-orchestration/runs/task_43141b20c03e`
