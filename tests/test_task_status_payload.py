@@ -36,6 +36,11 @@ class TaskStatusPayloadTest(unittest.TestCase):
                 task_session={
                     "project_name": "bps-admin",
                     "kanban_task_id": "kb_123",
+                    "kanban_sync": {
+                        "status": "ok",
+                        "task_status": TaskStatus.SOURCE_AUTH_NEEDED.value,
+                        "task_status_display": "来源授权待刷新(source_auth_needed)",
+                    },
                     "runner": {"provider": "codex_cli"},
                 },
             )
@@ -53,13 +58,25 @@ class TaskStatusPayloadTest(unittest.TestCase):
             self.assertEqual(payload["task_id"], "task_123")
             self.assertEqual(payload["status"], TaskStatus.SOURCE_AUTH_NEEDED.value)
             self.assertIn("status_label", payload)
+            self.assertEqual(payload["status_label_zh"], "来源授权待刷新")
+            self.assertEqual(payload["status_display"], "来源授权待刷新(source_auth_needed)")
             self.assertEqual(payload["source_status"], "auth_needed")
             self.assertEqual(payload["source_url"], "https://bestfulfill.feishu.cn/docx/Token123")
             self.assertEqual(payload["runtime_status"], "running")
             self.assertEqual(payload["last_run_id"], "run_1")
             self.assertEqual(payload["kanban_task_id"], "kb_123")
+            self.assertEqual(payload["kanban_sync"]["status"], "ok")
             self.assertEqual(payload["source_recovery_action"], "run lark-cli auth refresh")
             self.assertIn("coding_lark_preflight", payload["next_actions"])
+
+            message = orchestrator.command_coding_status("task_123")
+
+            self.assertIn("状态：来源授权待刷新(source_auth_needed)", message)
+            self.assertIn("执行阶段：draft", message)
+            self.assertIn("最近运行：running", message)
+            self.assertIn("Kanban 同步：成功", message)
+            self.assertNotIn("Ledger 状态", message)
+            self.assertNotIn("Kanban 状态", message)
 
 
 if __name__ == "__main__":

@@ -5,6 +5,7 @@ from pathlib import Path
 from coding_orchestration.kanban_bridge import KanbanBridge
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
+from coding_orchestration.models import TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
 
@@ -17,6 +18,11 @@ class FakeDispatchTool:
     def __call__(self, name, args):
         self.calls.append({"name": name, "args": args})
         return self.result
+
+
+class ExplodingDispatchTool:
+    def __call__(self, name, args):
+        raise RuntimeError("kanban offline")
 
 
 def _write_workflow(project: Path) -> None:
@@ -85,6 +91,50 @@ class KanbanBridgeTest(unittest.TestCase):
             self.assertEqual(task["task_session"]["kanban_task_id"], "t_123")
             self.assertEqual(dispatch_tool.calls[0]["name"], "kanban_create")
             self.assertEqual(dispatch_tool.calls[0]["args"]["metadata"]["local_task_id"], created.task_id)
+
+    def test_sync_task_status_projects_to_real_kanban_tools(self):
+        cases = [
+            (TaskStatus.DONE, "kanban_complete"),
+            (TaskStatus.BLOCKED, "kanban_block"),
+            (TaskStatus.QUEUED, "kanban_heartbeat"),
+            (TaskStatus.RUNNING, "kanban_heartbeat"),
+            (TaskStatus.PLANNED, "kanban_comment"),
+            (TaskStatus.READY_FOR_MERGE_TEST, "kanban_comment"),
+            (TaskStatus.RUNNER_FAILED, "kanban_comment"),
+        ]
+        for status, expected_tool in cases:
+            with self.subTest(status=status.value):
+                dispatch_tool = FakeDispatchTool(result={"ok": True})
+                bridge = KanbanBridge(dispatch_tool=dispatch_tool)
+
+                result = bridge.sync_task_status(
+                    local_task_id="task_abc",
+                    kanban_task_id="kb_123",
+                    task_status=status,
+                    reason="state transition",
+                )
+
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["tool"], expected_tool)
+                self.assertEqual(dispatch_tool.calls[0]["name"], expected_tool)
+                payload = dispatch_tool.calls[0]["args"]
+                self.assertEqual(payload["task_id"], "kb_123")
+                self.assertEqual(payload["metadata"]["local_task_id"], "task_abc")
+                self.assertEqual(payload["metadata"]["task_status"], status.value)
+                self.assertEqual(payload["metadata"]["task_status_display"], f"{result['task_status_label_zh']}({status.value})")
+
+    def test_sync_task_status_failure_is_non_blocking_result(self):
+        bridge = KanbanBridge(dispatch_tool=ExplodingDispatchTool())
+
+        result = bridge.sync_task_status(
+            local_task_id="task_abc",
+            kanban_task_id="kb_123",
+            task_status=TaskStatus.RUNNING,
+            reason="state transition",
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertIn("kanban_sync_failed", result["reason"])
 
 
 if __name__ == "__main__":

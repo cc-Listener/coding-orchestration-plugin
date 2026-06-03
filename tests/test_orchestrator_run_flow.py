@@ -140,6 +140,25 @@ class FakeCommandRewriter:
         return dict(self.response)
 
 
+class FakeDispatchTool:
+    def __init__(self, result=None):
+        self.result = result if result is not None else {"ok": True}
+        self.calls = []
+
+    def __call__(self, name, args):
+        self.calls.append({"name": name, "args": args})
+        return self.result
+
+
+class ExplodingDispatchTool:
+    def __init__(self):
+        self.calls = []
+
+    def __call__(self, name, args):
+        self.calls.append({"name": name, "args": args})
+        raise RuntimeError("kanban unavailable")
+
+
 class RecordingCodingOrchestrator(CodingOrchestrator):
     def __post_init__(self):
         super().__post_init__()
@@ -233,6 +252,87 @@ manual_only
 
 
 class OrchestratorRunFlowTest(unittest.TestCase):
+    def test_transition_task_status_updates_ledger_and_kanban_projection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_1",
+                source={"type": "manual"},
+                requirement_summary="需求",
+                project_path=str(root),
+                status=TaskStatus.QUEUED.value,
+                phase=TaskPhase.PLANNING.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                task_session={"kanban_task_id": "kb_1"},
+            )
+            dispatch_tool = FakeDispatchTool()
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            orchestrator.set_dispatch_tool(dispatch_tool)
+
+            result = orchestrator._transition_task_status(
+                "task_1",
+                TaskStatus.RUNNING,
+                phase=TaskPhase.IMPLEMENTING,
+                reason="run started",
+            )
+
+            task = ledger.get_task("task_1")
+            self.assertTrue(result["ok"])
+            self.assertEqual(task["status"], TaskStatus.RUNNING.value)
+            self.assertEqual(task["phase"], TaskPhase.IMPLEMENTING.value)
+            self.assertEqual(dispatch_tool.calls[0]["name"], "kanban_heartbeat")
+            self.assertEqual(task["task_session"]["kanban_sync"]["status"], "ok")
+            self.assertEqual(task["task_session"]["kanban_sync"]["task_status_display"], "运行中(running)")
+
+    def test_transition_task_status_keeps_primary_status_when_kanban_sync_fails(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_1",
+                source={"type": "manual"},
+                requirement_summary="需求",
+                project_path=str(root),
+                status=TaskStatus.QUEUED.value,
+                phase=TaskPhase.PLANNING.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                task_session={"kanban_task_id": "kb_1"},
+            )
+            dispatch_tool = ExplodingDispatchTool()
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            orchestrator.set_dispatch_tool(dispatch_tool)
+
+            result = orchestrator._transition_task_status(
+                "task_1",
+                TaskStatus.RUNNING,
+                phase=TaskPhase.IMPLEMENTING,
+                reason="run started",
+            )
+
+            task = ledger.get_task("task_1")
+            self.assertTrue(result["ok"])
+            self.assertEqual(task["status"], TaskStatus.RUNNING.value)
+            self.assertNotEqual(task["status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(task["task_session"]["kanban_sync"]["status"], "failed")
+            self.assertIn("kanban_sync_failed", task["task_session"]["kanban_sync"]["reason"])
+
     def test_command_rewriter_prompt_lists_restore_and_hermes_fallback(self):
         prompt = HermesCommandRewriter._system_prompt()
 

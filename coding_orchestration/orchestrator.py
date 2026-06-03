@@ -41,6 +41,7 @@ from .models import (
     TaskStatus,
     normalize_agent_run_status,
     task_status_display,
+    task_status_view,
 )
 from .pre_llm_context import build_pre_llm_context
 from .prompt_builder import PromptBuilder
@@ -578,6 +579,19 @@ class CodingOrchestrator:
         target = raw_args.strip()
         if not target:
             return "请提供 task_id 或 run_id。"
+        task = self.ledger.get_task(target)
+        if task:
+            try:
+                self._transition_task_status(
+                    target,
+                    TaskStatus.CANCELLED,
+                    phase=TaskPhase.CANCELLED,
+                    reason="manual cancellation",
+                )
+            except ValueError:
+                self.ledger.mark_cancelled(target)
+                self._sync_status_to_kanban(target, TaskStatus.CANCELLED, reason="manual cancellation")
+            return f"已标记取消：{target}"
         changed = self.ledger.mark_cancelled(target)
         return f"已标记取消：{target}" if changed else f"未找到可取消对象：{target}"
 
@@ -591,8 +605,7 @@ class CodingOrchestrator:
         if not self._task_is_cancelled(task):
             return f"[{task_id}] 当前状态是 {task_status_display(task.get('status'))}，不需要 restore。"
         status, phase, reason = self._restore_state_for_cancelled_task(task)
-        self.ledger.update_status(task_id, status.value)
-        self.ledger.update_phase(task_id, phase.value)
+        self._transition_task_status(task_id, status, phase=phase, reason=reason)
         self.ledger.update_task_session(
             task_id,
             {
@@ -744,8 +757,14 @@ class CodingOrchestrator:
         } and status_update is None:
             return f"[{task_id}] 当前状态是 {task['status']}，还不能准备 merge-to-test。"
         if status_update is not None:
-            self.ledger.update_status(task_id, status_update.value)
-        self.ledger.update_phase(task_id, TaskPhase.READY_TO_MERGE_TEST.value)
+            self._transition_task_status(
+                task_id,
+                status_update,
+                phase=TaskPhase.READY_TO_MERGE_TEST,
+                reason="prepare merge-test from blocked task",
+            )
+        else:
+            self.ledger.update_phase(task_id, TaskPhase.READY_TO_MERGE_TEST.value)
         self.ledger.append_merge_record(
             task_id,
             {
@@ -821,9 +840,12 @@ class CodingOrchestrator:
         current_status = str(task.get("status") or "")
         if current_status != TaskStatus.MERGED_TEST.value:
             return f"[{task_id}] 当前状态是 {task_status_display(current_status)}，不能标记完成；请先执行 /coding merge-test {task_id}。"
-        TaskStateMachine.transition(current_status, TaskStatus.DONE, reason="manual completion")
-        self.ledger.update_status(task_id, TaskStatus.DONE.value)
-        self.ledger.update_phase(task_id, TaskPhase.DONE.value)
+        self._transition_task_status(
+            task_id,
+            TaskStatus.DONE,
+            phase=TaskPhase.DONE,
+            reason="manual completion",
+        )
         self.ledger.append_human_decision(
             task_id,
             {
@@ -1014,6 +1036,99 @@ class CodingOrchestrator:
                 },
             )
         return result
+
+    def _transition_task_status(
+        self,
+        task_id: str,
+        status: TaskStatus | str,
+        *,
+        phase: TaskPhase | str | None = None,
+        reason: str = "",
+        sync_kanban: bool = True,
+    ) -> dict[str, Any]:
+        task = self.ledger.get_task(task_id)
+        if not task:
+            return {"ok": False, "task_id": task_id, "error": f"task not found: {task_id}"}
+        target_status = status.value if isinstance(status, TaskStatus) else str(status)
+        current_status = str(task.get("status") or TaskStatus.NEW.value)
+        if current_status != target_status:
+            TaskStateMachine.transition(current_status, target_status, reason=reason)
+        self.ledger.update_status(task_id, target_status)
+        if phase is not None:
+            phase_value = phase.value if isinstance(phase, TaskPhase) else str(phase)
+            self.ledger.update_phase(task_id, phase_value)
+        kanban_sync = (
+            self._sync_status_to_kanban(task_id, target_status, reason=reason)
+            if sync_kanban
+            else self._kanban_sync_skipped(task_id, target_status, reason="kanban_sync_disabled")
+        )
+        return {
+            "ok": True,
+            "task_id": task_id,
+            "status": target_status,
+            "status_display": task_status_display(target_status),
+            "kanban_sync": kanban_sync,
+        }
+
+    def _sync_status_to_kanban(self, task_id: str, status: TaskStatus | str, *, reason: str = "") -> dict[str, Any]:
+        status_value = status.value if isinstance(status, TaskStatus) else str(status)
+        status_view = task_status_view(status_value)
+        task = self.ledger.get_task(task_id)
+        if not task:
+            return {"status": "skipped", "reason": f"task not found: {task_id}", **self._task_status_sync_fields(status_view)}
+        session = task.get("task_session") or {}
+        kanban_task_id = str(session.get("kanban_task_id") or "")
+        bridge = getattr(self, "kanban_bridge", None)
+        if bridge is None or not hasattr(bridge, "sync_task_status"):
+            sync = {"status": "skipped", "reason": "kanban_bridge_unavailable"}
+        elif not kanban_task_id:
+            sync = {"status": "skipped", "reason": "kanban_task_id_missing"}
+        else:
+            result = bridge.sync_task_status(
+                local_task_id=task_id,
+                kanban_task_id=kanban_task_id,
+                task_status=status_value,
+                reason=reason,
+            )
+            sync = self._kanban_sync_record_from_result(result, status_view)
+        sync = {
+            **sync,
+            **self._task_status_sync_fields(status_view),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.ledger.update_task_session(task_id, {"kanban_sync": sync})
+        return sync
+
+    def _kanban_sync_skipped(self, task_id: str, status: str, *, reason: str) -> dict[str, Any]:
+        status_view = task_status_view(status)
+        sync = {
+            "status": "skipped",
+            "reason": reason,
+            **self._task_status_sync_fields(status_view),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.ledger.update_task_session(task_id, {"kanban_sync": sync})
+        return sync
+
+    @staticmethod
+    def _kanban_sync_record_from_result(result: dict[str, Any], status_view: dict[str, str]) -> dict[str, Any]:
+        sync_status = "ok" if result.get("ok") else "failed"
+        record = {
+            "status": sync_status,
+            "tool": result.get("tool") or "",
+            "reason": result.get("reason") or "",
+        }
+        if "raw" in result:
+            record["raw"] = result.get("raw")
+        return {**record, **CodingOrchestrator._task_status_sync_fields(status_view)}
+
+    @staticmethod
+    def _task_status_sync_fields(status_view: dict[str, str]) -> dict[str, str]:
+        return {
+            "task_status": status_view["status"],
+            "task_status_label_zh": status_view["status_label_zh"],
+            "task_status_display": status_view["status_display"],
+        }
 
     def _initial_task_status_for_create(
         self,
@@ -2566,10 +2681,11 @@ class CodingOrchestrator:
         session = task.get("task_session") or {}
         runner = session.get("runner") or {}
         latest_run = self._latest_agent_run(task)
+        status_view = task_status_view(task.get("status"))
         return {
             "ok": True,
             "task_id": task_id,
-            "status": task.get("status"),
+            **status_view,
             "status_label": task_status_display(task.get("status")),
             "phase": task.get("phase"),
             "project_name": source.get("project_name") or session.get("project_name"),
@@ -2582,6 +2698,7 @@ class CodingOrchestrator:
             "last_run_id": (latest_run or {}).get("run_id") or "",
             "runtime_status": (latest_run or {}).get("status") or "",
             "kanban_task_id": session.get("kanban_task_id") or "",
+            "kanban_sync": session.get("kanban_sync") or {},
             "next_actions": self._next_actions_for_task_payload(task, source_context),
         }
 
@@ -2651,6 +2768,15 @@ class CodingOrchestrator:
             f"[{task_id}] 状态：{task_status_display(task.get('status'))}",
             f"项目：{task.get('project_path') or '未确定'}",
         ]
+        phase = str(task.get("phase") or "").strip()
+        if phase:
+            lines.append(f"执行阶段：{phase}")
+        latest_run = CodingOrchestrator._latest_agent_run(task)
+        if latest_run and latest_run.get("status"):
+            lines.append(f"最近运行：{latest_run.get('status')}")
+        kanban_sync = session.get("kanban_sync") or {}
+        if kanban_sync:
+            lines.append(f"Kanban 同步：{CodingOrchestrator._kanban_sync_status_display(kanban_sync)}")
         if include_branch:
             lines.extend(
                 [
@@ -2684,6 +2810,19 @@ class CodingOrchestrator:
                         line += f"；恢复：{recovery}"
                     lines.append(line)
         return "\n".join(lines)
+
+    @staticmethod
+    def _kanban_sync_status_display(kanban_sync: dict[str, Any]) -> str:
+        status = str(kanban_sync.get("status") or "").strip()
+        label = {
+            "ok": "成功",
+            "failed": "失败",
+            "skipped": "跳过",
+        }.get(status, status or "未知")
+        reason = str(kanban_sync.get("reason") or "").strip()
+        if reason and status in {"failed", "skipped"}:
+            return f"{label} - {reason}"
+        return label
 
     @staticmethod
     def _latest_qa_run(task: dict[str, Any]) -> dict[str, Any] | None:
@@ -3065,8 +3204,12 @@ class CodingOrchestrator:
             confidence=resolved.confidence,
             match_evidence=evidence,
         )
-        self.ledger.update_status(task["task_id"], TaskStatus.PLANNED.value)
-        self.ledger.update_phase(task["task_id"], TaskPhase.PLANNING.value)
+        self._transition_task_status(
+            task["task_id"],
+            TaskStatus.PLANNED,
+            phase=TaskPhase.PLANNING,
+            reason="project context resolved",
+        )
         return resolved
 
     def _repair_task_context_from_existing_task(self, task: dict[str, Any]) -> dict[str, Any]:
@@ -3128,8 +3271,12 @@ class CodingOrchestrator:
             and str(task.get("status") or "") == TaskStatus.NEEDS_HUMAN.value
             and not self._source_context_requires_human(source_context if isinstance(source_context, dict) else {})
         ):
-            self.ledger.update_status(task_id, TaskStatus.PLANNED.value)
-            self.ledger.update_phase(task_id, TaskPhase.PLANNING.value)
+            self._transition_task_status(
+                task_id,
+                TaskStatus.PLANNED,
+                phase=TaskPhase.PLANNING,
+                reason="task context repaired",
+            )
             task = self.ledger.get_task(task_id) or task
         return task
 
@@ -3551,7 +3698,11 @@ class CodingOrchestrator:
             raise ValueError(f"task is cancelled and cannot start run: {task_id}")
         task = self._repair_task_context_from_existing_task(task)
         if not task.get("project_path"):
-            self.ledger.update_status(task_id, TaskStatus.NEEDS_HUMAN.value)
+            self._transition_task_status(
+                task_id,
+                TaskStatus.NEEDS_HUMAN,
+                reason="task has no project_path",
+            )
             raise ValueError(f"task has no project_path: {task_id}")
 
         mode = RunMode(mode)
@@ -3594,8 +3745,12 @@ class CodingOrchestrator:
         elif mode == RunMode.QA:
             workspace_path = self._merge_test_workspace(task)
             if workspace_path is None:
-                self.ledger.update_status(task_id, TaskStatus.BLOCKED.value)
-                self.ledger.update_phase(task_id, TaskPhase.BLOCKED.value)
+                self._transition_task_status(
+                    task_id,
+                    TaskStatus.BLOCKED,
+                    phase=TaskPhase.BLOCKED,
+                    reason="task has no implementation worktree to QA",
+                )
                 raise ValueError(f"task has no implementation worktree to QA: {task_id}")
             self.ledger.update_task_session(
                 task_id,
@@ -3611,8 +3766,12 @@ class CodingOrchestrator:
         elif mode == RunMode.MERGE_TEST:
             workspace_path = self._merge_test_workspace(task)
             if workspace_path is None:
-                self.ledger.update_status(task_id, TaskStatus.BLOCKED.value)
-                self.ledger.update_phase(task_id, TaskPhase.BLOCKED.value)
+                self._transition_task_status(
+                    task_id,
+                    TaskStatus.BLOCKED,
+                    phase=TaskPhase.BLOCKED,
+                    reason="task has no implementation worktree to merge from",
+                )
                 raise ValueError(f"task has no implementation worktree to merge from: {task_id}")
             self.ledger.update_task_session(
                 task_id,
@@ -3715,19 +3874,25 @@ class CodingOrchestrator:
         )
 
         before = self.diff_guard.snapshot(execution_root)
-        self.ledger.update_status(task_id, TaskStatus.QUEUED.value)
-        self.ledger.update_status(task_id, TaskStatus.RUNNING.value)
-        self.ledger.update_phase(
+        running_phase = (
+            TaskPhase.PLANNING
+            if mode == RunMode.PLAN_ONLY
+            else TaskPhase.QA_VERIFYING
+            if mode == RunMode.QA
+            else TaskPhase.READY_TO_MERGE_TEST
+            if mode == RunMode.MERGE_TEST
+            else TaskPhase.IMPLEMENTING
+        )
+        self._transition_task_status(
             task_id,
-            (
-                TaskPhase.PLANNING.value
-                if mode == RunMode.PLAN_ONLY
-                else TaskPhase.QA_VERIFYING.value
-                if mode == RunMode.QA
-                else TaskPhase.READY_TO_MERGE_TEST.value
-                if mode == RunMode.MERGE_TEST
-                else TaskPhase.IMPLEMENTING.value
-            ),
+            TaskStatus.QUEUED,
+            reason=f"{mode.value} queued",
+        )
+        self._transition_task_status(
+            task_id,
+            TaskStatus.RUNNING,
+            phase=running_phase,
+            reason=f"{mode.value} started",
         )
         checkpoint = (
             manifest.qa_checkpoint
@@ -3869,10 +4034,17 @@ class CodingOrchestrator:
         current_task = self.ledger.get_task(task_id) or {}
         current_runner = (current_task.get("task_session") or {}).get("runner") or {}
         observed_active_run_id = str(current_runner.get("active_run_id") or "")
-        stale_completion = bool(observed_active_run_id and observed_active_run_id != run_id)
+        current_task_status = str(current_task.get("status") or "")
+        stale_completion = bool(observed_active_run_id and observed_active_run_id != run_id) or (
+            current_task_status == TaskStatus.CANCELLED.value
+        )
         if not stale_completion:
-            self.ledger.update_status(task_id, task_status.value)
-            self.ledger.update_phase(task_id, task_phase.value)
+            self._transition_task_status(
+                task_id,
+                task_status,
+                phase=task_phase,
+                reason=f"{mode.value} completed with {status}",
+            )
         artifact_record = self._artifact_record(result.artifacts)
         self.ledger.append_artifact(task_id, artifact_record)
         self.ledger.append_agent_run(
@@ -4363,8 +4535,12 @@ class CodingOrchestrator:
             "fallback_evidence": assessment.get("fallback_evidence") or "",
             "created_at": datetime.now(timezone.utc).isoformat(),
         }
-        self.ledger.update_status(task_id, TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value)
-        self.ledger.update_phase(task_id, TaskPhase.READY_TO_MERGE_TEST.value)
+        self._transition_task_status(
+            task_id,
+            TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS,
+            phase=TaskPhase.READY_TO_MERGE_TEST,
+            reason=release["reason"],
+        )
         self.ledger.append_merge_record(task_id, release)
         self.ledger.append_human_decision(
             task_id,
@@ -5489,10 +5665,7 @@ class CodingOrchestrator:
             result = self.start_run(task_id, mode=RunMode.PLAN_ONLY)
             message = self._format_run_completion_message(task_id, result)
         except Exception as exc:
-            try:
-                self.ledger.update_status(task_id, TaskStatus.FAILED.value)
-            except Exception:
-                pass
+            self._mark_background_run_failed(task_id, exc, mode=RunMode.PLAN_ONLY)
             message = f"[{task_id}] plan-only run 启动或执行失败：{exc}\n请人工检查 Hermes 日志和 task ledger。"
         self._reply_if_possible(gateway, event, message, loop=loop)
 
@@ -5523,10 +5696,7 @@ class CodingOrchestrator:
                     else implementation_message
                 )
         except Exception as exc:
-            try:
-                self.ledger.update_status(task_id, TaskStatus.FAILED.value)
-            except Exception:
-                pass
+            self._mark_background_run_failed(task_id, exc, mode=RunMode.IMPLEMENTATION)
             message = f"[{task_id}] implementation run 启动或执行失败：{exc}\n请人工检查 Hermes 日志和 task ledger。"
         self._reply_if_possible(gateway, event, message, loop=loop)
 
@@ -5559,13 +5729,29 @@ class CodingOrchestrator:
             self._store_pending_action_from_merge_test_result(event, task_id, result)
             message = self._format_merge_test_completion_message(task_id, result)
         except Exception as exc:
-            try:
-                self.ledger.update_status(task_id, TaskStatus.FAILED.value)
-                self.ledger.update_phase(task_id, TaskPhase.FAILED.value)
-            except Exception:
-                pass
+            self._mark_background_run_failed(task_id, exc, mode=RunMode.MERGE_TEST)
             message = f"[{task_id}] merge-test run 启动或执行失败：{exc}\n请人工检查 Hermes 日志和 task ledger。"
         self._reply_if_possible(gateway, event, message, loop=loop)
+
+    def _mark_background_run_failed(self, task_id: str, exc: Exception, *, mode: RunMode) -> None:
+        try:
+            task = self.ledger.get_task(task_id) or {}
+            current_status = str(task.get("status") or "")
+            if current_status in {TaskStatus.NEEDS_HUMAN.value, TaskStatus.CANCELLED.value}:
+                return
+            self._transition_task_status(
+                task_id,
+                TaskStatus.RUNNER_FAILED,
+                phase=TaskPhase.RUNNER_FAILED,
+                reason=f"{mode.value} startup failed: {exc}",
+            )
+        except Exception:
+            try:
+                self.ledger.update_status(task_id, TaskStatus.RUNNER_FAILED.value)
+                self.ledger.update_phase(task_id, TaskPhase.RUNNER_FAILED.value)
+                self._sync_status_to_kanban(task_id, TaskStatus.RUNNER_FAILED, reason=f"{mode.value} startup failed: {exc}")
+            except Exception:
+                pass
 
     def _store_pending_action_from_merge_test_result(self, event: Any | None, task_id: str, result: dict[str, Any]) -> bool:
         artifacts = result.get("artifacts") or {}

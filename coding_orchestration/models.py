@@ -61,6 +61,15 @@ def task_status_display(status: TaskStatus | str | None) -> str:
     return f"{task_status_label_zh(value)}({value})"
 
 
+def task_status_view(status: TaskStatus | str | None) -> dict[str, str]:
+    value = status.value if isinstance(status, TaskStatus) else str(status or "")
+    return {
+        "status": value,
+        "status_label_zh": task_status_label_zh(value),
+        "status_display": task_status_display(value),
+    }
+
+
 class TaskPhase(str, Enum):
     DRAFT = "draft"
     PLANNING = "planning"

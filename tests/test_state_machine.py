@@ -38,6 +38,51 @@ class TaskStateMachineTest(unittest.TestCase):
 
         self.assertEqual(next_status, TaskStatus.QUEUED)
 
+    def test_allows_running_plan_only_to_return_to_planned(self):
+        next_status = TaskStateMachine.transition(
+            TaskStatus.RUNNING,
+            TaskStatus.PLANNED,
+            reason="plan-only completed",
+        )
+
+        self.assertEqual(next_status, TaskStatus.PLANNED)
+
+    def test_allows_pre_run_startup_failure_to_runner_failed(self):
+        next_status = TaskStateMachine.transition(
+            TaskStatus.PLANNED,
+            TaskStatus.RUNNER_FAILED,
+            reason="runner failed before process start",
+        )
+
+        self.assertEqual(next_status, TaskStatus.RUNNER_FAILED)
+
+    def test_allows_ready_task_to_be_blocked_by_missing_merge_workspace(self):
+        next_status = TaskStateMachine.transition(
+            TaskStatus.READY_FOR_MERGE_TEST,
+            TaskStatus.BLOCKED,
+            reason="missing merge workspace",
+        )
+
+        self.assertEqual(next_status, TaskStatus.BLOCKED)
+
+    def test_allows_failed_task_to_retry_queue(self):
+        next_status = TaskStateMachine.transition(
+            TaskStatus.FAILED,
+            TaskStatus.QUEUED,
+            reason="manual retry",
+        )
+
+        self.assertEqual(next_status, TaskStatus.QUEUED)
+
+    def test_allows_restore_cancelled_task_to_latest_actionable_state(self):
+        next_status = TaskStateMachine.transition(
+            TaskStatus.CANCELLED,
+            TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS,
+            reason="restore latest actionable state",
+        )
+
+        self.assertEqual(next_status, TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS)
+
     def test_allows_blocked_task_to_be_released_with_known_gaps(self):
         next_status = TaskStateMachine.transition(
             TaskStatus.BLOCKED,
@@ -134,8 +179,15 @@ class TaskStateMachineTest(unittest.TestCase):
 
     def test_task_status_has_chinese_display_label(self):
         self.assertEqual(task_status_label_zh(TaskStatus.BLOCKED), "受阻")
+        self.assertEqual(task_status_display("queued"), "排队中(queued)")
         self.assertEqual(task_status_display("ready_for_merge_test"), "等待手动执行 merge test(ready_for_merge_test)")
         self.assertEqual(task_status_display("merged_test"), "已合并 test，待人工完成(merged_test)")
+
+    def test_every_task_status_has_user_facing_chinese_display(self):
+        for status in TaskStatus:
+            with self.subTest(status=status.value):
+                self.assertNotEqual(task_status_label_zh(status), "未知")
+                self.assertEqual(task_status_display(status), f"{task_status_label_zh(status)}({status.value})")
 
     def test_legacy_compat_task_statuses_are_removed(self):
         task_status_values = {status.value for status in TaskStatus}
