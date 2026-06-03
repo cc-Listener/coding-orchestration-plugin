@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from coding_orchestration.kanban_bridge import KanbanBridge
@@ -135,6 +136,36 @@ class KanbanBridgeTest(unittest.TestCase):
 
         self.assertFalse(result["ok"])
         self.assertIn("kanban_sync_failed", result["reason"])
+
+    def test_sync_task_status_treats_error_payload_as_failure(self):
+        bridge = KanbanBridge(dispatch_tool=FakeDispatchTool(result={"error": "permission denied"}))
+
+        result = bridge.sync_task_status(
+            local_task_id="task_abc",
+            kanban_task_id="kb_123",
+            task_status=TaskStatus.DONE,
+            reason="state transition",
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["tool"], "kanban_complete")
+        self.assertIn("permission denied", result["reason"])
+
+    def test_sync_task_status_treats_json_ok_false_payload_as_failure(self):
+        bridge = KanbanBridge(
+            dispatch_tool=FakeDispatchTool(result=json.dumps({"ok": False, "reason": "not running"}))
+        )
+
+        result = bridge.sync_task_status(
+            local_task_id="task_abc",
+            kanban_task_id="kb_123",
+            task_status=TaskStatus.RUNNING,
+            reason="state transition",
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["tool"], "kanban_heartbeat")
+        self.assertIn("not running", result["reason"])
 
 
 if __name__ == "__main__":

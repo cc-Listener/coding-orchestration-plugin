@@ -233,7 +233,10 @@ class InstallTest(unittest.TestCase):
 
             self.assertFalse(result["ok"])
             lark_check = next(check for check in result["checks"] if check["name"] == "lark.preflight")
-            self.assertIn("sheets:spreadsheet:read", lark_check["details"]["missing_scopes"])
+            self.assertIn(
+                "sheets:spreadsheet:readonly or sheets:spreadsheet.meta:read",
+                lark_check["details"]["missing_scopes"],
+            )
 
 
 if __name__ == "__main__":

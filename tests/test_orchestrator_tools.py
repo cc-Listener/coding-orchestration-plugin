@@ -65,6 +65,8 @@ class OrchestratorToolsTest(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertTrue(result["task_id"].startswith("task_"))
             self.assertEqual(result["status"], "planned")
+            self.assertEqual(result["status_label_zh"], "已规划")
+            self.assertEqual(result["status_display"], "已规划(planned)")
             self.assertIn("已创建编码任务", result["message"])
 
     def test_tool_task_status_returns_structured_payload(self):
@@ -124,6 +126,8 @@ class OrchestratorToolsTest(unittest.TestCase):
 
             self.assertTrue(result["ok"])
             self.assertEqual(result["status"], "source_deferred")
+            self.assertEqual(result["status_label_zh"], "来源待补齐")
+            self.assertEqual(result["status_display"], "来源待补齐(source_deferred)")
             self.assertNotEqual(result["status"], "blocked")
 
 

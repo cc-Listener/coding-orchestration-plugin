@@ -221,10 +221,13 @@ class CodingOrchestrator:
         source_context = self._index_external_source_context(source_url) if source_url else None
         created = self._create_task_from_text(" ".join(parts), source_context=source_context)
         task = self.ledger.get_task(created.task_id)
+        status_view = task_status_view(task.get("status") if task else None)
         return {
             "ok": True,
             "task_id": created.task_id,
             "status": task.get("status") if task else None,
+            "status_label_zh": status_view["status_label_zh"],
+            "status_display": status_view["status_display"],
             "phase": task.get("phase") if task else None,
             "needs_human": created.needs_human,
             "auto_plan_started": created.auto_plan_started,
@@ -588,9 +591,8 @@ class CodingOrchestrator:
                     phase=TaskPhase.CANCELLED,
                     reason="manual cancellation",
                 )
-            except ValueError:
-                self.ledger.mark_cancelled(target)
-                self._sync_status_to_kanban(target, TaskStatus.CANCELLED, reason="manual cancellation")
+            except ValueError as exc:
+                return f"[{target}] 不能取消：{exc}"
             return f"已标记取消：{target}"
         changed = self.ledger.mark_cancelled(target)
         return f"已标记取消：{target}" if changed else f"未找到可取消对象：{target}"
@@ -644,9 +646,10 @@ class CodingOrchestrator:
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
-        if self._task_is_cancelled(task):
-            return self._cancelled_task_message(task)
-        result = self.start_run(task_id, mode=RunMode.PLAN_ONLY)
+        try:
+            result = self.start_run(task_id, mode=RunMode.PLAN_ONLY)
+        except ValueError as exc:
+            return str(exc)
         return self._format_run_completion_message(task_id, result)
 
     def _delete_task_from_args(self, raw_args: str) -> str:
@@ -3610,6 +3613,42 @@ class CodingOrchestrator:
             TaskStatus.RUNNING.value,
         }
 
+    def _start_run_blocker(self, task: dict[str, Any], *, mode: RunMode) -> str:
+        if self._task_is_cancelled(task):
+            return self._cancelled_task_message(task)
+        if self._task_has_active_run(task):
+            return self._active_run_already_running_message(task, requested_mode=mode.value)
+        current_status = str(task.get("status") or TaskStatus.NEW.value)
+        try:
+            TaskStateMachine.transition(current_status, TaskStatus.QUEUED, reason=f"{mode.value} queued")
+        except ValueError as exc:
+            return self._cannot_start_run_message(task, mode=mode, reason=str(exc))
+        return ""
+
+    @staticmethod
+    def _cannot_start_run_message(task: dict[str, Any], *, mode: RunMode, reason: str) -> str:
+        task_id = str(task.get("task_id") or "unknown")
+        return (
+            f"[{task_id}] 当前状态为 {task_status_display(task.get('status'))}，不能启动 {mode.value} run。\n"
+            f"原因：{reason}\n"
+            "恢复动作：如需重新处理，请重新规划到 planned 状态或创建新的 coding task 后再启动。"
+        )
+
+    def _clear_active_run_if_matches(self, task_id: str, run_id: str) -> None:
+        task = self.ledger.get_task(task_id) or {}
+        runner = (task.get("task_session") or {}).get("runner") or {}
+        if str(runner.get("active_run_id") or "") != run_id:
+            return
+        self.ledger.update_task_session(
+            task_id,
+            {
+                "runner": {
+                    "active_run_id": None,
+                    "active_mode": None,
+                }
+            },
+        )
+
     @staticmethod
     def _active_run_already_running_message(task: dict[str, Any], *, requested_mode: str | None = None) -> str:
         session = task.get("task_session") or {}
@@ -3694,9 +3733,11 @@ class CodingOrchestrator:
         task = self.ledger.get_task(task_id)
         if task is None:
             raise KeyError(task_id)
-        if self._task_is_cancelled(task):
-            raise ValueError(f"task is cancelled and cannot start run: {task_id}")
+        mode = RunMode(mode)
         task = self._repair_task_context_from_existing_task(task)
+        blocked = self._start_run_blocker(task, mode=mode)
+        if blocked:
+            raise ValueError(blocked)
         if not task.get("project_path"):
             self._transition_task_status(
                 task_id,
@@ -3705,7 +3746,6 @@ class CodingOrchestrator:
             )
             raise ValueError(f"task has no project_path: {task_id}")
 
-        mode = RunMode(mode)
         timeout = self._timeout_seconds_for_mode(mode, timeout_seconds)
         run_id = f"run_{uuid.uuid4().hex[:12]}"
         run_dir = self.run_root / task_id / run_id
@@ -3725,8 +3765,6 @@ class CodingOrchestrator:
                 "runner": {
                     "provider": runner.name,
                     "last_requested_mode": mode.value,
-                    "active_run_id": run_id,
-                    "active_mode": mode.value,
                 },
             },
         )
@@ -3883,17 +3921,30 @@ class CodingOrchestrator:
             if mode == RunMode.MERGE_TEST
             else TaskPhase.IMPLEMENTING
         )
-        self._transition_task_status(
+        self.ledger.update_task_session(
             task_id,
-            TaskStatus.QUEUED,
-            reason=f"{mode.value} queued",
+            {
+                "runner": {
+                    "active_run_id": run_id,
+                    "active_mode": mode.value,
+                }
+            },
         )
-        self._transition_task_status(
-            task_id,
-            TaskStatus.RUNNING,
-            phase=running_phase,
-            reason=f"{mode.value} started",
-        )
+        try:
+            self._transition_task_status(
+                task_id,
+                TaskStatus.QUEUED,
+                reason=f"{mode.value} queued",
+            )
+            self._transition_task_status(
+                task_id,
+                TaskStatus.RUNNING,
+                phase=running_phase,
+                reason=f"{mode.value} started",
+            )
+        except Exception:
+            self._clear_active_run_if_matches(task_id, run_id)
+            raise
         checkpoint = (
             manifest.qa_checkpoint
             if mode == RunMode.QA
@@ -5737,7 +5788,12 @@ class CodingOrchestrator:
         try:
             task = self.ledger.get_task(task_id) or {}
             current_status = str(task.get("status") or "")
-            if current_status in {TaskStatus.NEEDS_HUMAN.value, TaskStatus.CANCELLED.value}:
+            if current_status in {
+                TaskStatus.NEEDS_HUMAN.value,
+                TaskStatus.CANCELLED.value,
+                TaskStatus.MERGED_TEST.value,
+                TaskStatus.DONE.value,
+            }:
                 return
             self._transition_task_status(
                 task_id,
@@ -5745,13 +5801,22 @@ class CodingOrchestrator:
                 phase=TaskPhase.RUNNER_FAILED,
                 reason=f"{mode.value} startup failed: {exc}",
             )
-        except Exception:
+        except ValueError as transition_exc:
             try:
-                self.ledger.update_status(task_id, TaskStatus.RUNNER_FAILED.value)
-                self.ledger.update_phase(task_id, TaskPhase.RUNNER_FAILED.value)
-                self._sync_status_to_kanban(task_id, TaskStatus.RUNNER_FAILED, reason=f"{mode.value} startup failed: {exc}")
+                self.ledger.append_human_decision(
+                    task_id,
+                    {
+                        "type": "background_failure_transition_rejected",
+                        "mode": mode.value,
+                        "error": str(exc),
+                        "transition_error": str(transition_exc),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    },
+                )
             except Exception:
                 pass
+        except Exception:
+            pass
 
     def _store_pending_action_from_merge_test_result(self, event: Any | None, task_id: str, result: dict[str, Any]) -> bool:
         artifacts = result.get("artifacts") or {}

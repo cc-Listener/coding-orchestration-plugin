@@ -63,7 +63,7 @@ rtk hermes gateway restart
 - Hermes CLI、plugin list 和 Gateway status 可用。
 - 不存在旧 plugin 副本或旧 `coding-orchestration-prod/test` 运行根。
 - 终端默认 `lark-cli` appId 等于 Hermes `FEISHU_APP_ID`。
-- user scope 包含 `docx:document:readonly`、Wiki 读取 scope 和 `sheets:spreadsheet:read`。
+- user scope 包含 `docx:document:readonly`、Wiki 读取 scope；如果需求文档内嵌 Sheet，还需要 `sheets:spreadsheet:readonly` 或 `sheets:spreadsheet.meta:read`（兼容旧 `sheets:spreadsheet:read`）。
 
 如果只想在隔离测试里跳过检查，可以使用 `--skip-preflight`；团队安装流程不要使用这个参数。
 
@@ -164,13 +164,15 @@ offline_access
 如果需求文档内嵌飞书 Sheet，还需要：
 
 ```text
-sheets:spreadsheet:read
+sheets:spreadsheet:readonly
+# 或
+sheets:spreadsheet.meta:read
 ```
 
 建议一次性授权：
 
 ```bash
-rtk lark-cli auth login --scope "docx:document:readonly wiki:node:read wiki:node:retrieve sheets:spreadsheet:read" --no-wait --json
+rtk lark-cli auth login --scope "docx:document:readonly wiki:node:read wiki:node:retrieve sheets:spreadsheet:readonly" --no-wait --json
 ```
 
 注意：
@@ -187,7 +189,7 @@ rtk lark-cli auth login --scope "docx:document:readonly wiki:node:read wiki:node
 - App Secret 写入 `~/.hermes/.env` 的 `FEISHU_APP_SECRET`。
 - 权限变更已发布或已生效。
 - 文档读取权限包含 Docx/Wiki。
-- 如果需求使用嵌入 Sheet，应用权限包含 `sheets:spreadsheet:read`。
+- 如果需求使用嵌入 Sheet，应用权限包含 `sheets:spreadsheet:readonly` 或 `sheets:spreadsheet.meta:read`；旧 `sheets:spreadsheet:read` 仍作为兼容项识别。
 - 目标 Wiki/Docx/Sheet 对当前 bot 或当前 user 可见。
 
 后台权限存在不等于 user OAuth token 已包含 scope。后台开通后，user 仍需要重新授权。

@@ -6826,6 +6826,104 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIn("implementation run 已完成", message)
             self.assertEqual(fake_runner.calls[0]["mode"], RunMode.IMPLEMENTATION)
 
+    def test_command_coding_run_rejects_done_task_without_stale_active_run(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_done",
+                source={"type": "manual", "project_name": "order"},
+                requirement_summary="已经完成的任务",
+                project_path=str(project),
+                status=TaskStatus.DONE.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.DONE.value,
+            )
+            fake_runner = FakeRunner()
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+
+            message = orchestrator.command_coding_run("task_done")
+            task = ledger.get_task("task_done")
+
+            self.assertIn("不能启动", message)
+            self.assertEqual(task["status"], TaskStatus.DONE.value)
+            self.assertEqual(fake_runner.calls, [])
+            self.assertFalse(((task.get("task_session") or {}).get("runner") or {}).get("active_run_id"))
+
+    def test_cancel_done_task_does_not_bypass_state_machine(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_done",
+                source={"type": "manual", "project_name": "order"},
+                requirement_summary="已经完成的任务",
+                project_path=str(project),
+                status=TaskStatus.DONE.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.DONE.value,
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            message = orchestrator.command_coding_cancel("task_done")
+            task = ledger.get_task("task_done")
+
+            self.assertIn("不能取消", message)
+            self.assertEqual(task["status"], TaskStatus.DONE.value)
+            self.assertEqual(task["phase"], TaskPhase.DONE.value)
+
+    def test_background_failure_does_not_override_done_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_done",
+                source={"type": "manual", "project_name": "order"},
+                requirement_summary="已经完成的任务",
+                project_path=str(project),
+                status=TaskStatus.DONE.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.DONE.value,
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            orchestrator._mark_background_run_failed("task_done", RuntimeError("late failure"), mode=RunMode.MERGE_TEST)
+            task = ledger.get_task("task_done")
+
+            self.assertEqual(task["status"], TaskStatus.DONE.value)
+            self.assertEqual(task["phase"], TaskPhase.DONE.value)
+
 
 if __name__ == "__main__":
     unittest.main()

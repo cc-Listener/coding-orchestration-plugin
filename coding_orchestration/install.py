@@ -31,7 +31,7 @@ REQUIRED_CODEX_EXEC_OPTIONS = (
 REQUIRED_LARK_SCOPES = (
     "docx:document:readonly",
     "wiki:node:read or wiki:node:retrieve",
-    "sheets:spreadsheet:read",
+    "sheets:spreadsheet:readonly or sheets:spreadsheet.meta:read",
 )
 
 CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]

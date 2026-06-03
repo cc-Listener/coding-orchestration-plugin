@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Callable
 
 from .models import TaskStatus, task_status_view
@@ -71,6 +72,18 @@ class KanbanBridge:
                 "task_status_display": status_view["status_display"],
                 **status_view,
             }
+        failure_reason = self._failure_reason(result)
+        if failure_reason:
+            return {
+                "ok": False,
+                "tool": tool,
+                "raw": result,
+                "reason": f"kanban_sync_failed: {failure_reason}",
+                "task_status": status_view["status"],
+                "task_status_label_zh": status_view["status_label_zh"],
+                "task_status_display": status_view["status_display"],
+                **status_view,
+            }
         return {
             "ok": True,
             "tool": tool,
@@ -99,7 +112,40 @@ class KanbanBridge:
 
     @staticmethod
     def _normalize_create_result(result: Any) -> dict[str, Any]:
+        failure_reason = KanbanBridge._failure_reason(result)
+        if failure_reason:
+            return {
+                "ok": False,
+                "reason": f"kanban_create_failed: {failure_reason}",
+                "kanban_task_id": "",
+                "raw": result,
+            }
         task_id = ""
-        if isinstance(result, dict):
-            task_id = str(result.get("task_id") or result.get("id") or "")
+        payload = KanbanBridge._coerce_result(result)
+        if isinstance(payload, dict):
+            task_id = str(payload.get("task_id") or payload.get("id") or "")
         return {"ok": bool(task_id), "kanban_task_id": task_id, "raw": result}
+
+    @staticmethod
+    def _coerce_result(result: Any) -> Any:
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except json.JSONDecodeError:
+                return result
+        return result
+
+    @staticmethod
+    def _failure_reason(result: Any) -> str:
+        payload = KanbanBridge._coerce_result(result)
+        if not isinstance(payload, dict):
+            return ""
+        if payload.get("error"):
+            return str(payload["error"])
+        if payload.get("ok") is False or payload.get("success") is False:
+            for key in ("reason", "message", "error"):
+                value = payload.get(key)
+                if value:
+                    return str(value)
+            return "dispatch_tool_failed"
+        return ""

@@ -14,6 +14,12 @@ from .meegle_reader import MeegleReader
 
 
 CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]
+SHEET_READ_SCOPE_ALIASES = (
+    "sheets:spreadsheet:read",
+    "sheets:spreadsheet:readonly",
+    "sheets:spreadsheet.meta:read",
+)
+SHEET_READ_SCOPE_DISPLAY = "sheets:spreadsheet:readonly or sheets:spreadsheet.meta:read"
 
 
 @dataclass
@@ -124,7 +130,7 @@ class SourceResolver:
         needs_refresh = "needs_refresh" in output
         has_docx = "docx:document:readonly" in output
         has_wiki = "wiki:node:read" in output or "wiki:node:retrieve" in output
-        has_sheets = "sheets:spreadsheet:read" in output
+        has_sheets = any(scope in output for scope in SHEET_READ_SCOPE_ALIASES)
         if needs_refresh:
             return {
                 "ok": False,
@@ -144,7 +150,7 @@ class SourceResolver:
         if not has_wiki:
             missing.append("wiki:node:read or wiki:node:retrieve")
         if args.get("require_sheets_scope") and not has_sheets:
-            missing.append("sheets:spreadsheet:read")
+            missing.append(SHEET_READ_SCOPE_DISPLAY)
         if missing:
             return {
                 "ok": False,
