@@ -418,6 +418,12 @@ class CodingOrchestrator:
         command, rest = self._normalize_coding_gateway_command("coding", raw_args)
         if command == "coding-help":
             return self.command_coding_help(rest)
+        if command == "coding-doctor":
+            return self.command_coding_doctor()
+        if command == "coding-lark-preflight":
+            return self._format_lark_preflight(self.tool_lark_preflight({}))
+        if command == "coding-source-resolve":
+            return self._format_source_resolve(rest)
         if command == "coding-task":
             return self.command_coding_task(rest)
         if command == "coding-list":
@@ -576,6 +582,15 @@ class CodingOrchestrator:
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
+        reconciled = self._reconcile_completed_active_run(task_id, task=task)
+        if reconciled:
+            task = self.ledger.get_task(task_id) or task
+            return "\n".join(
+                [
+                    f"[{task_id}] 已自动回收后台 run：{reconciled['run_id']}",
+                    self._format_task_status_details(task, include_branch=False),
+                ]
+            )
         return self._format_task_status_details(task, include_branch=False)
 
     def command_coding_cancel(self, raw_args: str) -> str:
@@ -2333,6 +2348,9 @@ class CodingOrchestrator:
             "task": "coding-task",
             "new": "coding-task",
             "create": "coding-task",
+            "doctor": "coding-doctor",
+            "lark-preflight": "coding-lark-preflight",
+            "source-resolve": "coding-source-resolve",
             "status": "coding-status",
             "list": "coding-list",
             "use": "coding-use",
@@ -2917,9 +2935,32 @@ class CodingOrchestrator:
             return "请在 /coding bugfix 后提供修复反馈。"
         if self._mentions_image_placeholder_without_media(raw_args, event):
             return self._missing_feedback_media_message(task, "bugfix")
+        task = self._reopen_merged_test_task_for_bugfix_if_needed(task, event)
         self._record_implementation_feedback(task, raw_args, event)
         self._start_background_implementation(task["task_id"], gateway, event)
         return self._implementation_feedback_received_message(task)
+
+    def _reopen_merged_test_task_for_bugfix_if_needed(self, task: dict[str, Any], event: Any) -> dict[str, Any]:
+        if str(task.get("status") or "") != TaskStatus.MERGED_TEST.value:
+            return task
+        task_id = str(task["task_id"])
+        self._transition_task_status(
+            task_id,
+            TaskStatus.PLANNED,
+            phase=TaskPhase.BUGFIXING,
+            reason="bugfix feedback after merged_test",
+        )
+        self.ledger.append_human_decision(
+            task_id,
+            {
+                "type": "merged_test_reopened_for_bugfix",
+                "previous_status": TaskStatus.MERGED_TEST.value,
+                "previous_phase": task.get("phase"),
+                "gateway_source": self._event_source_for_ledger(event),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        return self.ledger.get_task(task_id) or task
 
     def _bind_active_task_for_event(self, task_id: str, event: Any | None) -> bool:
         binding_key = self._binding_key_for_event(event)
@@ -3649,6 +3690,172 @@ class CodingOrchestrator:
             },
         )
 
+    def _reconcile_completed_active_run(
+        self,
+        task_id: str,
+        *,
+        task: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        task = task or self.ledger.get_task(task_id)
+        if not task or self._task_is_cancelled(task):
+            return None
+        session = task.get("task_session") or {}
+        runner_session = session.get("runner") or {}
+        run_id = str(runner_session.get("active_run_id") or "").strip()
+        if not run_id:
+            return None
+        run = self._agent_run_for_id(task, run_id) or {}
+        artifacts = self._artifact_set_for_existing_run(task_id, run_id, run)
+        report = self._read_report_json(artifacts.report)
+        if not report:
+            return None
+        mode = self._run_mode_for_existing_run(task, run, report)
+        status = normalize_agent_run_status(report.get("status"), mode)
+        if status in {AgentRunStatus.QUEUED.value, AgentRunStatus.RUNNING.value}:
+            return None
+
+        changed_files = self._changed_files_for_existing_run(run, report)
+        status = self._normalize_implementation_run_status(
+            mode=mode,
+            status=status,
+            changed_files=changed_files,
+        )
+        report = dict(report)
+        report["status"] = status
+        runner_name = str(run.get("runner") or runner_session.get("provider") or report.get("runner") or RunnerName.CODEX_CLI.value)
+        report["runner"] = runner_name
+        report.setdefault("mode", mode.value)
+        report["modified_files"] = changed_files
+        report = self._ensure_verification_limitations(report, status, artifacts)
+        artifacts.report.write_text(self._json(report), encoding="utf-8")
+        summary = str(report.get("summary_markdown") or "").strip()
+        if summary:
+            artifacts.summary.write_text(summary, encoding="utf-8")
+
+        task_status = self._task_status_for_run_result(mode, status)
+        task_phase = self._task_phase_for_run_result(mode, status)
+        if mode == RunMode.MERGE_TEST and bool(report.get("human_required")) and status in {
+            AgentRunStatus.BLOCKED.value,
+            AgentRunStatus.COMPLETED_UNSTRUCTURED.value,
+        }:
+            task_status = TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS
+            task_phase = TaskPhase.READY_TO_MERGE_TEST
+        self._transition_task_status(
+            task_id,
+            task_status,
+            phase=task_phase,
+            reason=f"{mode.value} reconciled with completed artifact status {status}",
+        )
+
+        artifact_record = self._artifact_record(artifacts)
+        self.ledger.upsert_artifact(task_id, artifact_record)
+        merged_run = dict(run)
+        merged_run.update(
+            {
+                "run_id": run_id,
+                "runner": runner_name,
+                "mode": mode.value,
+                "status": status,
+                "artifact": artifact_record,
+                "qa_artifacts": report.get("qa_artifacts")
+                if isinstance(report.get("qa_artifacts"), dict)
+                else merged_run.get("qa_artifacts", {}),
+                "tested_commit": str(report.get("tested_commit") or merged_run.get("tested_commit") or ""),
+                "stale_completion": False,
+                "diff_guard": {
+                    "changed_files": changed_files,
+                    "violations": list((merged_run.get("diff_guard") or {}).get("violations") or []),
+                },
+            }
+        )
+        self.ledger.upsert_agent_run(task_id, merged_run)
+
+        session_id = self._thread_id_from_artifact(artifacts.stdout) or self._codex_resume_session_id_for_task(task)
+        usable_session_id = "" if status == AgentRunStatus.RUNNER_FAILED.value else session_id
+        runner_update: dict[str, Any] = {
+            "provider": runner_name,
+            "last_run_id": run_id,
+            "last_run_status": status,
+            "active_run_id": None,
+            "active_mode": None,
+            "resume_session_id": usable_session_id,
+            "thread_id": usable_session_id,
+            "session_id": usable_session_id,
+            "attach_command": self._codex_attach_command(usable_session_id) if usable_session_id else "",
+            "reconciled_run_id": run_id,
+            "reconciled_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.ledger.update_task_session(task_id, {"runner": runner_update})
+        self.summary_writer.write_run_summary(
+            task_id=task_id,
+            run_id=run_id,
+            runner=str(merged_run["runner"]),
+            project=str(session.get("project_name") or (task.get("source") or {}).get("project_name") or ""),
+            report=report,
+            summary=summary,
+        )
+        return {
+            "task_id": task_id,
+            "run_id": run_id,
+            "mode": mode.value,
+            "status": status,
+            "task_status": task_status.value,
+            "artifacts": artifact_record,
+            "reconciled": True,
+        }
+
+    @staticmethod
+    def _agent_run_for_id(task: dict[str, Any], run_id: str) -> dict[str, Any] | None:
+        for run in reversed(task.get("agent_runs") or []):
+            if str(run.get("run_id") or "") == run_id:
+                return run
+        return None
+
+    def _artifact_set_for_existing_run(self, task_id: str, run_id: str, run: dict[str, Any]) -> ArtifactSet:
+        artifact = run.get("artifact") or {}
+        run_dir = Path(str(artifact.get("run_dir") or self.run_root / task_id / run_id)).expanduser()
+        return ArtifactSet(
+            run_dir=run_dir,
+            input_prompt=Path(str(artifact.get("input_prompt") or run_dir / "input-prompt.md")).expanduser(),
+            manifest=Path(str(artifact.get("manifest") or run_dir / "run-manifest.json")).expanduser(),
+            stdout=Path(str(artifact.get("stdout") or run_dir / "stdout.log")).expanduser(),
+            stderr=Path(str(artifact.get("stderr") or run_dir / "stderr.log")).expanduser(),
+            events=Path(str(artifact.get("events") or run_dir / "events.jsonl")).expanduser(),
+            report=Path(str(artifact.get("report") or run_dir / "report.json")).expanduser(),
+            summary=Path(str(artifact.get("summary") or run_dir / "summary.md")).expanduser(),
+            diff=Path(str(artifact.get("diff") or run_dir / "diff.patch")).expanduser(),
+        )
+
+    @staticmethod
+    def _run_mode_for_existing_run(
+        task: dict[str, Any],
+        run: dict[str, Any],
+        report: dict[str, Any],
+    ) -> RunMode:
+        runner_session = (task.get("task_session") or {}).get("runner") or {}
+        candidates = [
+            report.get("mode"),
+            run.get("mode"),
+            runner_session.get("active_mode"),
+            runner_session.get("last_requested_mode"),
+        ]
+        for candidate in candidates:
+            try:
+                return RunMode(str(candidate))
+            except ValueError:
+                continue
+        return RunMode.PLAN_ONLY
+
+    @staticmethod
+    def _changed_files_for_existing_run(run: dict[str, Any], report: dict[str, Any]) -> list[str]:
+        candidates = report.get("modified_files")
+        if not isinstance(candidates, list):
+            diff_guard = run.get("diff_guard") if isinstance(run.get("diff_guard"), dict) else {}
+            candidates = diff_guard.get("changed_files")
+        if not isinstance(candidates, list):
+            return []
+        return [str(item) for item in candidates if str(item).strip()]
+
     @staticmethod
     def _active_run_already_running_message(task: dict[str, Any], *, requested_mode: str | None = None) -> str:
         session = task.get("task_session") or {}
@@ -3735,6 +3942,8 @@ class CodingOrchestrator:
             raise KeyError(task_id)
         mode = RunMode(mode)
         task = self._repair_task_context_from_existing_task(task)
+        self._reconcile_completed_active_run(task_id, task=task)
+        task = self.ledger.get_task(task_id) or task
         blocked = self._start_run_blocker(task, mode=mode)
         if blocked:
             raise ValueError(blocked)
@@ -5719,6 +5928,7 @@ class CodingOrchestrator:
     def _run_plan_only_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
         try:
             result = self.start_run(task_id, mode=RunMode.PLAN_ONLY)
+            result = self._wait_for_background_run_completion(task_id, result, mode=RunMode.PLAN_ONLY)
             message = self._format_run_completion_message(task_id, result)
         except Exception as exc:
             self._mark_background_run_failed(task_id, exc, mode=RunMode.PLAN_ONLY)
@@ -5741,6 +5951,7 @@ class CodingOrchestrator:
     def _run_implementation_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
         try:
             result = self.start_run(task_id, mode=RunMode.IMPLEMENTATION)
+            result = self._wait_for_background_run_completion(task_id, result, mode=RunMode.IMPLEMENTATION)
             if result.get("stale_completion"):
                 message = self._format_stale_run_completion_message(task_id, result)
             else:
@@ -5764,7 +5975,8 @@ class CodingOrchestrator:
             TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
         }:
             return None
-        return self.start_run(task_id, mode=RunMode.QA)
+        qa_result = self.start_run(task_id, mode=RunMode.QA)
+        return self._wait_for_background_run_completion(task_id, qa_result, mode=RunMode.QA)
 
     def _start_background_merge_test(self, task_id: str, gateway: Any, event: Any) -> None:
         try:
@@ -5782,12 +5994,44 @@ class CodingOrchestrator:
     def _run_merge_test_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
         try:
             result = self.start_run(task_id, mode=RunMode.MERGE_TEST)
+            result = self._wait_for_background_run_completion(task_id, result, mode=RunMode.MERGE_TEST)
             self._store_pending_action_from_merge_test_result(event, task_id, result)
             message = self._format_merge_test_completion_message(task_id, result)
         except Exception as exc:
             self._mark_background_run_failed(task_id, exc, mode=RunMode.MERGE_TEST)
             message = f"[{task_id}] merge-test run 启动或执行失败：{exc}\n请人工检查 Hermes 日志和 task ledger。"
         self._reply_if_possible(gateway, event, message, loop=loop)
+
+    def _wait_for_background_run_completion(
+        self,
+        task_id: str,
+        result: dict[str, Any],
+        *,
+        mode: RunMode,
+    ) -> dict[str, Any]:
+        status = normalize_agent_run_status(result.get("status"), mode)
+        if status not in {AgentRunStatus.QUEUED.value, AgentRunStatus.RUNNING.value}:
+            return result
+        run_id = str(result.get("run_id") or "").strip()
+        if not run_id:
+            return result
+
+        deadline = time.monotonic() + self._timeout_seconds_for_mode(mode) + 60
+        while True:
+            task = self.ledger.get_task(task_id)
+            if not task:
+                return result
+            runner = (task.get("task_session") or {}).get("runner") or {}
+            active_run_id = str(runner.get("active_run_id") or "").strip()
+            if active_run_id and active_run_id != run_id:
+                return result
+
+            reconciled = self._reconcile_completed_active_run(task_id, task=task)
+            if reconciled:
+                return reconciled
+            if time.monotonic() >= deadline:
+                return result
+            time.sleep(2)
 
     def _mark_background_run_failed(self, task_id: str, exc: Exception, *, mode: RunMode) -> None:
         try:

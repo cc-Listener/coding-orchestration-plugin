@@ -89,6 +89,17 @@ class CodingCliTest(unittest.TestCase):
             self.assertIn("auth_needed", output)
             self.assertIn("run lark-cli auth refresh", output)
 
+    def test_coding_gateway_doctor_command_reports_dependencies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            orchestrator = make_orchestrator(Path(tmp))
+
+            output = orchestrator.command_coding("doctor")
+
+            self.assertIn("Hermes Coding Doctor", output)
+            self.assertIn("Lark", output)
+            self.assertIn("Kanban", output)
+            self.assertIn("Hermes runtime", output)
+
 
 if __name__ == "__main__":
     unittest.main()

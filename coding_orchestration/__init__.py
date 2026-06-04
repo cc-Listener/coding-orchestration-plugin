@@ -16,6 +16,7 @@ from .plugin_tools import register_coding_tools
 
 
 _REGISTRY_FLAG = "_hermes_coding_orchestration_registered"
+_BUILTIN_TOOLS_REGISTERED = False
 
 
 def register(ctx: Any) -> None:
@@ -35,7 +36,7 @@ def register(ctx: Any) -> None:
 def _register_once(ctx: Any) -> None:
     orchestrator = CodingOrchestrator.from_default_config()
     if hasattr(ctx, "dispatch_tool") and hasattr(orchestrator, "set_dispatch_tool"):
-        orchestrator.set_dispatch_tool(ctx.dispatch_tool)
+        orchestrator.set_dispatch_tool(_wrap_dispatch_tool(ctx.dispatch_tool))
 
     def pre_gateway_dispatch(event: Any, gateway: Any = None, session_store: Any = None) -> dict | None:
         return orchestrator.handle_gateway_event(
@@ -61,6 +62,31 @@ def _register_once(ctx: Any) -> None:
             Path(__file__).parent / "skills" / "hermes-coding-operator" / "SKILL.md",
             description="Handle low-confidence Hermes Coding Mode handoff.",
         )
+
+
+def _wrap_dispatch_tool(dispatch_tool: Any):
+    def dispatch_with_builtin_tools(name: str, args: dict, *positional: Any, **kwargs: Any):
+        _ensure_builtin_tools_registered()
+        return dispatch_tool(name, args, *positional, **kwargs)
+
+    return dispatch_with_builtin_tools
+
+
+def _ensure_builtin_tools_registered() -> None:
+    """Ensure Hermes core tools are imported before plugin code dispatches them."""
+    global _BUILTIN_TOOLS_REGISTERED
+    if _BUILTIN_TOOLS_REGISTERED:
+        return
+    try:
+        from tools.registry import discover_builtin_tools, registry
+    except Exception:
+        return
+    if registry.get_entry("terminal") is not None:
+        _BUILTIN_TOOLS_REGISTERED = True
+        return
+    discover_builtin_tools()
+    if registry.get_entry("terminal") is not None:
+        _BUILTIN_TOOLS_REGISTERED = True
 
 
 __all__ = ["register"]

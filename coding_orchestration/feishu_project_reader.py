@@ -506,11 +506,22 @@ class FeishuProjectReader:
             "deferred_source_resolution": True,
             "resolution_owner": "codex",
             "lark_cli_command": command,
-            "recovery_action": (
-                "Let the Codex plan session run the recorded lark_cli_command. "
-                "If Codex cannot read it, authorize the active lark-cli identity or paste the document content into the task."
-            ),
+            "recovery_action": self._document_recovery_action(error),
         }
+
+    @staticmethod
+    def _document_recovery_action(error: str) -> str:
+        lowered = str(error or "").lower()
+        if "proxyconnect" in lowered or "127.0.0.1:7890" in lowered or "proxy detected" in lowered:
+            return (
+                "当前 lark-cli 文档读取被本机代理拦截。请在 Hermes/Codex 运行环境禁用代理后重试，"
+                "例如设置 LARK_CLI_NO_PROXY=1，或修复 http_proxy/https_proxy 指向的本地代理服务；"
+                "如果仍不能读取，请把文档内容粘贴到 task。"
+            )
+        return (
+            "Let the Codex plan session run the recorded lark_cli_command. "
+            "If Codex cannot read it, authorize the active lark-cli identity or paste the document content into the task."
+        )
 
     @staticmethod
     def _document_lark_cli_command(link: FeishuDocumentLink) -> list[str]:

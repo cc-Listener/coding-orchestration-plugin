@@ -13,6 +13,23 @@ from .base import CodingAgentRunner, RunResult
 from ..models import AgentRunStatus, ArtifactSet, RunMode, RunnerCapabilities, normalize_agent_run_status
 
 
+REPORT_CONTRACT_FIELDS = (
+    "runner",
+    "status",
+    "mode",
+    "summary_markdown",
+    "modified_files",
+    "test_commands",
+    "test_results",
+    "risks",
+    "verification_limitations",
+    "human_required",
+    "next_actions",
+    "qa_artifacts",
+    "tested_commit",
+)
+
+
 class CodexCliRunner(CodingAgentRunner):
     name = "codex_cli"
 
@@ -182,10 +199,17 @@ class CodexCliRunner(CodingAgentRunner):
         cwd: Path,
     ) -> RunResult:
         run_dir.mkdir(parents=True, exist_ok=True)
+        stdout_path = run_dir / "stdout.log"
+        stderr_path = run_dir / "stderr.log"
+        runtime_start_path = run_dir / "runtime-start.json"
+        stdout_path.write_text("", encoding="utf-8")
+        stderr_path.write_text("", encoding="utf-8")
         result = self.hermes_runtime.start_command(
             command=shlex.join(command),
             cwd=str(cwd),
             stdin_path=str(stdin_path),
+            stdout_path=str(stdout_path),
+            stderr_path=str(stderr_path),
             watch_patterns=[
                 AgentRunStatus.READY_FOR_MERGE_TEST.value,
                 AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
@@ -194,8 +218,7 @@ class CodexCliRunner(CodingAgentRunner):
                 AgentRunStatus.FAILED.value,
             ],
         )
-        (run_dir / "stdout.log").write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
-        (run_dir / "stderr.log").write_text("", encoding="utf-8")
+        runtime_start_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
         if not result.get("ok"):
             report = self.build_fallback_report(
                 run_dir,
@@ -204,7 +227,7 @@ class CodexCliRunner(CodingAgentRunner):
                 limitation_reason=str(result.get("reason") or "hermes_runtime_start_failed"),
                 limitation_impact="Hermes terminal/process runtime did not start the Codex command.",
                 limitation_recovery_action="Verify Hermes terminal/process tools are enabled, then retry the run.",
-                limitation_fallback_evidence=str(run_dir / "stdout.log"),
+                limitation_fallback_evidence=str(runtime_start_path),
             )
             return RunResult(AgentRunStatus.RUNNER_FAILED.value, None, self.collect_artifacts(run_dir), report)
         report = {
@@ -224,6 +247,7 @@ class CodexCliRunner(CodingAgentRunner):
             "raw_stdout_ref": str(run_dir / "stdout.log"),
             "raw_stderr_ref": str(run_dir / "stderr.log"),
             "summary_ref": str(run_dir / "summary.md"),
+            "runtime_start_ref": str(runtime_start_path),
             "runtime": result.get("raw"),
         }
         (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -410,9 +434,6 @@ class CodexCliRunner(CodingAgentRunner):
             "next_actions": next_actions,
             "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
             "tested_commit": "",
-            "raw_stdout_ref": str(run_dir / "stdout.log"),
-            "raw_stderr_ref": str(run_dir / "stderr.log"),
-            "summary_ref": str(run_dir / "summary.md"),
         }
         (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return report
@@ -534,9 +555,6 @@ class CodexCliRunner(CodingAgentRunner):
             if isinstance(candidate.get("qa_artifacts"), dict)
             else {"report": "", "baseline": "", "screenshots_dir": ""},
             "tested_commit": str(candidate.get("tested_commit") or ""),
-            "raw_stdout_ref": str(run_dir / "stdout.log"),
-            "raw_stderr_ref": str(run_dir / "stderr.log"),
-            "summary_ref": str(run_dir / "summary.md"),
         }
 
     @staticmethod
@@ -589,8 +607,13 @@ class CodexCliRunner(CodingAgentRunner):
                     fallback_evidence=f"{run_dir / 'stdout.log'}; {run_dir / 'stderr.log'}",
                 )
             ]
+        report = self._report_contract_fields(report)
         (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return report
+
+    @staticmethod
+    def _report_contract_fields(report: dict[str, Any]) -> dict[str, Any]:
+        return {key: report[key] for key in REPORT_CONTRACT_FIELDS if key in report}
 
     @staticmethod
     def _normalize_report_status(status: Any, mode: RunMode) -> str:

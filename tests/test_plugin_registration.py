@@ -12,6 +12,7 @@ import coding_orchestration
 class FakeOrchestrator:
     def __init__(self):
         self.dispatch_tool = None
+        self.tool_calls = []
 
     def set_dispatch_tool(self, dispatch_tool):
         self.dispatch_tool = dispatch_tool
@@ -29,18 +30,23 @@ class FakeOrchestrator:
         return "ok"
 
     def tool_task_create(self, args):
+        self.tool_calls.append(("coding_task_create", args))
         return {"ok": True}
 
     def tool_task_status(self, args):
+        self.tool_calls.append(("coding_task_status", args))
         return {"ok": True}
 
     def tool_task_run(self, args):
+        self.tool_calls.append(("coding_task_run", args))
         return {"ok": True}
 
     def tool_source_resolve(self, args):
+        self.tool_calls.append(("coding_source_resolve", args))
         return {"ok": True}
 
     def tool_lark_preflight(self, args):
+        self.tool_calls.append(("coding_lark_preflight", args))
         return {"ok": True}
 
 
@@ -121,7 +127,26 @@ class PluginRegistrationTest(unittest.TestCase):
         self.assertTrue(callable(ctx.cli_commands["coding"]["handler_fn"]))
         self.assertIn("hermes-coding-operator", ctx.skills)
         self.assertTrue(str(ctx.skills["hermes-coding-operator"]["path"]).endswith("SKILL.md"))
-        self.assertIs(orchestrator.dispatch_tool, ctx.dispatch_tool)
+        self.assertTrue(callable(orchestrator.dispatch_tool))
+
+    def test_register_wraps_dispatch_tool_to_initialize_builtin_tools_lazily(self):
+        ctx = FakeContext()
+        orchestrator = FakeOrchestrator()
+
+        with (
+            patch("coding_orchestration.CodingOrchestrator.from_default_config", return_value=orchestrator),
+            patch.object(
+                coding_orchestration,
+                "_ensure_builtin_tools_registered",
+                create=True,
+            ) as ensure_builtin_tools_registered,
+        ):
+            coding_orchestration.register(ctx)
+            result = orchestrator.dispatch_tool("terminal", {"command": "echo hi"})
+
+        self.assertEqual(result, {"name": "terminal", "args": {"command": "echo hi"}})
+        ensure_builtin_tools_registered.assert_called_once_with()
+        self.assertIsNot(orchestrator.dispatch_tool, ctx.dispatch_tool)
 
     def test_registered_cli_command_builds_real_argparse_tree(self):
         ctx = FakeContext()
@@ -140,6 +165,18 @@ class PluginRegistrationTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(stdout.getvalue().strip(), "ok")
+
+    def test_registered_native_tool_handlers_accept_keyword_arguments(self):
+        ctx = FakeContext()
+        orchestrator = FakeOrchestrator()
+
+        with patch("coding_orchestration.CodingOrchestrator.from_default_config", return_value=orchestrator):
+            coding_orchestration.register(ctx)
+
+        result = ctx.tools["coding_task_status"]["handler"](task_id="task_1")
+
+        self.assertEqual(result, {"ok": True})
+        self.assertEqual(orchestrator.tool_calls[-1], ("coding_task_status", {"task_id": "task_1"}))
 
     def test_register_is_process_wide_idempotent(self):
         first_ctx = FakeContext()

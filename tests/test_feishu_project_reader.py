@@ -110,6 +110,31 @@ class FeishuProjectReaderTest(unittest.TestCase):
         self.assertIn("lark-cli docs +fetch", context["lark_cli_command"])
         self.assertIn("not bound", context["error"])
 
+    def test_lark_cli_proxy_failure_has_specific_recovery_action(self):
+        reader = FeishuProjectReader()
+
+        with patch("coding_orchestration.feishu_project_reader.subprocess.run") as run:
+            run.return_value = CompletedProcess(
+                args=["lark-cli"],
+                returncode=1,
+                stdout=(
+                    "[lark-cli] [WARN] proxy detected: https_proxy=http://127.0.0.1:7890\n"
+                    '{"ok": false, "error": {"message": "API call failed: proxyconnect tcp: '
+                    'dial tcp 127.0.0.1:7890: connect: operation not permitted"}}'
+                ),
+                stderr="",
+            )
+
+            context = reader.read_from_text(
+                "接口文档：https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe"
+            )
+
+        self.assertEqual(context["read_status"], "failed")
+        self.assertTrue(context["deferred_source_resolution"])
+        self.assertIn("127.0.0.1:7890", context["error"])
+        self.assertIn("LARK_CLI_NO_PROXY=1", context["recovery_action"])
+        self.assertIn("代理", context["recovery_action"])
+
     def test_gateway_failed_document_context_is_deferred_to_codex(self):
         reader = FeishuProjectReader()
         link = FeishuProjectReader.extract_first_document_link(

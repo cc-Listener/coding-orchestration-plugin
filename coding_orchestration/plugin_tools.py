@@ -82,7 +82,7 @@ def register_coding_tools(ctx: Any, orchestrator: Any) -> None:
             "Create a Hermes coding task with source/project preflight.",
             _TASK_CREATE_PARAMETERS,
         ),
-        handler=lambda args=None, **_: orchestrator.tool_task_create(args or {}),
+        handler=lambda args=None, **kwargs: orchestrator.tool_task_create(_coerce_tool_args(args, kwargs)),
         description="Create a Hermes coding task with source/project preflight.",
     )
     _register_tool(
@@ -93,7 +93,7 @@ def register_coding_tools(ctx: Any, orchestrator: Any) -> None:
             "Read coding task status, source health, runner state, and next actions.",
             _TASK_STATUS_PARAMETERS,
         ),
-        handler=lambda args=None, **_: orchestrator.tool_task_status(args or {}),
+        handler=lambda args=None, **kwargs: orchestrator.tool_task_status(_coerce_tool_args(args, kwargs)),
         description="Read coding task status, source health, runner state, and next actions.",
     )
     _register_tool(
@@ -104,7 +104,7 @@ def register_coding_tools(ctx: Any, orchestrator: Any) -> None:
             "Start or continue a coding task run through Hermes runtime.",
             _TASK_RUN_PARAMETERS,
         ),
-        handler=lambda args=None, **_: orchestrator.tool_task_run(args or {}),
+        handler=lambda args=None, **kwargs: orchestrator.tool_task_run(_coerce_tool_args(args, kwargs)),
         description="Start or continue a coding task run through Hermes runtime.",
     )
     _register_tool(
@@ -115,7 +115,7 @@ def register_coding_tools(ctx: Any, orchestrator: Any) -> None:
             "Resolve Feishu/Lark/Meegle source URLs before handing work to a coding runner.",
             _SOURCE_RESOLVE_PARAMETERS,
         ),
-        handler=lambda args=None, **_: orchestrator.tool_source_resolve(args or {}),
+        handler=lambda args=None, **kwargs: orchestrator.tool_source_resolve(_coerce_tool_args(args, kwargs)),
         description="Resolve Feishu/Lark/Meegle source URLs before handing work to a coding runner.",
     )
     _register_tool(
@@ -126,9 +126,18 @@ def register_coding_tools(ctx: Any, orchestrator: Any) -> None:
             "Check lark-cli document auth and source-readiness for coding tasks.",
             _LARK_PREFLIGHT_PARAMETERS,
         ),
-        handler=lambda args=None, **_: orchestrator.tool_lark_preflight(args or {}),
+        handler=lambda args=None, **kwargs: orchestrator.tool_lark_preflight(_coerce_tool_args(args, kwargs)),
         description="Check lark-cli document auth and source-readiness for coding tasks.",
     )
+
+
+def _coerce_tool_args(args: Any = None, kwargs: dict[str, Any] | None = None) -> dict[str, Any]:
+    payload = dict(args) if isinstance(args, dict) else {}
+    for key, value in (kwargs or {}).items():
+        if key.startswith("_"):
+            continue
+        payload[key] = value
+    return payload
 
 
 def _register_tool(register_tool: Callable[..., Any], **kwargs: Any) -> None:

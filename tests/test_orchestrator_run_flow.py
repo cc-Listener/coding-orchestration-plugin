@@ -103,6 +103,42 @@ class FakeRouter:
         return self.runner
 
 
+class FakeBackgroundQueuedRunner(FakeRunner):
+    def run(self, *, run_id, run_dir, project_path, workspace_path, mode, timeout_seconds):
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "stdout.log").write_text('{"session_id":"proc_test"}', encoding="utf-8")
+        (run_dir / "stderr.log").write_text("", encoding="utf-8")
+        (run_dir / "summary.md").write_text("Hermes runtime 已启动后台 Codex 任务。", encoding="utf-8")
+        report = {
+            "runner": self.name,
+            "status": AgentRunStatus.QUEUED.value,
+            "mode": mode.value,
+            "summary_markdown": "Hermes runtime 已启动后台 Codex 任务。",
+            "modified_files": [],
+            "test_commands": [],
+            "test_results": [],
+            "risks": [],
+            "verification_limitations": [],
+            "human_required": False,
+            "next_actions": ["Use Hermes process/terminal notifications to collect completion artifacts."],
+            "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
+            "tested_commit": "",
+        }
+        (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+        artifacts = ArtifactSet(
+            run_dir=run_dir,
+            input_prompt=run_dir / "input-prompt.md",
+            manifest=run_dir / "run-manifest.json",
+            stdout=run_dir / "stdout.log",
+            stderr=run_dir / "stderr.log",
+            events=run_dir / "events.jsonl",
+            report=run_dir / "report.json",
+            summary=run_dir / "summary.md",
+            diff=run_dir / "diff.patch",
+        )
+        return RunResult(status=AgentRunStatus.QUEUED.value, exit_code=None, artifacts=artifacts, report=report)
+
+
 class FakeSource:
     chat_type = "dm"
     user_id = "user_1"
@@ -2138,6 +2174,209 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIn("auth_required", message)
             self.assertIn("补充登录态后重新 QA", message)
 
+    def test_coding_status_reconciles_completed_active_background_plan_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            run_dir = root / "runs" / "task_status_reconcile" / "run_done"
+            run_dir.mkdir(parents=True)
+            report_json = run_dir / "report.json"
+            report_json.write_text(
+                json.dumps(
+                    {
+                        "runner": "codex",
+                        "status": "blocked",
+                        "mode": RunMode.PLAN_ONLY.value,
+                        "summary_markdown": "需要确认目标页面和后端字段。",
+                        "modified_files": [],
+                        "test_commands": [],
+                        "test_results": [],
+                        "risks": ["后端字段未确认"],
+                        "verification_limitations": [
+                            {
+                                "reason": "field_contract_missing",
+                                "impact": "不能安全实现订单筛选。",
+                                "recovery_action": "确认目标页面和订单列表请求字段。",
+                                "fallback_evidence": ".api-spec.json",
+                            }
+                        ],
+                        "human_required": True,
+                        "next_actions": ["确认 `/orders` 还是 `/orderFlows`。"],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (run_dir / "summary.md").write_text("Hermes runtime 已启动后台 Codex 任务。", encoding="utf-8")
+            (run_dir / "stdout.log").write_text("{}", encoding="utf-8")
+            (run_dir / "stderr.log").write_text("", encoding="utf-8")
+            (run_dir / "diff.patch").write_text("", encoding="utf-8")
+
+            ledger = TaskLedger(root / "ledger.db")
+            task_id = "task_status_reconcile"
+            artifact = {
+                "run_dir": str(run_dir),
+                "input_prompt": str(run_dir / "input-prompt.md"),
+                "manifest": str(run_dir / "run-manifest.json"),
+                "stdout": str(run_dir / "stdout.log"),
+                "stderr": str(run_dir / "stderr.log"),
+                "events": str(run_dir / "events.jsonl"),
+                "report": str(report_json),
+                "summary": str(run_dir / "summary.md"),
+                "diff": str(run_dir / "diff.patch"),
+            }
+            ledger.create_task(
+                task_id=task_id,
+                source={"type": "manual", "project_name": "bps-admin"},
+                requirement_summary="订单筛选",
+                project_path=str(project),
+                status=TaskStatus.RUNNING.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.PLANNING.value,
+                task_session={
+                    "runner": {
+                        "provider": "codex_cli",
+                        "active_run_id": "run_done",
+                        "active_mode": RunMode.PLAN_ONLY.value,
+                        "last_run_status": "queued",
+                    }
+                },
+            )
+            ledger.append_agent_run(
+                task_id,
+                {
+                    "run_id": "run_done",
+                    "runner": "codex_cli",
+                    "mode": RunMode.PLAN_ONLY.value,
+                    "status": "queued",
+                    "artifact": artifact,
+                    "diff_guard": {"changed_files": [], "violations": []},
+                },
+            )
+            ledger.append_artifact(task_id, artifact)
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            message = orchestrator.command_coding_status(task_id)
+            task = ledger.get_task(task_id)
+
+            self.assertIn("已自动回收后台 run：run_done", message)
+            self.assertIn("状态：受阻(blocked)", message)
+            self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(task["phase"], TaskPhase.BLOCKED.value)
+            self.assertIsNone(task["task_session"]["runner"].get("active_run_id"))
+            self.assertIsNone(task["task_session"]["runner"].get("active_mode"))
+            self.assertEqual(task["task_session"]["runner"]["last_run_status"], "blocked")
+            self.assertEqual(task["task_session"]["runner"]["provider"], "codex_cli")
+            self.assertEqual(json.loads(report_json.read_text(encoding="utf-8"))["runner"], "codex_cli")
+            self.assertEqual(task["agent_runs"][0]["status"], "blocked")
+            self.assertEqual(task["agent_runs"][0]["runner"], "codex_cli")
+            self.assertEqual(len(task["agent_runs"]), 1)
+            self.assertEqual((run_dir / "summary.md").read_text(encoding="utf-8"), "需要确认目标页面和后端字段。")
+
+    def test_start_run_reconciles_completed_active_run_before_blocking_retry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            run_dir = root / "runs" / "task_retry_reconcile" / "run_old"
+            run_dir.mkdir(parents=True)
+            report_json = run_dir / "report.json"
+            report_json.write_text(
+                json.dumps(
+                    {
+                        "runner": "codex_cli",
+                        "status": "success",
+                        "mode": RunMode.PLAN_ONLY.value,
+                        "summary_markdown": "旧计划已完成。",
+                        "modified_files": [],
+                        "test_commands": [],
+                        "test_results": [],
+                        "risks": [],
+                        "verification_limitations": [],
+                        "human_required": False,
+                        "next_actions": ["可以继续重新规划。"],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (run_dir / "summary.md").write_text("Hermes runtime 已启动后台 Codex 任务。", encoding="utf-8")
+            (run_dir / "stdout.log").write_text("{}", encoding="utf-8")
+            (run_dir / "stderr.log").write_text("", encoding="utf-8")
+            (run_dir / "diff.patch").write_text("", encoding="utf-8")
+
+            ledger = TaskLedger(root / "ledger.db")
+            task_id = "task_retry_reconcile"
+            artifact = {
+                "run_dir": str(run_dir),
+                "input_prompt": str(run_dir / "input-prompt.md"),
+                "manifest": str(run_dir / "run-manifest.json"),
+                "stdout": str(run_dir / "stdout.log"),
+                "stderr": str(run_dir / "stderr.log"),
+                "events": str(run_dir / "events.jsonl"),
+                "report": str(report_json),
+                "summary": str(run_dir / "summary.md"),
+                "diff": str(run_dir / "diff.patch"),
+            }
+            ledger.create_task(
+                task_id=task_id,
+                source={"type": "manual", "project_name": "bps-admin"},
+                requirement_summary="订单筛选",
+                project_path=str(project),
+                status=TaskStatus.RUNNING.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.PLANNING.value,
+                task_session={
+                    "runner": {
+                        "provider": "codex_cli",
+                        "active_run_id": "run_old",
+                        "active_mode": RunMode.PLAN_ONLY.value,
+                        "last_run_status": "queued",
+                    }
+                },
+            )
+            ledger.append_agent_run(
+                task_id,
+                {
+                    "run_id": "run_old",
+                    "runner": "codex_cli",
+                    "mode": RunMode.PLAN_ONLY.value,
+                    "status": "queued",
+                    "artifact": artifact,
+                    "diff_guard": {"changed_files": [], "violations": []},
+                },
+            )
+            fake_runner = FakeRunner()
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+
+            result = orchestrator.start_run(task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
+            task = ledger.get_task(task_id)
+
+            self.assertEqual(result["status"], "success")
+            self.assertEqual(len(fake_runner.calls), 1)
+            self.assertEqual(task["status"], TaskStatus.PLANNED.value)
+            self.assertEqual(task["agent_runs"][0]["status"], "success")
+            self.assertEqual(task["agent_runs"][1]["status"], "success")
+
     def test_gateway_event_handles_feishu_escaped_project_slug_and_media(self):
         class RecordingOrchestrator(CodingOrchestrator):
             def __post_init__(self):
@@ -2692,6 +2931,53 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(captured["action"], "skip")
             self.assertEqual(orchestrator.auto_implementation_started[0][0], task_id)
             self.assertIn("order_tags后端是string", task["requirement_summary"])
+            self.assertEqual(task["human_decisions"][-1]["type"], "implementation_feedback")
+            self.assertIn("进入 implementation 修复", gateway.messages[-1])
+
+    def test_gateway_bugfix_feedback_reopens_merged_test_task_for_implementation(self):
+        class SyncImplementationOrchestrator(CodingOrchestrator):
+            def _start_background_implementation(self, task_id, gateway, event):
+                self.start_run(task_id, mode=RunMode.IMPLEMENTATION, timeout_seconds=5)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            fake_runner = FakeRunner()
+            orchestrator = SyncImplementationOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+            task_id = "task_merged_bugfix"
+            ledger.create_task(
+                task_id=task_id,
+                source={"type": "manual", "project_name": "bps-admin"},
+                requirement_summary=".gstack 文件不要进 git",
+                project_path=str(project),
+                status=TaskStatus.MERGED_TEST.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.MERGED_TEST.value,
+            )
+            gateway = FakeGateway()
+            orchestrator.handle_gateway_event(FakeGatewayEvent(f"/coding use {task_id}"), gateway=gateway)
+
+            result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("/coding bugfix .gstack 的文件不要放到 git 上，做一个忽略"),
+                gateway=gateway,
+            )
+            task = ledger.get_task(task_id)
+
+            self.assertEqual(result["action"], "skip")
+            self.assertEqual(fake_runner.calls[-1]["mode"], RunMode.IMPLEMENTATION)
+            self.assertEqual(task["status"], TaskStatus.READY_FOR_MERGE_TEST.value)
+            self.assertEqual(task["phase"], TaskPhase.READY_TO_MERGE_TEST.value)
             self.assertEqual(task["human_decisions"][-1]["type"], "implementation_feedback")
             self.assertIn("进入 implementation 修复", gateway.messages[-1])
 
@@ -4019,6 +4305,79 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIn("plan-only run 已完成", gateway.messages[0])
             self.assertIn("计划完成", gateway.messages[0])
             self.assertIn("人工 review 后合并 test", gateway.messages[0])
+
+    def test_background_plan_only_waits_for_final_report_before_replying(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+
+            class CompletingAfterStartOrchestrator(CodingOrchestrator):
+                def start_run(self, task_id, *, mode=RunMode.PLAN_ONLY, runner_name=None, timeout_seconds=None):
+                    result = super().start_run(
+                        task_id,
+                        mode=mode,
+                        runner_name=runner_name,
+                        timeout_seconds=timeout_seconds,
+                    )
+                    report_path = Path(result["artifacts"]["report"])
+                    final_report = {
+                        "runner": "codex",
+                        "status": "success",
+                        "mode": RunMode.PLAN_ONLY.value,
+                        "summary_markdown": "## 计划\n- 改为复制产品标题",
+                        "modified_files": [],
+                        "test_commands": [],
+                        "test_results": [],
+                        "risks": [],
+                        "verification_limitations": [],
+                        "human_required": False,
+                        "next_actions": ["确认后进入 implementation。"],
+                        "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
+                        "tested_commit": "",
+                    }
+                    report_path.write_text(json.dumps(final_report, ensure_ascii=False), encoding="utf-8")
+                    return result
+
+            orchestrator = CompletingAfterStartOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeBackgroundQueuedRunner()),
+            )
+            gateway = FakeGateway()
+            task_id = "task_background_done"
+            ledger.create_task(
+                task_id=task_id,
+                source={"type": "manual", "project_name": "order"},
+                requirement_summary="复制产品标题",
+                project_path=str(project),
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.DRAFT.value,
+            )
+
+            orchestrator._run_plan_only_and_notify(
+                task_id,
+                gateway,
+                FakeGatewayEvent("复制产品标题"),
+                None,
+            )
+            task = ledger.get_task(task_id)
+
+            self.assertEqual(len(gateway.messages), 1)
+            self.assertIn("plan-only run 已完成", gateway.messages[0])
+            self.assertIn("改为复制产品标题", gateway.messages[0])
+            self.assertIn("请人工确认计划完整度和正确性", gateway.messages[0])
+            self.assertNotIn("Hermes runtime 已启动后台 Codex 任务", gateway.messages[0])
+            self.assertEqual(task["status"], TaskStatus.PLANNED.value)
+            self.assertEqual(task["phase"], TaskPhase.PLAN_READY.value)
+            self.assertIsNone(task["task_session"]["runner"].get("active_run_id"))
 
     def test_unstructured_completion_reply_includes_stderr_excerpt(self):
         with tempfile.TemporaryDirectory() as tmp:

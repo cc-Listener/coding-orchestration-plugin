@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from coding_orchestration.models import AgentRunStatus, RunMode
+from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.runners.base import RunResult
 from coding_orchestration.runners.codex_cli import CodexCliRunner
 from coding_orchestration.runners.hermes_autonomous_codex import HermesAutonomousCodexRunner
@@ -320,8 +321,6 @@ class CodexCliRunnerTest(unittest.TestCase):
                 report["status"],
                 AgentRunStatus.COMPLETED_UNSTRUCTURED.value,
             )
-            self.assertEqual(report["raw_stdout_ref"], str(run_dir / "stdout.log"))
-            self.assertEqual(report["summary_ref"], str(run_dir / "summary.md"))
             self.assertEqual(
                 set(report["verification_limitations"][0]),
                 {"reason", "impact", "recovery_action", "fallback_evidence"},
@@ -329,6 +328,26 @@ class CodexCliRunnerTest(unittest.TestCase):
 
             saved = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
             self.assertEqual(saved, report)
+
+    def test_fallback_report_matches_strict_report_schema_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "stdout.log").write_text("", encoding="utf-8")
+            (run_dir / "stderr.log").write_text("", encoding="utf-8")
+            schema_path = run_dir / "report.schema.json"
+            CodingOrchestrator._write_report_schema(schema_path)
+            schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+            report = CodexCliRunner(command="codex").build_fallback_report(
+                run_dir=run_dir,
+                mode=RunMode.PLAN_ONLY,
+                status=AgentRunStatus.RUNNER_FAILED,
+            )
+
+            self.assertEqual(set(report), set(schema["properties"]))
+            self.assertEqual(set(report), set(schema["required"]))
+            saved = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
+            self.assertEqual(set(saved), set(schema["properties"]))
 
     def test_timeout_fallback_report_uses_timeout_specific_recovery(self):
         with tempfile.TemporaryDirectory() as tmp:

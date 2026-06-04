@@ -65,6 +65,8 @@ class HermesRuntimeRunnerTest(unittest.TestCase):
             command="codex exec --json -",
             cwd="/repo",
             stdin_path="/tmp/input-prompt.md",
+            stdout_path="/tmp/stdout.log",
+            stderr_path="/tmp/stderr.log",
             watch_patterns=["READY_FOR_MERGE_TEST", "RUNNER_FAILED"],
         )
 
@@ -74,8 +76,43 @@ class HermesRuntimeRunnerTest(unittest.TestCase):
         self.assertTrue(call["args"]["background"])
         self.assertTrue(call["args"]["pty"])
         self.assertTrue(call["args"]["notify_on_complete"])
-        self.assertEqual(call["args"]["cwd"], "/repo")
+        self.assertEqual(call["args"]["workdir"], "/repo")
+        self.assertNotIn("cwd", call["args"])
+        self.assertNotIn("bash -lc", call["args"]["command"])
         self.assertIn("< /tmp/input-prompt.md", call["args"]["command"])
+        self.assertIn("2> /tmp/stderr.log", call["args"]["command"])
+        self.assertIn("> /tmp/stdout.log", call["args"]["command"])
+        self.assertNotIn("| tee", call["args"]["command"])
+
+    def test_codex_runner_keeps_codex_stdout_separate_from_hermes_start_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            run_dir = root / "run"
+            run_dir.mkdir()
+            (run_dir / "input-prompt.md").write_text("只做计划", encoding="utf-8")
+            project = root / "project"
+            project.mkdir()
+            dispatch_tool = FakeDispatchTool()
+            runtime = HermesRuntime(dispatch_tool=dispatch_tool)
+            runner = CodexCliRunner(command="codex", hermes_runtime=runtime)
+
+            result = runner.run(
+                run_id="run_background",
+                run_dir=run_dir,
+                project_path=project,
+                workspace_path=None,
+                mode=RunMode.PLAN_ONLY,
+                timeout_seconds=1,
+            )
+
+            self.assertEqual(result.status, AgentRunStatus.QUEUED.value)
+            self.assertEqual((run_dir / "stdout.log").read_text(encoding="utf-8"), "")
+            startup = json.loads((run_dir / "runtime-start.json").read_text(encoding="utf-8"))
+            self.assertEqual(startup["raw"]["process_id"], "p_123")
+            command = dispatch_tool.calls[0]["args"]["command"]
+            self.assertIn(f"> {run_dir / 'stdout.log'}", command)
+            self.assertNotIn("| tee", command)
+            self.assertIn(f"2> {run_dir / 'stderr.log'}", command)
 
     def test_hermes_runtime_unknown_terminal_tool_is_not_queued(self):
         dispatch_tool = ErrorDispatchTool()
