@@ -224,6 +224,8 @@
 | 安装门禁不能只检查 lark app | 真实团队安装问题会来自 Hermes `.env`、Codex 路径/flags、Gateway、旧组件、Docx/Wiki/Sheet scopes 任一缺口；`install_symlink.py` 需要聚合检查并逐项输出恢复动作，否则用户会装出“软链接成功但运行不可用”的环境 |
 | 卸载 dry-run 需要展示当前组件 | 用户执行卸载 dry-run 时，不仅要知道旧组件是否存在，也要看到当前 `~/.hermes/plugins/coding_orchestration` 和 `~/.hermes/coding-orchestration` 是否存在且会被删除；真正执行删除时再二次确认 |
 | 卸载完成后必须重启 Gateway | Hermes Gateway 不会热卸载 Python 插件；删除插件入口和运行根后，脚本需要自动执行 `rtk hermes gateway restart`，否则旧 hook 可能仍留在当前进程里 |
+| 安装完成后也必须重启 Gateway | Hermes Gateway 不会热加载新建或更新后的 Python 插件；`install_symlink.py` 必须在创建软链接后自动启用插件并重启 Gateway，否则用户会看到“安装成功但 `/coding` 未生效”的状态 |
+| `lark-cli user identity needs_refresh` 不是 appId mismatch | 当期望 appId 和当前 appId 已一致时，安装门禁失败点是 user OAuth token 过期或需刷新；当前 `lark-cli auth` 没有 `refresh` 子命令，恢复动作应提示重新 `auth login --scope ...` |
 
 ## 资源
 - `/Users/xiaojing/.hermes/coding-orchestration/runs/task_43141b20c03e`

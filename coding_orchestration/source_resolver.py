@@ -138,7 +138,11 @@ class SourceResolver:
                 "needs_refresh": True,
                 "missing_scopes": [],
                 "error": "lark-cli user identity needs_refresh",
-                "recovery_action": "Run lark-cli auth refresh/login in the Hermes user context, then retry coding_lark_preflight.",
+                "recovery_action": (
+                    "当前 lark-cli user token 已过期或需要刷新。请在同一终端用户下重新授权："
+                    'rtk lark-cli auth login --scope "docx:document:readonly wiki:node:read '
+                    'wiki:node:retrieve sheets:spreadsheet:read"；完成授权后重新执行安装脚本。'
+                ),
                 "raw": output,
                 "expected_app_id": expected_app_id,
                 "actual_app_id": actual_app_id,
@@ -158,7 +162,11 @@ class SourceResolver:
                 "needs_refresh": False,
                 "missing_scopes": missing,
                 "error": f"missing lark scopes: {', '.join(missing)}",
-                "recovery_action": "Authorize the active lark-cli app with the missing scopes.",
+                "recovery_action": (
+                    "请为当前 lark-cli app 补充缺失 scope："
+                    f'rtk lark-cli auth login --scope "{self._scope_login_hint(missing)}"；'
+                    "完成授权后重新执行安装脚本。"
+                ),
                 "raw": output,
                 "expected_app_id": expected_app_id,
                 "actual_app_id": actual_app_id,
@@ -210,6 +218,24 @@ class SourceResolver:
     @staticmethod
     def _run(command: list[str]) -> subprocess.CompletedProcess[str]:
         return subprocess.run(command, text=True, capture_output=True, timeout=20, check=False)
+
+    @staticmethod
+    def _scope_login_hint(missing: list[str]) -> str:
+        scopes: list[str] = []
+        for item in missing:
+            if item == "wiki:node:read or wiki:node:retrieve":
+                scopes.extend(["wiki:node:read", "wiki:node:retrieve"])
+            elif item == SHEET_READ_SCOPE_DISPLAY:
+                scopes.append("sheets:spreadsheet:read")
+            else:
+                scopes.append(item)
+        seen: set[str] = set()
+        unique: list[str] = []
+        for scope in scopes:
+            if scope not in seen:
+                seen.add(scope)
+                unique.append(scope)
+        return " ".join(unique)
 
     @staticmethod
     def _extract_lark_app_id(output: str) -> str:

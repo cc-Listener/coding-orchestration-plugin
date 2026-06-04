@@ -2089,5 +2089,31 @@
   - `rtk git diff --check`：passed，无输出。
   - `rtk python3 -m unittest discover -s tests`：271 tests passed。
 
+### 阶段 94：安装后自动启用并重启 Hermes
+- **状态：** complete
+- 执行的操作：
+  - `scripts/install_symlink.py` 创建软链接后会自动启用 `coding_orchestration` 插件。
+  - 插件启用成功后会自动重启 Hermes Gateway，避免安装完成但 Gateway 仍加载旧代码。
+  - 启用或重启失败时输出中文错误、命令输出和手动恢复动作。
+  - README、PLUGIN_USAGE、PLUGIN_PREREQUISITES、PLUGIN_TECHNICAL_SOLUTION 已同步为“install 是完整安装入口”口径。
+- 已验证：
+  - `rtk python3 -m unittest tests.test_docs_and_install_entry tests.test_install`：19 tests passed。
+  - `rtk python3 -m py_compile scripts/install_symlink.py tests/test_docs_and_install_entry.py`：passed。
+  - `rtk git diff --check`：passed，无输出。
+  - `rtk python3 -m unittest discover -s tests`：290 tests passed。
+
+### 阶段 95：lark-cli needs_refresh 恢复动作修正
+- **状态：** complete
+- 执行的操作：
+  - 确认用户安装失败日志中期望 appId 与当前 appId 都是 `cli_a976fb48ea785bc0`，不是 appId mismatch。
+  - 确认本机 `lark-cli auth` 没有 `refresh` 子命令，旧恢复动作不可直接执行。
+  - `SourceResolver.preflight_lark()` 的 needs_refresh 恢复动作改为重新 `auth login --scope`。
+  - 缺 scope 时按缺失项生成可执行授权命令。
+- 已验证：
+  - `rtk python3 -m unittest tests.test_source_resolver tests.test_install tests.test_docs_and_install_entry`：28 tests passed。
+  - `rtk python3 -m py_compile coding_orchestration/source_resolver.py tests/test_source_resolver.py`：passed。
+  - `rtk git diff --check`：passed，无输出。
+  - `rtk python3 -m unittest discover -s tests`：290 tests passed。
+
 ---
 *每个阶段完成后或遇到错误时更新此文件*

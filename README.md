@@ -108,19 +108,12 @@ rtk lark-cli auth login --scope "docx:document:readonly wiki:node:read wiki:node
 rtk lark-cli auth status --verify
 ```
 
-`scripts/install_symlink.py` 默认会执行完整前置检查：Hermes `.env`、Codex CLI 绝对路径和能力、Hermes CLI/Gateway、旧组件冲突、终端默认 `lark-cli` appId、Docx/Wiki/Sheet user scope 都必须通过。检查失败时脚本会逐项输出错误和恢复动作。`--skip-preflight` 只允许用于隔离测试，不用于团队安装。
+`scripts/install_symlink.py` 默认会执行完整前置检查：Hermes `.env`、Codex CLI 绝对路径和能力、Hermes CLI/Gateway、旧组件冲突、终端默认 `lark-cli` appId、Docx/Wiki/Sheet user scope 都必须通过。检查失败时脚本会逐项输出错误和恢复动作。检查通过后，脚本会创建软链接、启用 `coding_orchestration` 插件并自动重启 Hermes Gateway。`--skip-preflight` 只允许用于隔离测试，不用于团队安装。
 
 安装命令：
 
 ```bash
 rtk python3 scripts/install_symlink.py
-rtk hermes plugins enable coding_orchestration
-```
-
-插件启用后需要重启 Gateway 或开启新的 Hermes session 才会生效：
-
-```bash
-rtk hermes gateway restart
 ```
 
 安装后验证：
@@ -145,6 +138,13 @@ rtk hermes gateway status
 
 ```bash
 rtk proxy python3 scripts/install_symlink.py --hermes-home ~/.hermes
+```
+
+如果自动启用或重启失败，按脚本提示手动恢复：
+
+```bash
+rtk hermes plugins enable coding_orchestration
+rtk hermes gateway restart
 ```
 
 软链接结果：

@@ -682,6 +682,24 @@
 - [x] 验证：focused unittest、py_compile、`git diff --check`、全量 unittest 通过。
 - **状态：** complete
 
+### 阶段 94：安装后自动启用并重启 Hermes
+- [x] 实现：`scripts/install_symlink.py` 在创建软链接后自动执行 `rtk hermes plugins enable coding_orchestration`。
+- [x] 实现：插件启用成功后自动执行 `rtk hermes gateway restart`，让安装后的插件立即生效。
+- [x] 兜底：启用或重启失败时输出 exit code、命令输出和手动恢复动作。
+- [x] 测试：脚本入口测试使用环境变量替换真实 enable/restart 命令，并断言安装输出包含自动启用和自动重启。
+- [x] 文档：README、PLUGIN_USAGE、PLUGIN_PREREQUISITES、PLUGIN_TECHNICAL_SOLUTION 改为“install 是完整安装入口”口径。
+- [x] 验证：focused install/docs tests、py_compile、`git diff --check`、全量 unittest 通过。
+- **状态：** complete
+
+### 阶段 95：lark-cli needs_refresh 恢复动作修正
+- [x] 排查：安装失败时 appId 已匹配，失败点是 `lark-cli user identity needs_refresh`，不是 Hermes app 配置错误。
+- [x] 排查：当前 `lark-cli auth` 没有 `refresh` 子命令，旧恢复动作 `auth refresh/login` 不可直接执行。
+- [x] 实现：needs_refresh 恢复动作改为重新执行 `rtk lark-cli auth login --scope ...`，并包含 Docx/Wiki/Sheet 读取 scope。
+- [x] 实现：缺 scope 恢复动作按缺失项生成可执行 `auth login --scope` 命令。
+- [x] 测试：source resolver 回归断言不再输出 `auth refresh`，并包含必要 scope。
+- [x] 验证：focused source/install/docs tests、py_compile、`git diff --check`、全量 unittest 通过。
+- **状态：** complete
+
 ## 关键问题
 1. Coding Mode 是否默认只在当前会话生效，还是可跨会话保持？建议先做当前会话级。
 2. Codex 可见 session 的具体 attach/resume 命令需要以当前 Codex CLI 实际支持为准。

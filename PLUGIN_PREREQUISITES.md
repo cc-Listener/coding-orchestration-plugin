@@ -51,11 +51,9 @@ rtk proxy curl -sS http://127.0.0.1:8642/health
 
 ```bash
 rtk python3 scripts/install_symlink.py --hermes-home ~/.hermes
-rtk hermes plugins enable coding_orchestration
-rtk hermes gateway restart
 ```
 
-`install_symlink.py` 默认会执行完整硬门禁检查，全部通过后才创建软链接。检查项包括：
+`install_symlink.py` 默认会执行完整硬门禁检查，全部通过后才创建软链接、启用 `coding_orchestration` 插件并自动重启 Hermes Gateway。检查项包括：
 
 - `~/.hermes/.env` 中存在 `FEISHU_APP_ID`、`FEISHU_APP_SECRET`、`CODEX_CLI_COMMAND`。
 - `CODEX_CLI_COMMAND` 是可执行的绝对路径。
@@ -66,6 +64,13 @@ rtk hermes gateway restart
 - user scope 包含 `docx:document:readonly`、Wiki 读取 scope；如果需求文档内嵌 Sheet，还需要 `sheets:spreadsheet:readonly` 或 `sheets:spreadsheet.meta:read`（兼容旧 `sheets:spreadsheet:read`）。
 
 如果只想在隔离测试里跳过检查，可以使用 `--skip-preflight`；团队安装流程不要使用这个参数。
+
+如果自动启用或重启失败，按脚本提示手动恢复：
+
+```bash
+rtk hermes plugins enable coding_orchestration
+rtk hermes gateway restart
+```
 
 确认插件入口只有一个：
 

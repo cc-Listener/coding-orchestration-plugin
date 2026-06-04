@@ -144,6 +144,13 @@ class DocsAndInstallEntryTest(unittest.TestCase):
             fake_repo = root / "repo"
             (fake_repo / "coding_orchestration").mkdir(parents=True)
             hermes_home = root / ".hermes"
+            fake_enable = root / "enable.py"
+            fake_enable.write_text("print('enabled')\n", encoding="utf-8")
+            fake_restart = root / "restart.py"
+            fake_restart.write_text("print('restarted')\n", encoding="utf-8")
+            env = os.environ.copy()
+            env["HERMES_PLUGIN_ENABLE_COMMAND"] = f"{sys.executable} {fake_enable}"
+            env["HERMES_GATEWAY_RESTART_COMMAND"] = f"{sys.executable} {fake_restart}"
 
             completed = subprocess.run(
                 [
@@ -160,10 +167,13 @@ class DocsAndInstallEntryTest(unittest.TestCase):
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 text=True,
+                env=env,
             )
 
             self.assertEqual(completed.returncode, 0, completed.stderr)
             self.assertTrue((hermes_home / "plugins" / "coding_orchestration").is_symlink())
+            self.assertIn("Hermes 插件已启用", completed.stdout)
+            self.assertIn("Hermes Gateway 已重启", completed.stdout)
 
     def test_uninstall_script_dry_run_when_invoked_by_path(self):
         repo_root = Path(__file__).resolve().parents[1]

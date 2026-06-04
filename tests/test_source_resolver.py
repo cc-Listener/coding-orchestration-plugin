@@ -43,6 +43,9 @@ scopes:
         self.assertEqual(result["status"], "auth_needed")
         self.assertTrue(result["needs_refresh"])
         self.assertIn("lark-cli auth", result["recovery_action"])
+        self.assertNotIn("auth refresh", result["recovery_action"])
+        self.assertIn("docx:document:readonly", result["recovery_action"])
+        self.assertIn("sheets:spreadsheet:read", result["recovery_action"])
 
     def test_lark_preflight_accepts_current_docx_and_wiki_scopes(self):
         resolver = SourceResolver(
@@ -125,6 +128,7 @@ scopes:
         self.assertFalse(result["ok"])
         self.assertEqual(result["status"], "permission_missing")
         self.assertIn("wiki:node:read or wiki:node:retrieve", result["missing_scopes"])
+        self.assertIn("wiki:node:read wiki:node:retrieve", result["recovery_action"])
 
     def test_lark_preflight_can_require_sheet_scope(self):
         resolver = SourceResolver(

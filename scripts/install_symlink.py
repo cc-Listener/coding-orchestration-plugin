@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import os
+import shlex
+import subprocess
 import sys
 from pathlib import Path
 
@@ -14,6 +17,29 @@ from coding_orchestration.install import install_from_current_repo, run_install_
 
 def _check_marker(ok: object) -> str:
     return "通过" if ok else "失败"
+
+
+def _run_env_command(env_name: str, default_command: str) -> subprocess.CompletedProcess[str]:
+    command = shlex.split(os.getenv(env_name, default_command))
+    return subprocess.run(command, text=True, capture_output=True, check=False)
+
+
+def enable_hermes_plugin() -> subprocess.CompletedProcess[str]:
+    return _run_env_command(
+        "HERMES_PLUGIN_ENABLE_COMMAND",
+        "rtk hermes plugins enable coding_orchestration",
+    )
+
+
+def restart_hermes_gateway() -> subprocess.CompletedProcess[str]:
+    return _run_env_command(
+        "HERMES_GATEWAY_RESTART_COMMAND",
+        "rtk hermes gateway restart",
+    )
+
+
+def _combined_output(result: subprocess.CompletedProcess[str]) -> str:
+    return "\n".join(filter(None, [result.stdout, result.stderr])).strip()
 
 
 def main() -> None:
@@ -59,6 +85,31 @@ def main() -> None:
         hermes_home=hermes_home,
     )
     print(f"已创建软链接：{target} -> {target.resolve()}")
+    print("正在启用 Hermes 插件 coding_orchestration...")
+    enable_result = enable_hermes_plugin()
+    enable_output = _combined_output(enable_result)
+    if enable_result.returncode != 0:
+        print(f"Hermes 插件启用失败：exit_code={enable_result.returncode}", file=sys.stderr)
+        if enable_output:
+            print(enable_output, file=sys.stderr)
+        print("恢复动作：请手动执行 rtk hermes plugins enable coding_orchestration", file=sys.stderr)
+        raise SystemExit(3)
+    print("Hermes 插件已启用")
+    if enable_output:
+        print(enable_output)
+
+    print("正在重启 Hermes Gateway...")
+    restart_result = restart_hermes_gateway()
+    restart_output = _combined_output(restart_result)
+    if restart_result.returncode != 0:
+        print(f"Hermes Gateway 重启失败：exit_code={restart_result.returncode}", file=sys.stderr)
+        if restart_output:
+            print(restart_output, file=sys.stderr)
+        print("恢复动作：请手动执行 rtk hermes gateway restart", file=sys.stderr)
+        raise SystemExit(4)
+    print("Hermes Gateway 已重启")
+    if restart_output:
+        print(restart_output)
 
 
 if __name__ == "__main__":
