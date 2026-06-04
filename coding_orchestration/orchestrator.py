@@ -4076,6 +4076,10 @@ class CodingOrchestrator:
 
         task_status = self._task_status_for_run_result(mode, status)
         task_phase = self._task_phase_for_run_result(mode, status)
+        run_still_active = status in {AgentRunStatus.QUEUED.value, AgentRunStatus.RUNNING.value}
+        if run_still_active:
+            task_status = TaskStatus.RUNNING
+            task_phase = running_phase
         if mode == RunMode.MERGE_TEST and bool(report.get("human_required")) and status in {
             AgentRunStatus.BLOCKED.value,
             AgentRunStatus.COMPLETED_UNSTRUCTURED.value,
@@ -4126,13 +4130,14 @@ class CodingOrchestrator:
         )
         if not stale_completion:
             usable_session_id = "" if status == AgentRunStatus.RUNNER_FAILED.value else session_id
-            self.ledger.update_task_session(
-                task_id,
-                {
-                    "runner": {
-                        "provider": runner.name,
-                        "last_run_id": run_id,
-                        "last_run_status": status,
+            runner_session_update = {
+                "provider": runner.name,
+                "last_run_id": run_id,
+                "last_run_status": status,
+            }
+            if not run_still_active:
+                runner_session_update.update(
+                    {
                         "active_run_id": None,
                         "active_mode": None,
                         "resume_session_id": usable_session_id,
@@ -4140,8 +4145,8 @@ class CodingOrchestrator:
                         "session_id": usable_session_id,
                         "attach_command": self._codex_attach_command(usable_session_id) if usable_session_id else "",
                     }
-                },
-            )
+                )
+            self.ledger.update_task_session(task_id, {"runner": runner_session_update})
         if mode == RunMode.MERGE_TEST and not stale_completion:
             self.ledger.append_merge_record(
                 task_id,

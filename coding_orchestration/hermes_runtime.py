@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Callable
 
 
@@ -35,13 +36,23 @@ class HermesRuntime:
             )
         except Exception as exc:
             return {"ok": False, "reason": f"dispatch_tool_exception: {exc}"}
-        if isinstance(result, dict):
-            if result.get("error"):
-                return {"ok": False, "reason": str(result.get("error")), "raw": result}
-            if result.get("ok") is False:
+        payload = self._coerce_result(result)
+        if isinstance(payload, dict):
+            if payload.get("error"):
+                return {"ok": False, "reason": str(payload.get("error")), "raw": payload}
+            if payload.get("ok") is False:
                 return {
                     "ok": False,
-                    "reason": str(result.get("reason") or result.get("message") or "dispatch_tool_failed"),
-                    "raw": result,
+                    "reason": str(payload.get("reason") or payload.get("message") or "dispatch_tool_failed"),
+                    "raw": payload,
                 }
-        return {"ok": True, "raw": result}
+        return {"ok": True, "raw": payload}
+
+    @staticmethod
+    def _coerce_result(result: Any) -> Any:
+        if isinstance(result, str):
+            try:
+                return json.loads(result)
+            except json.JSONDecodeError:
+                return result
+        return result
