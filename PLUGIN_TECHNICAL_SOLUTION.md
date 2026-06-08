@@ -29,7 +29,7 @@ MVP 的判断标准不是功能完整，而是 workflow 可用、任务可追踪
 
 当前仓库已经是 Hermes plugin，本轮重点不是“再做 plugin 化”，而是深度使用 Hermes 原生能力。插件注册 `pre_gateway_dispatch` 和 `pre_llm_call`，并通过 `ctx.register_tool` 暴露 Hermes native tools：`coding_task_create`、`coding_task_status`、`coding_task_run`、`coding_source_resolve`、`coding_lark_preflight`。Hermes 主 agent 优先调用这些结构化 tools；`/coding <action>` 是人工入口和 fallback。
 
-当前方案明确 **不引入 MCP**，也不新增独立 Lark/Meegle server。Lark/Meegle 来源解析走插件内 `SourceResolver`，Project work item 由 `MeegleReader` 路由，Wiki/Docx 由 Feishu/Lark 文档 reader 路由。Source/auth/permission 问题会进入 `source_deferred`、`source_auth_needed`、`source_permission_missing` 等结构化状态；blocked 只表示 hard human-blocked。
+当前方案明确 **不引入 MCP**，也不新增独立 Lark/Meegle server。Lark/Meegle 来源解析走插件内 `SourceResolver`，Project work item 由 `MeegleReader` 路由，Wiki/Docx 由 Feishu/Lark 文档 reader 路由。Source/auth/permission 问题统一投影为 TaskStatus 主状态 `needs_human`，具体原因放在 `source_status` / `source_recovery_action`；blocked 只表示 hard human-blocked。
 
 Hermes Codex 能力也被复用但边界清晰：Hermes `openai-codex` provider/OAuth 是模型能力，使用 `~/.hermes/auth.json`；standalone Codex CLI workspace edit 仍通过 Hermes terminal/process runtime 运行，可使用 `~/.codex/auth.json`。插件不会复制、导入或共享这两个 auth 文件。
 
@@ -383,6 +383,7 @@ Hermes 加载后，plugin 注册：
 /coding bugfix <反馈>
 /coding run <task_id>
 /coding implement <task_id>
+/coding qa <task_id>
 /coding prepare-merge-test <task_id>
 /coding merge-test <task_id>
 /coding complete <task_id>
@@ -398,6 +399,7 @@ Hermes 加载后，plugin 注册：
 - `/coding change`：记录需求变更，重新进入 plan-only 做变更影响分析和短计划。
 - `/coding bugfix`：补充 QA 或实现反馈，复用原 implementation workspace 修复。
 - `/coding implement`：人工确认 plan 后进入 GitOps implementation。
+- `/coding qa`：人工选择进入测试，续接 implementation workspace 执行 QA；implementation 完成后不会自动进入测试。
 - `/coding merge-test`：人工测试通过后，续接 Codex session 执行 `merge-to-test` skill。
 - `/coding complete`：merge-test 已合入 test 后，由人工标记 task 完成。
 - `/coding delete`：删除 task、active binding、关联 LLM Wiki draft/run_summary 和本地 run/workspace artifact。
@@ -674,25 +676,25 @@ Task Ledger 是状态事实源，状态推进由 plugin 控制：
 
 /coding implement
   -> 要求当前 task 已 planned
-  -> queued / running
+  -> TaskStatus: running；AgentRunStatus 主状态为 running，queued 只保存在 raw_status / status_detail
   -> 开发完成且验证通过：ready_for_merge_test
-  -> 开发完成但有明确验证缺口：ready_for_merge_test_with_known_gaps
-  -> 无法安全完成实现：blocked / runner_failed / failed
+  -> 开发完成但有明确验证缺口：ready_for_merge_test + known_gaps=true / verification_limitations
+  -> 无法安全完成实现：blocked / failed（runner_failed 只作为 failure_type / raw_status 保留）
 
 /coding bugfix
   -> 要求存在 active task 或显式 task_id
   -> 复用 implementation workspace / source branch
   -> 复用 task 级 Codex session，仅注入本轮修复反馈
-  -> queued / running
-  -> ready_for_merge_test / ready_for_merge_test_with_known_gaps 或 blocked
+  -> TaskStatus: running；AgentRunStatus 主状态为 running，queued 只保存在 raw_status / status_detail
+  -> ready_for_merge_test（缺口用 known_gaps=true 表达）或 blocked
 
 /coding merge-test
-  -> 要求 task 已 ready_for_merge_test 或 ready_for_merge_test_with_known_gaps
+  -> 要求 task 已 ready_for_merge_test
   -> blocked task 先做风险评估；缺 implementation run/worktree/source branch/cancelled 为硬阻断
-  -> 其他 blocked 风险通过 --accept-risk 记录人工接受后归一为 ready_for_merge_test_with_known_gaps
-  -> 人工触发后续接同一个 task 级 Codex session，进入 queued / running
+  -> 其他 blocked 风险通过 --accept-risk 记录人工接受后归一为 ready_for_merge_test，并写入 known_gaps / verification_limitations
+  -> 人工触发后续接同一个 task 级 Codex session，TaskStatus 进入 running；AgentRunStatus 主状态为 running，queued 只保存在 raw_status / status_detail
   -> merge-test 成功：merged_test
-  -> merge-test 无法安全完成：blocked / runner_failed / failed
+  -> merge-test 无法安全完成：blocked / failed（runner_failed 只作为 failure_type / raw_status 保留）
 
 /coding complete
   -> 要求 task 已 merged_test
@@ -719,7 +721,7 @@ LLM Wiki
   -> 长期知识：draft_knowledge、project_profile、run_summary、QA 经验、verified knowledge
 
 Run Artifacts
-  -> 可审计材料：input-prompt.md、run-manifest.json、stdout/stderr、report.json、summary.md、diff.patch
+  -> 可审计材料：input-prompt.md、run-manifest.json、stdout/stderr、run-log.md、events.compact.jsonl、report.json、summary.md、diff.patch
 
 Feishu Reply
   -> 人可读状态：task_id、项目、计划摘要、风险、下一步命令、artifact 路径
@@ -727,7 +729,27 @@ Feishu Reply
 
 边界必须清楚：Task Ledger 管“现在任务是什么状态”，LLM Wiki 管“以后可复用的知识”，artifact 管“这次 run 到底发生了什么”。
 
-### 7.4 新需求流程
+### 7.4 自适应执行策略
+
+Hermes 不复制 Codex/Superpowers 的 run 内执行流程。Hermes 只在 runner 启动前做粗粒度策略选择：
+
+```text
+task / feedback
+  -> classify_execution_policy
+  -> fast_fix | standard_change | guarded_change
+  -> 选择 plan、context、verification、browser QA、人工 gate 和 timeout 预算
+  -> Codex 按策略在单次 run 内执行
+```
+
+初始策略模型位于 `coding_orchestration/execution_policy.py`：
+
+- `fast_fix`：低风险小修复、ignore/config housekeeping、文案和明确单点反馈；默认 inline plan、minimal context、targeted verification，不启用浏览器 QA。
+- `standard_change`：普通功能或 UI 行为改动；默认 plan-only、project context、standard verification。
+- `guarded_change`：发布、部署、权限、数据库、支付、安全等风险关键词；默认 reviewed plan、deep context、full QA 和人工确认。
+
+该策略层只决定“走哪条路”，不决定 Codex 在 run 内具体使用哪个 Superpowers skill。Orchestrator 启动 run 时已把策略写入 `execution-policy.json`、`run-manifest.json` 和 `context-index.json`，作为后续重复 run 去重、QA 降级和 merge-test gate 的依据；当前批次不直接绕过既有状态机门禁。
+
+### 7.5 新需求流程
 
 新需求从 `/coding task` 进入：
 
@@ -744,8 +766,8 @@ Feishu Reply
   -> /coding implement <task_id>
   -> Codex GitOps implementation
   -> diff guard
-  -> 飞书回写 summary、测试结果、风险
-  -> 人工测试
+  -> 飞书回写 summary、验证摘要、风险和可选 QA 提示
+  -> 可选：/coding qa <task_id>
   -> /coding merge-test <task_id>
   -> 人工发布测试环境
 ```
@@ -758,7 +780,7 @@ Feishu Reply
 >
 > 截图内容建议：飞书中 plan-only 完成后的回写内容，能看到计划摘要、风险、下一步，以及明确要求人工确认 plan 后再 `/coding implement <task_id>`。
 
-### 7.5 Bugfix 流程
+### 7.6 Bugfix 流程
 
 bugfix 从 `/coding bugfix` 进入：
 
@@ -777,7 +799,7 @@ bugfix 从 `/coding bugfix` 进入：
 >
 > 截图内容建议：飞书中发送 `/coding bugfix ...` 的场景，Hermes 回复已收到 bugfix 反馈，并说明会复用原 implementation workspace 继续修复。
 
-### 7.6 Merge-to-test 流程
+### 7.7 Merge-to-test 流程
 
 ```text
 人工测试通过
@@ -796,7 +818,7 @@ bugfix 从 `/coding bugfix` 进入：
 >
 > 截图内容建议：飞书中执行 `/coding prepare-merge-test <task_id>` 和 `/coding merge-test <task_id>` 的回写，重点展示 Hermes 续接 Codex session、merge 到 test、发布仍人工。
 
-### 7.7 Cancel / Delete 流程
+### 7.8 Cancel / Delete 流程
 
 取消和删除是两个不同动作：
 
@@ -967,11 +989,43 @@ task requirement
 
 旧版 `index.jsonl` 只保留读取兼容，不再作为新写入格式。
 
+### 9.4 项目 Bootstrap 合同消费
+
+LLM Wiki 初始化不负责直接治理业务仓库。稳定项目事实应先由 `project-bootstrap-contract` 或等价人工维护层整理到业务仓库：
+
+```text
+AGENTS.md
+docs/project-map.md
+docs/conventions.md
+docs/component-contract.md
+contracts/project-context.yaml
+```
+
+Hermes 的 `/coding project init <path>` 默认只读扫描这些产物并写入 LLM Wiki，不创建、不覆盖业务仓库文件。需要生成或刷新这些业务仓库合同文件时，应走显式 bootstrap/refresh 入口。这样可以避免把 LLM Wiki 初始化和业务仓库文档生成混成一个不可审计动作。
+
+`/coding project status` 会基于 LLM Wiki `project_profile` 和只读项目路径评估初始化质量：
+
+- 项目指导：`AGENTS.md`、`CLAUDE.md` 等 agent 指导文件。
+- 项目上下文：`docs/project-map.md`、`docs/conventions.md`、架构/约定类文档或已识别技术栈。
+- 组件/模块合同：`docs/component-contract.md` 或 `contracts/project-context.yaml`。
+- 验证命令：`project_profile.test_commands`。
+- 动态来源索引：OpenAPI、Figma、Feishu/Lark 等 read-before-use 来源数量。
+
+质量门只暴露缺口，不自动补写业务仓库；补写应由 `project-bootstrap-contract` 或显式人工维护流程完成。
+
+动态外部来源仍维持 `read_before_use`：
+
+- OpenAPI / Swagger / Apifox。
+- Figma 设计稿。
+- Feishu / Lark 文档或 Project 来源。
+
+这些来源只进入 `external_source_index`，不作为长期 verified 知识。
+
 > 截图占位：`screenshots/18-llm-wiki-search-read.png`
 >
 > 截图内容建议：展示某次 run 的 `input-prompt.md` 只引用 `wiki-context.md` / `context-index.json`，或展示日志中 search/read 命中的 project_profile/run_summary，证明不是整库注入，而是按需读取。
 
-### 9.4 自动更新规则
+### 9.5 自动更新规则
 
 写入时机：
 
@@ -1032,7 +1086,7 @@ Codex 模式：
 
 - `plan-only`：只读项目，不开发，只输出计划。
 - `implementation`：在隔离 workspace / source branch 中开发，并在缺依赖时自动安装后继续验证。
-- `qa`：续接同一个 task Codex session，使用 `$qa` skill 做 diff-aware QA、修复、复验和 artifact 回收。
+- `qa`：仅由 `/coding qa <task_id>` 人工触发，续接同一个 task Codex session，使用 `$qa` skill 做 diff-aware QA、修复、复验和 artifact 回收。
 - `merge-test`：续接 Codex session 执行 `merge-to-test` skill。
 
 权限模型：
@@ -1052,7 +1106,7 @@ implementation 的 prompt 保持极简：
 
 > 截图占位：`screenshots/21-codex-implementation-summary.png`
 >
-> 截图内容建议：飞书中 implementation 完成后的回写，能看到实现摘要、测试结果、风险、artifact 路径，以及“不自动合并或发布”的提示。
+> 截图内容建议：飞书中 implementation 完成后的回写，能看到实现摘要、验证摘要、风险、artifact 路径，以及“QA/merge-test 都需人工触发”的提示。
 
 ## 11. Runner 可扩展设计
 
@@ -1069,6 +1123,8 @@ Runner 共同约束：
 - 接收 Hermes 生成的 prompt 和 manifest。
 - 输出 stdout/stderr/events。
 - 输出结构化 report。
+- `report.status` 只允许 `running`、`succeeded`、`blocked`、`failed`、`cancelled` 五个主状态。
+- 旧 runner 语义不再作为主状态存储：`queued` 写入 `raw_status/status_detail`，`ready_for_merge_test_with_known_gaps` 写入 `status_detail` 且 `known_gaps=true`，`completed_unstructured` 写入 `status_detail` 且 `structured=false`，`runner_failed/timeout/orphaned` 写入 `failure_type/raw_status` 且主状态为 `failed`。
 - 不直接写 Task Ledger。
 - 不直接操作飞书。
 - 不决定项目。

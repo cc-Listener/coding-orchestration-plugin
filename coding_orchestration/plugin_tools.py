@@ -35,7 +35,7 @@ _TASK_RUN_PARAMETERS = {
         "task_id": {"type": "string", "description": "Hermes coding task id."},
         "mode": {
             "type": "string",
-            "description": "Run mode: plan_only, implementation, merge_test, implement, or merge-test.",
+            "description": "Run mode: plan_only, implementation, qa, test, merge_test, implement, or merge-test.",
         },
     },
     "required": ["task_id"],

@@ -29,7 +29,7 @@ class TaskStatusPayloadTest(unittest.TestCase):
                 },
                 requirement_summary="订单列表新增店铺筛选",
                 project_path=str(root / "bps-admin"),
-                status=TaskStatus.SOURCE_AUTH_NEEDED.value,
+                status=TaskStatus.NEEDS_HUMAN.value,
                 phase=TaskPhase.DRAFT.value,
                 llm_wiki_refs=[],
                 human_decisions=[],
@@ -38,8 +38,8 @@ class TaskStatusPayloadTest(unittest.TestCase):
                     "kanban_task_id": "kb_123",
                     "kanban_sync": {
                         "status": "ok",
-                        "task_status": TaskStatus.SOURCE_AUTH_NEEDED.value,
-                        "task_status_display": "来源授权待刷新(source_auth_needed)",
+                        "task_status": TaskStatus.NEEDS_HUMAN.value,
+                        "task_status_display": "待人工确认(needs_human)",
                     },
                     "runner": {"provider": "codex_cli"},
                 },
@@ -56,10 +56,11 @@ class TaskStatusPayloadTest(unittest.TestCase):
             payload = orchestrator._task_status_payload("task_123")
 
             self.assertEqual(payload["task_id"], "task_123")
-            self.assertEqual(payload["status"], TaskStatus.SOURCE_AUTH_NEEDED.value)
+            self.assertEqual(payload["status"], TaskStatus.NEEDS_HUMAN.value)
+            self.assertNotIn("machine_status", payload)
             self.assertIn("status_label", payload)
-            self.assertEqual(payload["status_label_zh"], "来源授权待刷新")
-            self.assertEqual(payload["status_display"], "来源授权待刷新(source_auth_needed)")
+            self.assertEqual(payload["status_label_zh"], "待人工确认")
+            self.assertEqual(payload["status_display"], "待人工确认(needs_human)")
             self.assertEqual(payload["source_status"], "auth_needed")
             self.assertEqual(payload["source_url"], "https://bestfulfill.feishu.cn/docx/Token123")
             self.assertEqual(payload["runtime_status"], "running")
@@ -71,7 +72,7 @@ class TaskStatusPayloadTest(unittest.TestCase):
 
             message = orchestrator.command_coding_status("task_123")
 
-            self.assertIn("状态：来源授权待刷新(source_auth_needed)", message)
+            self.assertIn("状态：待人工确认(needs_human)", message)
             self.assertIn("执行阶段：draft", message)
             self.assertIn("最近运行：running", message)
             self.assertIn("Kanban 同步：成功", message)

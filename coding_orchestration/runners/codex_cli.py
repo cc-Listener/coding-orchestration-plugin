@@ -6,16 +6,30 @@ import re
 import signal
 import shlex
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from .base import CodingAgentRunner, RunResult
-from ..models import AgentRunStatus, ArtifactSet, RunMode, RunnerCapabilities, normalize_agent_run_status
+from ..models import (
+    AgentRunStatus,
+    ArtifactSet,
+    RunMode,
+    RunnerCapabilities,
+    agent_run_status_details,
+    normalize_agent_run_status,
+)
+from ..run_log_compactor import compact_run_logs
 
 
 REPORT_CONTRACT_FIELDS = (
     "runner",
     "status",
+    "raw_status",
+    "status_detail",
+    "failure_type",
+    "known_gaps",
+    "structured",
     "mode",
     "summary_markdown",
     "modified_files",
@@ -211,11 +225,14 @@ class CodexCliRunner(CodingAgentRunner):
             stdout_path=str(stdout_path),
             stderr_path=str(stderr_path),
             watch_patterns=[
-                AgentRunStatus.READY_FOR_MERGE_TEST.value,
-                AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
-                AgentRunStatus.RUNNER_FAILED.value,
+                "ready_for_merge_test",
+                "ready_for_merge_test_with_known_gaps",
+                "runner_failed",
+                "timeout",
                 AgentRunStatus.BLOCKED.value,
                 AgentRunStatus.FAILED.value,
+                AgentRunStatus.SUCCEEDED.value,
+                "success",
             ],
         )
         runtime_start_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -223,16 +240,17 @@ class CodexCliRunner(CodingAgentRunner):
             report = self.build_fallback_report(
                 run_dir,
                 mode,
-                status=AgentRunStatus.RUNNER_FAILED,
+                status="runner_failed",
                 limitation_reason=str(result.get("reason") or "hermes_runtime_start_failed"),
                 limitation_impact="Hermes terminal/process runtime did not start the Codex command.",
                 limitation_recovery_action="Verify Hermes terminal/process tools are enabled, then retry the run.",
                 limitation_fallback_evidence=str(runtime_start_path),
             )
-            return RunResult(AgentRunStatus.RUNNER_FAILED.value, None, self.collect_artifacts(run_dir), report)
+            return RunResult(report["status"], None, self.collect_artifacts(run_dir), report)
+        queued_details = agent_run_status_details("queued", mode)
         report = {
             "runner": self.name,
-            "status": AgentRunStatus.QUEUED.value,
+            **queued_details,
             "mode": mode.value,
             "summary_markdown": "Hermes runtime 已启动后台 Codex 任务。",
             "modified_files": [],
@@ -252,7 +270,7 @@ class CodexCliRunner(CodingAgentRunner):
         }
         (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         (run_dir / "summary.md").write_text(str(report["summary_markdown"]), encoding="utf-8")
-        return RunResult(AgentRunStatus.QUEUED.value, None, self.collect_artifacts(run_dir), report)
+        return RunResult(queued_details["status"], None, self.collect_artifacts(run_dir), report)
 
     @staticmethod
     def subprocess_cwd(*, project_path: Path, workspace_path: Path | None, mode: RunMode) -> Path:
@@ -274,6 +292,7 @@ class CodexCliRunner(CodingAgentRunner):
         run_dir.mkdir(parents=True, exist_ok=True)
         stdout_path = run_dir / "stdout.log"
         stderr_path = run_dir / "stderr.log"
+        started_at = datetime.now(timezone.utc)
         try:
             with stdin_path.open("rb") as stdin, stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
                 proc = subprocess.Popen(
@@ -290,23 +309,38 @@ class CodexCliRunner(CodingAgentRunner):
                 except subprocess.TimeoutExpired:
                     self.cancel(run_id)
                     exit_code = proc.wait(timeout=5)
-                    report = self.build_fallback_report(run_dir, mode, status=AgentRunStatus.TIMEOUT)
-                    return RunResult(AgentRunStatus.TIMEOUT.value, exit_code, self.collect_artifacts(run_dir), report)
+                    self._update_run_manifest_timing(
+                        run_dir,
+                        started_at=started_at,
+                        completed_at=datetime.now(timezone.utc),
+                    )
+                    report = self.build_fallback_report(run_dir, mode, status="timeout")
+                    return RunResult(report["status"], exit_code, self.collect_artifacts(run_dir), report)
                 finally:
                     self._processes.pop(run_id, None)
         except Exception as exc:
+            self._update_run_manifest_timing(
+                run_dir,
+                started_at=started_at,
+                completed_at=datetime.now(timezone.utc),
+            )
             stderr_path.write_text(str(exc), encoding="utf-8")
             report = self.build_fallback_report(
                 run_dir,
                 mode,
-                status=AgentRunStatus.RUNNER_FAILED,
+                status="runner_failed",
                 limitation_reason="process_start_failed",
                 limitation_impact="Codex runner did not start, so no implementation or verification ran.",
                 limitation_recovery_action="Verify the Codex CLI command/path and rerun this task.",
                 limitation_fallback_evidence=str(stderr_path),
             )
-            return RunResult(AgentRunStatus.RUNNER_FAILED.value, None, self.collect_artifacts(run_dir), report)
+            return RunResult(report["status"], None, self.collect_artifacts(run_dir), report)
 
+        self._update_run_manifest_timing(
+            run_dir,
+            started_at=started_at,
+            completed_at=datetime.now(timezone.utc),
+        )
         report = self.load_or_build_report(run_dir=run_dir, mode=mode)
         status = self._normalize_report_status(report.get("status", AgentRunStatus.FAILED.value), mode)
         return RunResult(status, exit_code, self.collect_artifacts(run_dir), report)
@@ -321,6 +355,32 @@ class CodexCliRunner(CodingAgentRunner):
         except ProcessLookupError:
             return False
 
+    @staticmethod
+    def _update_run_manifest_timing(
+        run_dir: Path,
+        *,
+        started_at: datetime,
+        completed_at: datetime,
+    ) -> None:
+        manifest_path = run_dir / "run-manifest.json"
+        manifest: dict[str, Any] = {}
+        if manifest_path.exists():
+            try:
+                loaded = json.loads(manifest_path.read_text(encoding="utf-8", errors="replace"))
+                if isinstance(loaded, dict):
+                    manifest = loaded
+            except Exception:
+                manifest = {}
+        duration_ms = max(0, int((completed_at - started_at).total_seconds() * 1000))
+        manifest.update(
+            {
+                "started_at": started_at.isoformat(),
+                "completed_at": completed_at.isoformat(),
+                "duration_ms": duration_ms,
+            }
+        )
+        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+
     def collect_artifacts(self, run_dir: Path) -> ArtifactSet:
         return ArtifactSet(
             run_dir=run_dir,
@@ -332,6 +392,8 @@ class CodexCliRunner(CodingAgentRunner):
             report=run_dir / "report.json",
             summary=run_dir / "summary.md",
             diff=run_dir / "diff.patch",
+            operator_log=run_dir / "run-log.md",
+            execution_policy=run_dir / "execution-policy.json",
         )
 
     def load_or_build_report(self, run_dir: Path, mode: RunMode) -> dict[str, Any]:
@@ -352,7 +414,7 @@ class CodexCliRunner(CodingAgentRunner):
             return self.build_fallback_report(
                 run_dir=run_dir,
                 mode=mode,
-                status=AgentRunStatus.RUNNER_FAILED,
+                status="runner_failed",
                 limitation_reason=runner_failure["reason"],
                 limitation_impact=runner_failure["impact"],
                 limitation_recovery_action=runner_failure["recovery_action"],
@@ -390,14 +452,15 @@ class CodexCliRunner(CodingAgentRunner):
         self,
         run_dir: Path,
         mode: RunMode,
-        status: AgentRunStatus = AgentRunStatus.COMPLETED_UNSTRUCTURED,
+        status: Any = "completed_unstructured",
         recovered_summary: str = "",
         limitation_reason: str = "",
         limitation_impact: str = "",
         limitation_recovery_action: str = "",
         limitation_fallback_evidence: str = "",
     ) -> dict[str, Any]:
-        if status == AgentRunStatus.TIMEOUT:
+        details = agent_run_status_details(status, mode)
+        if details.get("failure_type") == "timeout" or details.get("raw_status") == "timeout":
             risks = ["Codex runner reached the configured timeout before producing the final structured report."]
             next_actions = [
                 "Review stdout/stderr to confirm the latest implementation and verification state.",
@@ -422,7 +485,7 @@ class CodexCliRunner(CodingAgentRunner):
         )
         report = {
             "runner": self.name,
-            "status": status.value,
+            **details,
             "mode": mode.value,
             "summary_markdown": recovered_summary,
             "modified_files": [],
@@ -436,7 +499,7 @@ class CodexCliRunner(CodingAgentRunner):
             "tested_commit": "",
         }
         (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-        return report
+        return self._attach_operator_log_refs(run_dir, report)
 
     def recover_partial_structured_report(
         self,
@@ -505,9 +568,14 @@ class CodexCliRunner(CodingAgentRunner):
         ):
             return {}
         status = self._normalize_report_status(
-            candidate.get("status") or AgentRunStatus.COMPLETED_UNSTRUCTURED.value,
+            candidate.get("raw_status")
+            or candidate.get("status_detail")
+            or candidate.get("status")
+            or "completed_unstructured",
             mode,
         )
+        details = self._report_status_details(candidate, mode)
+        status = details["status"]
         modified_files = candidate.get("modified_files", candidate.get("changed_files", []))
         test_results = candidate.get("test_results") if isinstance(candidate.get("test_results"), list) else []
         test_commands = candidate.get("test_commands") if isinstance(candidate.get("test_commands"), list) else []
@@ -530,7 +598,7 @@ class CodexCliRunner(CodingAgentRunner):
         )
         return {
             "runner": str(candidate.get("runner") or self.name),
-            "status": status,
+            **details,
             "mode": str(candidate.get("mode") or mode.value),
             "summary_markdown": str(candidate.get("summary_markdown") or ""),
             "modified_files": modified_files if isinstance(modified_files, list) else [],
@@ -546,7 +614,6 @@ class CodexCliRunner(CodingAgentRunner):
                     in {
                         AgentRunStatus.BLOCKED.value,
                         AgentRunStatus.FAILED.value,
-                        AgentRunStatus.TIMEOUT.value,
                     },
                 )
             ),
@@ -560,13 +627,15 @@ class CodexCliRunner(CodingAgentRunner):
     @staticmethod
     def _default_next_actions_for_status(status: str, mode: RunMode, run_dir: Path) -> list[str]:
         task_id = run_dir.parent.name
+        details = agent_run_status_details(status, mode)
+        canonical = str(details.get("status") or "")
         if mode == RunMode.PLAN_ONLY:
             return [f"人工确认计划后发送 /coding implement {task_id}。"]
         if mode == RunMode.IMPLEMENTATION:
-            if status == AgentRunStatus.READY_FOR_MERGE_TEST.value:
-                return [f"开发和验证完成，确认后发送 /coding merge-test {task_id}。"]
-            if status == AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value:
+            if details.get("known_gaps") or details.get("status_detail") == "ready_for_merge_test_with_known_gaps":
                 return [f"开发完成但存在已知验证缺口；确认风险或补验证后发送 /coding merge-test {task_id}。"]
+            if canonical == AgentRunStatus.SUCCEEDED.value:
+                return [f"开发和验证完成，确认后发送 /coding merge-test {task_id}。"]
             return [f"查看 stdout/stderr 和恢复动作后，继续发送 /coding implement {task_id}。"]
         if mode == RunMode.QA:
             return [f"查看 QA 结果；确认后发送 /coding merge-test {task_id}。"]
@@ -590,15 +659,12 @@ class CodexCliRunner(CodingAgentRunner):
     def ensure_report_contract(self, run_dir: Path, mode: RunMode, report: dict[str, Any]) -> dict[str, Any]:
         report = dict(report)
         report.setdefault("mode", mode.value)
-        report["status"] = self._normalize_report_status(
-            report.get("status") or AgentRunStatus.COMPLETED_UNSTRUCTURED.value,
-            mode,
-        )
+        report.update(self._report_status_details(report, mode))
         report.setdefault("summary_markdown", "")
         report.setdefault("verification_limitations", [])
         report.setdefault("qa_artifacts", {"report": "", "baseline": "", "screenshots_dir": ""})
         report.setdefault("tested_commit", "")
-        if self._status_requires_limitation(str(report.get("status") or "")) and not report["verification_limitations"]:
+        if self._report_requires_limitation(report) and not report["verification_limitations"]:
             report["verification_limitations"] = [
                 self._verification_limitation(
                     reason="blocked_or_partial_without_details",
@@ -609,6 +675,14 @@ class CodexCliRunner(CodingAgentRunner):
             ]
         report = self._report_contract_fields(report)
         (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        return self._attach_operator_log_refs(run_dir, report)
+
+    def _attach_operator_log_refs(self, run_dir: Path, report: dict[str, Any]) -> dict[str, Any]:
+        report = dict(report)
+        try:
+            compact_run_logs(run_dir)
+        except Exception:
+            return report
         return report
 
     @staticmethod
@@ -620,19 +694,66 @@ class CodexCliRunner(CodingAgentRunner):
         return normalize_agent_run_status(status, mode)
 
     @staticmethod
-    def _status_requires_limitation(status: str) -> bool:
-        return status in {
-            AgentRunStatus.BLOCKED.value,
-            AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
-            AgentRunStatus.RUNNER_FAILED.value,
-            AgentRunStatus.TIMEOUT.value,
-        }
+    def _report_status_details(report: dict[str, Any], mode: RunMode) -> dict[str, Any]:
+        source_status = (
+            report.get("raw_status")
+            or report.get("status_detail")
+            or report.get("status")
+            or "completed_unstructured"
+        )
+        details = agent_run_status_details(source_status, mode)
+        status_detail = str(report.get("status_detail") or "").strip()
+        failure_type = str(report.get("failure_type") or "").strip()
+        if status_detail:
+            details["status_detail"] = status_detail
+        if failure_type:
+            details["failure_type"] = failure_type
+            details["status"] = AgentRunStatus.FAILED.value
+        if "known_gaps" in report:
+            details["known_gaps"] = bool(report.get("known_gaps"))
+        if "structured" in report:
+            details["structured"] = bool(report.get("structured"))
+        if details["known_gaps"] and not details["status_detail"]:
+            details["status_detail"] = "ready_for_merge_test_with_known_gaps"
+        if details["structured"] is False and not details["status_detail"]:
+            details["status_detail"] = "completed_unstructured"
+        return details
 
     @staticmethod
-    def _fallback_limitation_reason(status: AgentRunStatus) -> str:
-        if status == AgentRunStatus.TIMEOUT:
+    def _status_requires_limitation(status: Any) -> bool:
+        details = agent_run_status_details(status)
+        return CodexCliRunner._detail_requires_limitation(details)
+
+    @staticmethod
+    def _report_requires_limitation(report: dict[str, Any]) -> bool:
+        return CodexCliRunner._detail_requires_limitation(
+            {
+                "status": str(report.get("status") or ""),
+                "status_detail": str(report.get("status_detail") or ""),
+                "failure_type": str(report.get("failure_type") or ""),
+                "known_gaps": bool(report.get("known_gaps")),
+                "structured": bool(report.get("structured", True)),
+            }
+        )
+
+    @staticmethod
+    def _detail_requires_limitation(details: dict[str, Any]) -> bool:
+        status = str(details.get("status") or "")
+        return bool(
+            status in {AgentRunStatus.BLOCKED.value, AgentRunStatus.FAILED.value}
+            or details.get("known_gaps")
+            or details.get("failure_type")
+            or details.get("status_detail") in {"completed_unstructured", "ready_for_merge_test_with_known_gaps"}
+            or details.get("structured") is False
+        )
+
+    @staticmethod
+    def _fallback_limitation_reason(status: Any) -> str:
+        details = agent_run_status_details(status)
+        failure_type = str(details.get("failure_type") or "")
+        if failure_type == "timeout" or details.get("raw_status") == "timeout":
             return "runner_timeout"
-        if status == AgentRunStatus.RUNNER_FAILED:
+        if failure_type == "runner_failed" or details.get("raw_status") == "runner_failed":
             return "runner_failed"
         return "structured_report_missing"
 

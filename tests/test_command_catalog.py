@@ -26,6 +26,17 @@ class CommandCatalogTest(unittest.TestCase):
             }.issubset(actions)
         )
 
+    def test_manual_qa_command_is_in_catalog(self):
+        actions = {item.action for item in COMMAND_CATALOG}
+        help_text = "\n".join(command_help_lines())
+        listing_text = "\n".join(command_listing_lines())
+        allowed_commands = {item["command"] for item in allowed_rewrite_commands()}
+
+        self.assertIn("qa", actions)
+        self.assertIn("/coding qa <task_id>", help_text)
+        self.assertIn("/coding qa <task_id>", listing_text)
+        self.assertIn("/coding qa <task_id>", allowed_commands)
+
     def test_catalog_items_have_required_rewrite_fields(self):
         for item in COMMAND_CATALOG:
             with self.subTest(action=item.action):

@@ -1,4 +1,5 @@
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -305,7 +306,7 @@ class CodexCliRunnerTest(unittest.TestCase):
             Path("/repo/project"),
         )
 
-    def test_fallback_report_is_completed_unstructured(self):
+    def test_fallback_report_is_succeeded_with_unstructured_detail(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
             (run_dir / "stdout.log").write_text("free text output", encoding="utf-8")
@@ -319,8 +320,11 @@ class CodexCliRunnerTest(unittest.TestCase):
 
             self.assertEqual(
                 report["status"],
-                AgentRunStatus.COMPLETED_UNSTRUCTURED.value,
+                AgentRunStatus.SUCCEEDED.value,
             )
+            self.assertEqual(report["raw_status"], "completed_unstructured")
+            self.assertEqual(report["status_detail"], "completed_unstructured")
+            self.assertFalse(report["structured"])
             self.assertEqual(
                 set(report["verification_limitations"][0]),
                 {"reason", "impact", "recovery_action", "fallback_evidence"},
@@ -341,7 +345,7 @@ class CodexCliRunnerTest(unittest.TestCase):
             report = CodexCliRunner(command="codex").build_fallback_report(
                 run_dir=run_dir,
                 mode=RunMode.PLAN_ONLY,
-                status=AgentRunStatus.RUNNER_FAILED,
+                status="runner_failed",
             )
 
             self.assertEqual(set(report), set(schema["properties"]))
@@ -358,10 +362,12 @@ class CodexCliRunnerTest(unittest.TestCase):
             report = CodexCliRunner(command="codex").build_fallback_report(
                 run_dir=run_dir,
                 mode=RunMode.IMPLEMENTATION,
-                status=AgentRunStatus.TIMEOUT,
+                status="timeout",
             )
 
-            self.assertEqual(report["status"], AgentRunStatus.TIMEOUT.value)
+            self.assertEqual(report["status"], AgentRunStatus.FAILED.value)
+            self.assertEqual(report["raw_status"], "timeout")
+            self.assertEqual(report["failure_type"], "timeout")
             self.assertEqual(report["verification_limitations"][0]["reason"], "runner_timeout")
             self.assertIn("timeout", report["risks"][0].lower())
             self.assertNotIn("schema validation", report["risks"][0])
@@ -400,12 +406,41 @@ class CodexCliRunnerTest(unittest.TestCase):
                 mode=RunMode.IMPLEMENTATION,
             )
 
-            self.assertEqual(result.status, AgentRunStatus.RUNNER_FAILED.value)
-            self.assertEqual(result.report["status"], AgentRunStatus.RUNNER_FAILED.value)
+            self.assertEqual(result.status, AgentRunStatus.FAILED.value)
+            self.assertEqual(result.report["status"], AgentRunStatus.FAILED.value)
+            self.assertEqual(result.report["raw_status"], "runner_failed")
+            self.assertEqual(result.report["failure_type"], "runner_failed")
             self.assertTrue((run_dir / "report.json").exists())
             self.assertIn("process_start_failed", result.report["verification_limitations"][0]["reason"])
             self.assertEqual(result.report["qa_artifacts"], {"report": "", "baseline": "", "screenshots_dir": ""})
             self.assertEqual(result.report["tested_commit"], "")
+
+    def test_subprocess_run_writes_timing_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            stdin_path = run_dir / "input-prompt.md"
+            stdin_path.write_text("prompt", encoding="utf-8")
+            (run_dir / "run-manifest.json").write_text(
+                json.dumps({"run_id": "run_timing", "mode": "plan-only"}),
+                encoding="utf-8",
+            )
+
+            result = CodexCliRunner(command="codex").run_subprocess(
+                run_id="run_timing",
+                command=[sys.executable, "-c", "print('unstructured output')"],
+                run_dir=run_dir,
+                stdin_path=stdin_path,
+                timeout_seconds=5,
+                mode=RunMode.PLAN_ONLY,
+            )
+
+            self.assertEqual(result.status, AgentRunStatus.SUCCEEDED.value)
+            manifest = json.loads((run_dir / "run-manifest.json").read_text(encoding="utf-8"))
+            self.assertEqual(manifest["run_id"], "run_timing")
+            self.assertIn("started_at", manifest)
+            self.assertIn("completed_at", manifest)
+            self.assertIsInstance(manifest["duration_ms"], int)
+            self.assertGreaterEqual(manifest["duration_ms"], 0)
 
     def test_valid_report_generates_summary_markdown(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -432,8 +467,50 @@ class CodexCliRunnerTest(unittest.TestCase):
 
             report = CodexCliRunner(command="codex").load_or_build_report(run_dir, RunMode.PLAN_ONLY)
 
-            self.assertEqual(report["status"], "success")
+            self.assertEqual(report["status"], AgentRunStatus.SUCCEEDED.value)
             self.assertEqual((run_dir / "summary.md").read_text(encoding="utf-8"), "## Plan\n- Add status filter")
+
+    def test_valid_report_generates_compact_run_log(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "run-manifest.json").write_text(
+                json.dumps({"run_id": "run_1", "mode": "plan-only"}),
+                encoding="utf-8",
+            )
+            (run_dir / "stdout.log").write_text(
+                json.dumps({"type": "agent_message", "text": "重复进度"}, ensure_ascii=False)
+                + "\n"
+                + json.dumps({"type": "agent_message", "text": "重复进度"}, ensure_ascii=False)
+                + "\n",
+                encoding="utf-8",
+            )
+            (run_dir / "stderr.log").write_text("model refresh warning\nmodel refresh warning\n", encoding="utf-8")
+            (run_dir / "report.json").write_text(
+                json.dumps(
+                    {
+                        "runner": "codex_cli",
+                        "status": "success",
+                        "mode": "plan-only",
+                        "summary_markdown": "## Plan\n- Add status filter",
+                        "modified_files": [],
+                        "test_commands": [],
+                        "test_results": [],
+                        "risks": [],
+                        "verification_limitations": [],
+                        "human_required": False,
+                        "next_actions": ["Review plan"],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            report = CodexCliRunner(command="codex").load_or_build_report(run_dir, RunMode.PLAN_ONLY)
+
+            self.assertNotIn("operator_log_ref", report)
+            self.assertTrue((run_dir / "run-log.md").exists())
+            self.assertTrue((run_dir / "events.compact.jsonl").exists())
+            self.assertIn("重复消息已折叠", (run_dir / "run-log.md").read_text(encoding="utf-8"))
 
     def test_plan_only_ready_for_implementation_status_is_normalized_to_success(self):
         with tempfile.TemporaryDirectory() as tmp:

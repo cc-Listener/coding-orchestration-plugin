@@ -20,14 +20,16 @@ class PromptBuilder:
         runner_name: str,
         confirmed_plan: str = "",
         context_artifacts: dict[str, str] | None = None,
+        execution_policy: dict[str, Any] | None = None,
     ) -> str:
         del project_path, workspace_path, workflow, runner_name, confirmed_plan
         context_artifacts = context_artifacts or {}
+        execution_policy = execution_policy or {}
         if mode == RunMode.MERGE_TEST:
             return f"""# Merge Test
 
 ## 本轮动作
-{self._visible_mode_instruction(mode)}
+{self._visible_mode_instruction(mode, execution_policy)}
 
 ## 相关上下文
 {self._context_block(wiki_refs, context_artifacts)}
@@ -36,12 +38,12 @@ class PromptBuilder:
             return f"""# QA 验证
 
 ## 本轮动作
-{self._visible_mode_instruction(mode)}
+{self._visible_mode_instruction(mode, execution_policy)}
 
 ## 相关上下文
 {self._context_block(wiki_refs, context_artifacts)}
 """
-        confirmed_plan_block = self._confirmed_plan_ref(mode, context_artifacts)
+        confirmed_plan_block = self._confirmed_plan_ref(mode, context_artifacts, execution_policy)
         return f"""# 编码任务
 
 ## 目标
@@ -56,7 +58,7 @@ class PromptBuilder:
 {confirmed_plan_block}
 
 ## 本轮动作
-{self._visible_mode_instruction(mode)}
+{self._visible_mode_instruction(mode, execution_policy)}
 """
 
     def build_incremental(
@@ -70,9 +72,11 @@ class PromptBuilder:
         resume_session_id: str,
         incremental_context: str,
         context_artifacts: dict[str, str] | None = None,
+        execution_policy: dict[str, Any] | None = None,
     ) -> str:
         del runner_name, project_path, workspace_path
         context_artifacts = context_artifacts or {}
+        execution_policy = execution_policy or {}
         delta = incremental_context.strip() or "- 未记录新的人工反馈；请基于现有 task session 上下文继续。"
         context_block = self._context_block([], context_artifacts)
         return f"""# 编码任务增量
@@ -85,7 +89,7 @@ class PromptBuilder:
 {delta}
 
 ## 本轮动作
-{self._visible_mode_instruction(mode)}
+{self._visible_mode_instruction(mode, execution_policy)}
 
 ## 相关上下文
 {context_block}
@@ -138,6 +142,7 @@ class PromptBuilder:
             "confirmed_plan": "已确认计划",
             "implementation_context": "实现上下文",
             "run_instructions": "运行说明",
+            "execution_policy": "执行策略",
         }
         for key, label in artifact_labels.items():
             value = str(context_artifacts.get(key) or "").strip()
@@ -152,38 +157,51 @@ class PromptBuilder:
         return "\n".join(lines) or "- 无"
 
     @staticmethod
-    def _confirmed_plan_ref(mode: RunMode, context_artifacts: dict[str, str]) -> str:
+    def _confirmed_plan_ref(
+        mode: RunMode,
+        context_artifacts: dict[str, str],
+        execution_policy: dict[str, Any] | None = None,
+    ) -> str:
         if mode != RunMode.IMPLEMENTATION:
             return ""
         path = str(context_artifacts.get("confirmed_plan") or "").strip()
         if path:
             return f"""## 已确认计划
 - 详见：`{path}`"""
+        if str((execution_policy or {}).get("planning") or "") == "inline":
+            return """## 轻量实现策略
+- 本任务执行策略为 inline planning；可以直接基于目标、来源和项目上下文实现，不需要等待 plan-only artifact。"""
         return """## 已确认计划
 - 未找到已确认计划 artifact；如果无法安全进入实现，返回 `status=blocked` 并说明需要人工补充什么。"""
 
     @staticmethod
-    def _visible_mode_instruction(mode: RunMode) -> str:
+    def _visible_mode_instruction(mode: RunMode, execution_policy: dict[str, Any] | None = None) -> str:
+        execution_policy = execution_policy or {}
+        targeted = str(execution_policy.get("verification") or "") == "targeted"
         if mode == RunMode.PLAN_ONLY:
             return "- 只做计划，不修改文件；信息不足时直接说明需要补充什么。"
         if mode == RunMode.IMPLEMENTATION:
+            if targeted:
+                return "- 按已确认计划实现；只运行和本次 diff 直接相关的定点测试/格式检查；不要运行全仓 lint、`build:test`、浏览器 QA、发布、部署或 merge。"
             return "- 按已确认计划实现；缺少依赖时先安装并继续验证；不要发布、部署或 merge。"
         if mode == RunMode.QA:
+            if targeted:
+                return "- 执行轻量 targeted QA：只运行和本次 diff 直接相关的定点测试/格式检查；不要运行全仓 lint、`build:test` 或启动浏览器 QA。"
             return "- 使用 `$qa` 执行测试链路；缺少依赖时先安装；可修复 QA 发现的问题并复验；不要 merge-test、发布或部署。"
         if mode == RunMode.MERGE_TEST:
             return "- 使用 `merge-to-test` skill 执行人工触发的 merge-test；不要发布或部署。"
         return "- 按本轮上下文继续。"
 
-    def build_run_instructions(self, *, mode: RunMode) -> str:
+    def build_run_instructions(self, *, mode: RunMode, execution_policy: dict[str, Any] | None = None) -> str:
         return f"""# Run Instructions
 
-{self._execution_contract(mode=mode)}
+{self._execution_contract(mode=mode, execution_policy=execution_policy or {})}
 
 {self._output_requirements(mode)}
 """
 
     @staticmethod
-    def _execution_contract(mode: RunMode) -> str:
+    def _execution_contract(mode: RunMode, execution_policy: dict[str, Any]) -> str:
         if mode == RunMode.PLAN_ONLY:
             return """## 执行要求
 - 只输出计划，不修改文件。
@@ -194,7 +212,7 @@ class PromptBuilder:
 - 如果 `rtk lark-cli` 因授权、scope、网络或工具不可用失败，返回 `status=blocked`，并在 `verification_limitations` 写清 reason、impact、recovery_action、fallback_evidence。
 - Plan-only 不允许修改项目文件；即使当前 session 具备高权限，也只能读取飞书/Lark、Swagger/OpenAPI、API 元数据和项目上下文。
 - 计划需要包含：范围、涉及模块、实现步骤、风险、待确认问题。
-- 计划完整且可以进入人工确认/implementation 时，返回 `status=success`。
+- 计划完整且可以进入人工确认/implementation 时，返回 `status=succeeded`。
 - 如果信息不足，返回 `status=blocked`，并说明需要人工补充什么。"""
         if mode == RunMode.MERGE_TEST:
             return """## 本轮要求
@@ -206,6 +224,21 @@ class PromptBuilder:
 - 如果存在冲突或无关改动无法安全处理，返回 `status=blocked`。
 - 不要在 Codex session 中直接追问用户；需要人工确认时返回结构化 report，设置 `human_required=true`，让 Hermes 负责确认续接。"""
         if mode == RunMode.QA:
+            if str(execution_policy.get("verification") or "") == "targeted":
+                return """## 本轮要求
+- 执行轻量 targeted QA，不使用 `$qa` 全链路。
+- 只运行和本次 diff 直接相关的定点测试、改动文件格式检查、改动文件 lint。
+- 不要运行全仓 lint。
+- 不要运行 `build:test`、全量 build、全量测试或会触发上传/发布副作用的命令。
+- 不要启动浏览器 QA；除非执行策略明确 `allow_browser_qa=true` 且现有定点测试无法覆盖核心行为。
+- 缺少依赖时，优先使用已有 workspace 依赖；不要为了全量 gate 执行耗时安装。
+- QA 修复可以提交到当前 task worktree；源码修改只限当前 task workspace。
+- 项目外写入只允许必要的 git metadata 和最小 QA artifact。
+- 不要执行 merge-test，不要 merge，不要 push 到 `test`。
+- 不发布、不部署、不操作飞书。
+- 定点验证通过后返回 `status=succeeded`。
+- 定点验证有已知缺口但可继续人工判断时返回 `status=succeeded`，同时设置 `known_gaps=true`、`status_detail=ready_for_merge_test_with_known_gaps`，并写清 `verification_limitations`。
+- QA 无法安全完成时返回 `status=blocked`。"""
             return """## 本轮要求
 - 使用 `$qa` skill 执行测试链路。
 - 优先使用 diff-aware mode；如果需要 URL 或登录态，按 `$qa` 的规则请求人工输入。
@@ -215,8 +248,8 @@ class PromptBuilder:
 - 可以按 `$qa` 规则修复 QA 发现的问题并复验。
 - 不要执行 merge-test，不要 merge，不要 push 到 `test`。
 - 不发布、不部署、不操作飞书。
-- QA 通过后返回 `status=ready_for_merge_test`。
-- QA 有已知缺口但可继续人工判断时返回 `status=ready_for_merge_test_with_known_gaps`，并写清 `verification_limitations`。
+- QA 通过后返回 `status=succeeded`。
+- QA 有已知缺口但可继续人工判断时返回 `status=succeeded`，同时设置 `known_gaps=true`、`status_detail=ready_for_merge_test_with_known_gaps`，并写清 `verification_limitations`。
 - QA 无法安全完成时返回 `status=blocked`。"""
         if mode != RunMode.IMPLEMENTATION:
             return ""
@@ -227,8 +260,8 @@ class PromptBuilder:
 - 源码修改只限当前 task workspace。
 - 项目外写入只允许依赖缓存、git metadata、dev server/browser 临时文件和 `.gstack` QA 产物。
 - 不发布、不部署、不操作飞书。
-- 开发完成且验证通过后返回 `status=ready_for_merge_test`。
-- 开发完成但验证受限时返回 `status=ready_for_merge_test_with_known_gaps`，并写清 `verification_limitations`。
+- 开发完成且验证通过后返回 `status=succeeded`。
+- 开发完成但验证受限时返回 `status=succeeded`，同时设置 `known_gaps=true`、`status_detail=ready_for_merge_test_with_known_gaps`，并写清 `verification_limitations`。
 - 无法安全实现时返回 `status=blocked`。"""
 
     @staticmethod
@@ -236,6 +269,8 @@ class PromptBuilder:
         lines = [
             "## 输出要求",
             "- 返回符合 report schema 的 JSON。",
+            "- `status` 只能是 `running`、`succeeded`、`blocked`、`failed`、`cancelled`；不要把 Task 状态写进 runner `status`。",
+            "- 兼容旧状态时，把原始语义写入 `raw_status` 或 `status_detail`，例如 `ready_for_merge_test_with_known_gaps`、`completed_unstructured`、`runner_failed`。",
             "- 把给人看的计划、实现或 merge-test 摘要写入 `summary_markdown`。",
             '- `test_results` 使用 `{"command":"...","status":"passed|failed|not_run|blocked","output_summary":"..."}` 结构。',
             '- 必须包含 `qa_artifacts` 和 `tested_commit`；没有 QA 产物时使用 `{"report":"","baseline":"","screenshots_dir":""}` 和空字符串。',
@@ -243,16 +278,16 @@ class PromptBuilder:
         if mode == RunMode.IMPLEMENTATION:
             lines.extend(
                 [
-                    "- 开发完成且验证通过时，返回 `status=ready_for_merge_test`。",
-                    "- 开发完成但验证受限时，返回 `status=ready_for_merge_test_with_known_gaps`。",
+                    "- 开发完成且验证通过时，返回 `status=succeeded`。",
+                    "- 开发完成但验证受限时，返回 `status=succeeded`，同时设置 `known_gaps=true`、`status_detail=ready_for_merge_test_with_known_gaps`。",
                     "- 只有无法安全实现或缺少必要人工输入时，才返回 `status=blocked`。",
                 ]
             )
         elif mode == RunMode.QA:
             lines.extend(
                 [
-                    "- QA 通过时，返回 `status=ready_for_merge_test`。",
-                    "- QA 有已知缺口但可继续人工判断时，返回 `status=ready_for_merge_test_with_known_gaps`。",
+                    "- QA 通过时，返回 `status=succeeded`。",
+                    "- QA 有已知缺口但可继续人工判断时，返回 `status=succeeded`，同时设置 `known_gaps=true`、`status_detail=ready_for_merge_test_with_known_gaps`。",
                     "- QA 无法安全完成时，返回 `status=blocked`。",
                     "- 如果 `$qa` 生成报告或截图，把路径写入 `summary_markdown` 或 `next_actions`。",
                 ]
@@ -260,7 +295,7 @@ class PromptBuilder:
         elif mode == RunMode.MERGE_TEST:
             lines.extend(
                 [
-                    "- merge-test 完成后返回 `status=success`。",
+                    "- merge-test 完成后返回 `status=succeeded`。",
                     "- 如果存在无法安全解决的冲突或无关改动，返回 `status=blocked`。",
                     "- 如果需要人工确认，设置 `human_required=true`，不要只在自然语言摘要里提问。",
                 ]
@@ -268,13 +303,13 @@ class PromptBuilder:
         else:
             lines.extend(
                 [
-                    "- 计划完整且可以进入人工确认/implementation 时，返回 `status=success`。",
-                    "- 不要返回 `ready_for_implementation`、`plan_ready` 或 `planned`，这些是 Hermes 内部 task 状态，不是 runner report status。",
+                    "- 计划完整且可以进入人工确认/implementation 时，返回 `status=succeeded`。",
+                    "- 不要返回 `ready_for_implementation`、`plan_ready`、`planned`、`success`，这些是 Hermes 内部 task 状态或旧 runner 兼容值，不是新的 runner 主状态。",
                     "- 本轮不要修改文件；需要人工确认时设置 `human_required=true`。",
                 ]
             )
         lines.append(
-            "- 如果 status 是 `blocked`、`ready_for_merge_test_with_known_gaps` 或 `runner_failed`，必须包含 `verification_limitations`，每项包含 `reason`、`impact`、`recovery_action` 和 `fallback_evidence`。"
+            "- 如果 `status=blocked`、`known_gaps=true`、`failure_type` 非空或 `structured=false`，必须包含 `verification_limitations`，每项包含 `reason`、`impact`、`recovery_action` 和 `fallback_evidence`。"
         )
         if mode == RunMode.MERGE_TEST:
             lines.append("- 只有本次 merge-test run 允许 merge/push 到 `test`；不要发布或部署。")

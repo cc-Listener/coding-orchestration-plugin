@@ -227,6 +227,16 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         ("计划确认了，开始开发",),
     ),
     CodingCommand(
+        "qa",
+        "/coding qa <task_id>",
+        "qa_requested",
+        "execution",
+        "start_runner",
+        ("task_id",),
+        "人工选择进入 QA run；implementation 完成后不会自动进入测试。",
+        ("开始测试", "跑一下 QA"),
+    ),
+    CodingCommand(
         "prepare-merge-test",
         "/coding prepare-merge-test <task_id>",
         "prepare_merge_test",
@@ -304,8 +314,8 @@ NATIVE_TOOL_CATALOG: tuple[dict[str, object], ...] = (
     },
     {
         "name": "coding_task_run",
-        "preferred_for": "starting or continuing plan/implementation/merge-test runs",
-        "replaces": "/coding run or /coding implement when tool calling is available",
+        "preferred_for": "starting or continuing plan/implementation/qa/merge-test runs",
+        "replaces": "/coding run, /coding implement, or /coding qa when tool calling is available",
     },
     {
         "name": "coding_source_resolve",

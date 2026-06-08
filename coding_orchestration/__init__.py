@@ -52,7 +52,7 @@ def _register_once(ctx: Any) -> None:
         "coding",
         orchestrator.command_coding,
         description="Coding orchestration command group",
-        args_hint="<task|project|status|list|use|exit|continue|change|bugfix|run|implement|complete|cancel|delete|prepare-merge-test|merge-test|help>",
+        args_hint="<task|project|status|list|use|exit|continue|change|bugfix|run|implement|qa|complete|cancel|delete|prepare-merge-test|merge-test|help>",
     )
     register_coding_tools(ctx, orchestrator)
     register_cli(ctx, orchestrator)

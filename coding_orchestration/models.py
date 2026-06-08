@@ -9,18 +9,12 @@ from typing import Any
 class TaskStatus(str, Enum):
     NEW = "new"
     NEEDS_HUMAN = "needs_human"
-    SOURCE_DEFERRED = "source_deferred"
-    SOURCE_AUTH_NEEDED = "source_auth_needed"
-    SOURCE_PERMISSION_MISSING = "source_permission_missing"
     PLANNED = "planned"
-    QUEUED = "queued"
     RUNNING = "running"
     BLOCKED = "blocked"
     READY_FOR_MERGE_TEST = "ready_for_merge_test"
-    READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS = "ready_for_merge_test_with_known_gaps"
-    RUNNER_FAILED = "runner_failed"
-    FAILED = "failed"
     MERGED_TEST = "merged_test"
+    FAILED = "failed"
     DONE = "done"
     CANCELLED = "cancelled"
 
@@ -28,37 +22,45 @@ class TaskStatus(str, Enum):
 TASK_STATUS_LABELS_ZH: dict[TaskStatus, str] = {
     TaskStatus.NEW: "新建",
     TaskStatus.NEEDS_HUMAN: "待人工确认",
-    TaskStatus.SOURCE_DEFERRED: "来源待补齐",
-    TaskStatus.SOURCE_AUTH_NEEDED: "来源授权待刷新",
-    TaskStatus.SOURCE_PERMISSION_MISSING: "来源权限缺失",
     TaskStatus.PLANNED: "已规划",
-    TaskStatus.QUEUED: "排队中",
     TaskStatus.RUNNING: "运行中",
     TaskStatus.BLOCKED: "受阻",
     TaskStatus.READY_FOR_MERGE_TEST: "等待手动执行 merge test",
-    TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS: "待合并测试（有已知缺口）",
-    TaskStatus.RUNNER_FAILED: "Runner 失败",
-    TaskStatus.FAILED: "失败",
     TaskStatus.MERGED_TEST: "已合并 test，待人工完成",
+    TaskStatus.FAILED: "失败",
     TaskStatus.DONE: "已完成",
     TaskStatus.CANCELLED: "已取消",
 }
 
 
-def task_status_label_zh(status: TaskStatus | str | None) -> str:
+def _coerce_task_status(status: TaskStatus | str | None) -> TaskStatus | None:
     if status is None:
-        return "未知"
+        return None
     try:
-        return TASK_STATUS_LABELS_ZH[TaskStatus(status)]
+        return TaskStatus(status)
     except ValueError:
+        return None
+
+
+def canonical_task_status(status: TaskStatus | str | None) -> TaskStatus | None:
+    return _coerce_task_status(status)
+
+
+def task_status_label_zh(status: TaskStatus | str | None) -> str:
+    canonical = canonical_task_status(status)
+    if canonical is None:
         return "未知"
+    return TASK_STATUS_LABELS_ZH[canonical]
 
 
 def task_status_display(status: TaskStatus | str | None) -> str:
     if status is None:
         return "未知"
     value = status.value if isinstance(status, TaskStatus) else str(status)
-    return f"{task_status_label_zh(value)}({value})"
+    canonical = canonical_task_status(value)
+    if canonical is None:
+        return f"未知({value})"
+    return f"{task_status_label_zh(canonical)}({canonical.value})"
 
 
 def task_status_view(status: TaskStatus | str | None) -> dict[str, str]:
@@ -90,18 +92,21 @@ class TaskPhase(str, Enum):
 
 
 class AgentRunStatus(str, Enum):
-    QUEUED = "queued"
     RUNNING = "running"
-    SUCCESS = "success"
-    FAILED = "failed"
+    SUCCEEDED = "succeeded"
     BLOCKED = "blocked"
+    FAILED = "failed"
     CANCELLED = "cancelled"
-    TIMEOUT = "timeout"
-    ORPHANED = "orphaned"
-    COMPLETED_UNSTRUCTURED = "completed_unstructured"
-    READY_FOR_MERGE_TEST = "ready_for_merge_test"
-    READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS = "ready_for_merge_test_with_known_gaps"
-    RUNNER_FAILED = "runner_failed"
+
+    # Backward-compatible aliases. These do not appear when iterating AgentRunStatus.
+    QUEUED = "running"
+    SUCCESS = "succeeded"
+    READY_FOR_MERGE_TEST = "succeeded"
+    READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS = "succeeded"
+    COMPLETED_UNSTRUCTURED = "succeeded"
+    TIMEOUT = "failed"
+    ORPHANED = "failed"
+    RUNNER_FAILED = "failed"
 
 
 class RunMode(str, Enum):
@@ -129,20 +134,87 @@ MERGE_TEST_SUCCESS_STATUS_ALIASES = frozenset(
 )
 
 
-def normalize_agent_run_status(status: Any, mode: RunMode | str | None = None) -> str:
-    """Normalize external runner status into the internal AgentRunStatus contract."""
+def _raw_status_value(status: Any) -> str:
     value = status.value if isinstance(status, Enum) else str(status or "")
-    value = value.strip()
+    return value.strip()
+
+
+def agent_run_status_details(status: Any, mode: RunMode | str | None = None) -> dict[str, Any]:
+    """Normalize external runner output while preserving diagnostic detail fields."""
+    raw_value = _raw_status_value(status)
+    value = raw_value
     mode_value = mode.value if isinstance(mode, Enum) else str(mode or "")
     if mode_value == RunMode.PLAN_ONLY.value and value in PLAN_ONLY_SUCCESS_STATUS_ALIASES:
-        return AgentRunStatus.SUCCESS.value
+        value = "success"
     if mode_value == RunMode.MERGE_TEST.value and value in MERGE_TEST_SUCCESS_STATUS_ALIASES:
-        return AgentRunStatus.SUCCESS.value
-    try:
-        AgentRunStatus(value)
-        return value
-    except ValueError:
-        return AgentRunStatus.COMPLETED_UNSTRUCTURED.value
+        value = "success"
+    if not value:
+        value = "completed_unstructured"
+    raw_value = raw_value or value
+
+    detail: dict[str, Any] = {
+        "status": AgentRunStatus.SUCCEEDED.value,
+        "raw_status": raw_value,
+        "status_detail": "",
+        "failure_type": "",
+        "known_gaps": False,
+        "structured": True,
+    }
+
+    canonical = {
+        AgentRunStatus.RUNNING.value,
+        AgentRunStatus.SUCCEEDED.value,
+        AgentRunStatus.BLOCKED.value,
+        AgentRunStatus.FAILED.value,
+        AgentRunStatus.CANCELLED.value,
+    }
+    if value in canonical:
+        detail["status"] = value
+        return detail
+    if raw_value != value:
+        detail["status_detail"] = raw_value
+
+    if value == "queued":
+        detail["status"] = AgentRunStatus.RUNNING.value
+        detail["status_detail"] = "queued"
+        return detail
+    if value in {"success", "ready_for_merge_test"}:
+        detail["status"] = AgentRunStatus.SUCCEEDED.value
+        if value != "success":
+            detail["status_detail"] = value
+        return detail
+    if value == "ready_for_merge_test_with_known_gaps":
+        detail["status"] = AgentRunStatus.SUCCEEDED.value
+        detail["status_detail"] = value
+        detail["known_gaps"] = True
+        return detail
+    if value == "completed_unstructured":
+        detail["status"] = AgentRunStatus.SUCCEEDED.value
+        detail["status_detail"] = value
+        detail["structured"] = False
+        return detail
+    if value in {"timeout", "runner_failed", "orphaned", "failed"}:
+        detail["status"] = AgentRunStatus.FAILED.value
+        detail["failure_type"] = value if value != "failed" else ""
+        detail["status_detail"] = value if value != "failed" else ""
+        return detail
+    if value == "blocked":
+        detail["status"] = AgentRunStatus.BLOCKED.value
+        return detail
+    if value == "cancelled":
+        detail["status"] = AgentRunStatus.CANCELLED.value
+        return detail
+
+    detail["status"] = AgentRunStatus.SUCCEEDED.value
+    detail["raw_status"] = value
+    detail["status_detail"] = "completed_unstructured"
+    detail["structured"] = False
+    return detail
+
+
+def normalize_agent_run_status(status: Any, mode: RunMode | str | None = None) -> str:
+    """Normalize external runner status into the public AgentRunStatus contract."""
+    return str(agent_run_status_details(status, mode)["status"])
 
 
 class RunnerName(str, Enum):
@@ -214,6 +286,7 @@ class RunManifest:
     implementation_checkpoint: dict[str, Any] | None = None
     qa_checkpoint: dict[str, Any] | None = None
     merge_test_checkpoint: dict[str, Any] | None = None
+    execution_policy: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         data = asdict(self)
@@ -246,6 +319,8 @@ class ArtifactSet:
     report: Path
     summary: Path
     diff: Path
+    operator_log: Path | None = None
+    execution_policy: Path | None = None
 
 
 def enum_value(value: Any) -> Any:

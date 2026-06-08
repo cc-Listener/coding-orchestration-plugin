@@ -143,8 +143,9 @@ class RouterPromptSummaryTest(unittest.TestCase):
     def test_plan_only_run_instructions_use_runner_status_contract(self):
         instructions = PromptBuilder().build_run_instructions(mode=RunMode.PLAN_ONLY)
 
-        self.assertIn("返回 `status=success`", instructions)
+        self.assertIn("返回 `status=succeeded`", instructions)
         self.assertIn("不要返回 `ready_for_implementation`", instructions)
+        self.assertIn("`status` 只能是 `running`、`succeeded`、`blocked`、`failed`、`cancelled`", instructions)
         self.assertIn("Hermes 内部 task 状态", instructions)
         self.assertIn("Hermes 已在来源上下文中注入飞书正文", instructions)
         self.assertIn("优先使用来源上下文中的 `lark_cli_command`", instructions)
@@ -248,7 +249,7 @@ class RouterPromptSummaryTest(unittest.TestCase):
 
     def test_prompt_builder_qa_prompt_uses_qa_skill_and_is_minimal(self):
         prompt = PromptBuilder().build(
-            requirement_summary="订单筛选完成后自动 QA",
+            requirement_summary="订单筛选完成后执行 QA",
             source={"type": "feishu_chat", "project_name": "order-system"},
             project_path="/repo/bps-admin",
             workspace_path="/tmp/worktree",
@@ -282,6 +283,23 @@ class RouterPromptSummaryTest(unittest.TestCase):
         self.assertNotIn("/tmp/worktree", prompt)
         self.assertNotIn("rtk pnpm test", prompt)
         self.assertNotIn("verification_limitations", prompt)
+
+    def test_targeted_qa_run_instructions_avoid_full_qa_chain(self):
+        instructions = PromptBuilder().build_run_instructions(
+            mode=RunMode.QA,
+            execution_policy={
+                "route": "targeted_ui_fix",
+                "verification": "targeted",
+                "allow_browser_qa": False,
+            },
+        )
+
+        self.assertIn("轻量 targeted QA", instructions)
+        self.assertIn("只运行和本次 diff 直接相关的定点测试", instructions)
+        self.assertIn("不要运行全仓 lint", instructions)
+        self.assertIn("不要运行 `build:test`", instructions)
+        self.assertIn("不要启动浏览器 QA", instructions)
+        self.assertNotIn("使用 `$qa` skill 执行测试链路", instructions)
 
     def test_run_summary_writer_upserts_to_wiki(self):
         with tempfile.TemporaryDirectory() as tmp:

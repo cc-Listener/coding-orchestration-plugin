@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .models import AgentRunStatus, TaskStatus, normalize_agent_run_status
+from .models import AgentRunStatus, TaskStatus, canonical_task_status, normalize_agent_run_status
 
 
 class InvalidTransition(ValueError):
@@ -11,114 +11,74 @@ class TaskStateMachine:
     _ALLOWED: dict[TaskStatus, set[TaskStatus]] = {
         TaskStatus.NEW: {
             TaskStatus.NEEDS_HUMAN,
-            TaskStatus.SOURCE_DEFERRED,
-            TaskStatus.SOURCE_AUTH_NEEDED,
-            TaskStatus.SOURCE_PERMISSION_MISSING,
             TaskStatus.PLANNED,
-            TaskStatus.QUEUED,
+            TaskStatus.RUNNING,
             TaskStatus.CANCELLED,
         },
         TaskStatus.NEEDS_HUMAN: {
-            TaskStatus.SOURCE_DEFERRED,
-            TaskStatus.SOURCE_AUTH_NEEDED,
-            TaskStatus.SOURCE_PERMISSION_MISSING,
             TaskStatus.PLANNED,
-            TaskStatus.CANCELLED,
-        },
-        TaskStatus.SOURCE_DEFERRED: {
-            TaskStatus.PLANNED,
-            TaskStatus.QUEUED,
-            TaskStatus.NEEDS_HUMAN,
-            TaskStatus.SOURCE_AUTH_NEEDED,
-            TaskStatus.SOURCE_PERMISSION_MISSING,
-            TaskStatus.CANCELLED,
-        },
-        TaskStatus.SOURCE_AUTH_NEEDED: {
-            TaskStatus.SOURCE_DEFERRED,
-            TaskStatus.PLANNED,
-            TaskStatus.NEEDS_HUMAN,
-            TaskStatus.CANCELLED,
-        },
-        TaskStatus.SOURCE_PERMISSION_MISSING: {
-            TaskStatus.SOURCE_DEFERRED,
-            TaskStatus.PLANNED,
-            TaskStatus.NEEDS_HUMAN,
+            TaskStatus.RUNNING,
             TaskStatus.CANCELLED,
         },
         TaskStatus.PLANNED: {
-            TaskStatus.QUEUED,
+            TaskStatus.RUNNING,
             TaskStatus.NEEDS_HUMAN,
-            TaskStatus.RUNNER_FAILED,
+            TaskStatus.FAILED,
             TaskStatus.CANCELLED,
         },
-        TaskStatus.QUEUED: {TaskStatus.RUNNING, TaskStatus.CANCELLED, TaskStatus.RUNNER_FAILED, TaskStatus.FAILED},
         TaskStatus.RUNNING: {
             TaskStatus.PLANNED,
             TaskStatus.MERGED_TEST,
             TaskStatus.BLOCKED,
             TaskStatus.READY_FOR_MERGE_TEST,
-            TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS,
-            TaskStatus.RUNNER_FAILED,
             TaskStatus.FAILED,
             TaskStatus.CANCELLED,
         },
         TaskStatus.BLOCKED: {
             TaskStatus.PLANNED,
-            TaskStatus.QUEUED,
-            TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS,
+            TaskStatus.RUNNING,
+            TaskStatus.READY_FOR_MERGE_TEST,
+            TaskStatus.FAILED,
             TaskStatus.CANCELLED,
         },
         TaskStatus.READY_FOR_MERGE_TEST: {
-            TaskStatus.QUEUED,
+            TaskStatus.RUNNING,
             TaskStatus.BLOCKED,
-            TaskStatus.RUNNER_FAILED,
+            TaskStatus.FAILED,
+            TaskStatus.MERGED_TEST,
             TaskStatus.DONE,
             TaskStatus.PLANNED,
             TaskStatus.CANCELLED,
         },
-        TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS: {
-            TaskStatus.QUEUED,
-            TaskStatus.BLOCKED,
-            TaskStatus.RUNNER_FAILED,
-            TaskStatus.DONE,
-            TaskStatus.PLANNED,
-            TaskStatus.CANCELLED,
-        },
-        TaskStatus.RUNNER_FAILED: {TaskStatus.PLANNED, TaskStatus.QUEUED, TaskStatus.CANCELLED},
-        TaskStatus.FAILED: {TaskStatus.PLANNED, TaskStatus.QUEUED, TaskStatus.CANCELLED},
+        TaskStatus.FAILED: {TaskStatus.PLANNED, TaskStatus.RUNNING, TaskStatus.CANCELLED},
         TaskStatus.MERGED_TEST: {TaskStatus.DONE, TaskStatus.PLANNED, TaskStatus.CANCELLED},
         TaskStatus.CANCELLED: {
             TaskStatus.NEEDS_HUMAN,
             TaskStatus.PLANNED,
-            TaskStatus.RUNNER_FAILED,
+            TaskStatus.RUNNING,
             TaskStatus.FAILED,
             TaskStatus.READY_FOR_MERGE_TEST,
-            TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS,
             TaskStatus.MERGED_TEST,
         },
         TaskStatus.DONE: {TaskStatus.PLANNED},
     }
 
     _RUN_TO_TASK: dict[AgentRunStatus, TaskStatus] = {
-        AgentRunStatus.QUEUED: TaskStatus.QUEUED,
         AgentRunStatus.RUNNING: TaskStatus.RUNNING,
-        AgentRunStatus.SUCCESS: TaskStatus.READY_FOR_MERGE_TEST,
-        AgentRunStatus.FAILED: TaskStatus.FAILED,
+        AgentRunStatus.SUCCEEDED: TaskStatus.READY_FOR_MERGE_TEST,
         AgentRunStatus.BLOCKED: TaskStatus.BLOCKED,
+        AgentRunStatus.FAILED: TaskStatus.FAILED,
         AgentRunStatus.CANCELLED: TaskStatus.CANCELLED,
-        AgentRunStatus.TIMEOUT: TaskStatus.RUNNER_FAILED,
-        AgentRunStatus.ORPHANED: TaskStatus.FAILED,
-        AgentRunStatus.COMPLETED_UNSTRUCTURED: TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS,
-        AgentRunStatus.READY_FOR_MERGE_TEST: TaskStatus.READY_FOR_MERGE_TEST,
-        AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS: TaskStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS,
-        AgentRunStatus.RUNNER_FAILED: TaskStatus.RUNNER_FAILED,
     }
 
     @classmethod
     def transition(cls, current: TaskStatus | str, target: TaskStatus | str, reason: str = "") -> TaskStatus:
-        current_status = TaskStatus(current)
-        target_status = TaskStatus(target)
-        if target_status not in cls._ALLOWED[current_status]:
+        current_status = canonical_task_status(current)
+        target_status = canonical_task_status(target)
+        if current_status is None or target_status is None:
+            raise InvalidTransition(f"invalid task transition {current} -> {target}: {reason}")
+        allowed_targets = {canonical_task_status(allowed) for allowed in cls._ALLOWED[current_status]}
+        if target_status not in allowed_targets:
             raise InvalidTransition(
                 f"invalid task transition {current_status.value} -> {target_status.value}: {reason}"
             )
@@ -127,15 +87,18 @@ class TaskStateMachine:
     @classmethod
     def task_status_for_run_status(cls, run_status: AgentRunStatus | str) -> TaskStatus:
         status = AgentRunStatus(normalize_agent_run_status(run_status))
-        return cls._RUN_TO_TASK[status]
+        task_status = canonical_task_status(cls._RUN_TO_TASK[status])
+        if task_status is None:
+            raise InvalidTransition(f"runner status {status.value} has no task status mapping")
+        return task_status
 
     @classmethod
     def task_status_for_source_status(cls, source_status: str) -> TaskStatus:
         mapping = {
             "ok": TaskStatus.PLANNED,
             "missing": TaskStatus.PLANNED,
-            "deferred": TaskStatus.SOURCE_DEFERRED,
-            "auth_needed": TaskStatus.SOURCE_AUTH_NEEDED,
-            "permission_missing": TaskStatus.SOURCE_PERMISSION_MISSING,
+            "deferred": TaskStatus.NEEDS_HUMAN,
+            "auth_needed": TaskStatus.NEEDS_HUMAN,
+            "permission_missing": TaskStatus.NEEDS_HUMAN,
         }
-        return mapping.get(str(source_status or "").strip(), TaskStatus.SOURCE_DEFERRED)
+        return mapping.get(str(source_status or "").strip(), TaskStatus.NEEDS_HUMAN)

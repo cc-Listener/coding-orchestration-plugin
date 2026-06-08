@@ -49,9 +49,10 @@ class KanbanBridge:
 
         status_view = task_status_view(task_status)
         tool = self._tool_for_task_status(status_view["status"])
+        comment = self._status_comment(status_view, reason)
         payload = {
             "task_id": kanban_task_id,
-            "comment": self._status_comment(status_view, reason),
+            "comment": comment,
             "metadata": {
                 "local_task_id": local_task_id,
                 "task_status": status_view["status"],
@@ -60,6 +61,8 @@ class KanbanBridge:
                 "reason": reason,
             },
         }
+        if tool == "kanban_comment":
+            payload["body"] = comment
         try:
             result = self.dispatch_tool(tool, payload)
         except Exception as exc:
@@ -100,7 +103,7 @@ class KanbanBridge:
             return "kanban_complete"
         if task_status == TaskStatus.BLOCKED.value:
             return "kanban_block"
-        if task_status in {TaskStatus.QUEUED.value, TaskStatus.RUNNING.value}:
+        if task_status == TaskStatus.RUNNING.value:
             return "kanban_heartbeat"
         return "kanban_comment"
 

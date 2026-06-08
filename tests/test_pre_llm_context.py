@@ -38,7 +38,7 @@ class PreLlmContextTest(unittest.TestCase):
                 },
                 requirement_summary="订单列表新增店铺筛选",
                 project_path=str(root / "bps-admin"),
-                status=TaskStatus.SOURCE_AUTH_NEEDED.value,
+                status=TaskStatus.NEEDS_HUMAN.value,
                 llm_wiki_refs=[],
                 human_decisions=[],
                 phase=TaskPhase.DRAFT.value,
@@ -62,7 +62,7 @@ class PreLlmContextTest(unittest.TestCase):
             self.assertIn("context", result)
             context = result["context"]
             self.assertIn("task_123", context)
-            self.assertIn(TaskStatus.SOURCE_AUTH_NEEDED.value, context)
+            self.assertIn(TaskStatus.NEEDS_HUMAN.value, context)
             self.assertIn("auth_needed", context)
             self.assertIn("coding_lark_preflight", context)
             self.assertIn("coding_task_run", context)

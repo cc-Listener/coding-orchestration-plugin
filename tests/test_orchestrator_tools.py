@@ -81,6 +81,30 @@ class OrchestratorToolsTest(unittest.TestCase):
             self.assertEqual(result["status"], "planned")
             self.assertEqual(result["project_path"], "/repo/bps-admin")
 
+    def test_tool_task_run_can_request_manual_qa_mode(self):
+        class RecordingOrchestrator(CodingOrchestrator):
+            def __post_init__(self):
+                super().__post_init__()
+                self.calls = []
+
+            def command_coding_qa(self, raw_args: str) -> str:
+                self.calls.append(("qa", raw_args))
+                return f"[{raw_args}] QA run 已完成：run_qa"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            orchestrator = RecordingOrchestrator(
+                ledger=TaskLedger(root / "ledger.db"),
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+            )
+
+            result = orchestrator.tool_task_run({"task_id": "task_qa", "mode": "qa"})
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["mode"], "qa")
+            self.assertEqual(orchestrator.calls, [("qa", "task_qa")])
+
     def test_tool_source_resolve_returns_structured_failure_instead_of_blocked(self):
         with tempfile.TemporaryDirectory() as tmp:
             orchestrator = _make_orchestrator(
@@ -125,9 +149,10 @@ class OrchestratorToolsTest(unittest.TestCase):
             )
 
             self.assertTrue(result["ok"])
-            self.assertEqual(result["status"], "source_deferred")
-            self.assertEqual(result["status_label_zh"], "来源待补齐")
-            self.assertEqual(result["status_display"], "来源待补齐(source_deferred)")
+            self.assertEqual(result["status"], "needs_human")
+            self.assertEqual(result["status_label_zh"], "待人工确认")
+            self.assertEqual(result["status_display"], "待人工确认(needs_human)")
+            self.assertNotIn("machine_status", result)
             self.assertNotEqual(result["status"], "blocked")
 
 

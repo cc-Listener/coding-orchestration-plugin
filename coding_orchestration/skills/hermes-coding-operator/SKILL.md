@@ -38,14 +38,14 @@ description: Use when Hermes Coding Mode handoff is low-confidence and the main 
 
 ## task next step
 
-- `needs_human`：要求用户补项目、来源权限或缺失上下文；如果用户已经给出项目或路径，建议 `/coding continue <项目或来源补充>`。
+- `needs_human`：要求用户补项目、来源权限或缺失上下文；具体来源问题看 `source_status` / `source_recovery_action`，如果用户已经给出项目或路径，建议 `/coding continue <项目或来源补充>`。
 - task 缺少项目但会话有 active_project：建议 `/coding run <task_id>` 或 `/coding continue <项目或来源补充>`；plugin 会把 active_project 回填到 task。
 - `planned` 且 phase 为 `plan_ready`：建议 `/coding implement <task_id>`。
 - `planned` 且 phase 为 `planning` / `plan_revision`：建议 `/coding run <task_id>` 重新生成或刷新计划，不要直接 implement。
-- `running` / `queued`：告知已有 run 正在执行，不启动新 run。
-- `failed` / `runner_failed`：如果项目已确定，建议 `/coding run <task_id>` 重跑 plan-only；如果项目未确定，先建议 `/coding continue <项目或来源补充>`。
+- `running`：告知已有 run 正在执行，不启动新 run；如果 `status_detail=queued` 或 `raw_status=queued`，仍按 running 处理。
+- `failed`：如果项目已确定，建议 `/coding run <task_id>` 重跑 plan-only；如果 `failure_type=runner_failed`、`raw_status=runner_failed` 或 `last_run_raw_status=runner_failed`，先提示这是 runner/tooling 失败；如果项目未确定，先建议 `/coding continue <项目或来源补充>`。
 - `blocked`：先说明 `reason`、`impact`、`recovery_action`、`fallback_evidence`；如果已有 source branch/worktree 且用户接受风险，建议 `/coding merge-test <task_id> --accept-risk`，否则建议按 recovery_action 补验证或 `/coding run <task_id>`。
-- `ready_for_merge_test` / `ready_for_merge_test_with_known_gaps`：建议 `/coding merge-test <task_id>`；known gaps 要列风险。
+- `ready_for_merge_test`：测试是可选项；用户要补测试时建议 `/coding qa <task_id>`，用户确认现有验证足够时建议 `/coding merge-test <task_id>`；如果 `known_gaps=true` 或存在 `verification_limitations`，要列风险。
 - `merged_test`：建议人工验证 test 后 `/coding complete <task_id>`。
 - `cancelled`：只能建议 `/coding restore <task_id>`，不要继续 run。
 

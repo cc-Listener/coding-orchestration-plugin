@@ -97,11 +97,11 @@ class KanbanBridgeTest(unittest.TestCase):
         cases = [
             (TaskStatus.DONE, "kanban_complete"),
             (TaskStatus.BLOCKED, "kanban_block"),
-            (TaskStatus.QUEUED, "kanban_heartbeat"),
             (TaskStatus.RUNNING, "kanban_heartbeat"),
             (TaskStatus.PLANNED, "kanban_comment"),
             (TaskStatus.READY_FOR_MERGE_TEST, "kanban_comment"),
-            (TaskStatus.RUNNER_FAILED, "kanban_comment"),
+            (TaskStatus.FAILED, "kanban_comment"),
+            (TaskStatus.NEEDS_HUMAN, "kanban_comment"),
         ]
         for status, expected_tool in cases:
             with self.subTest(status=status.value):
@@ -120,9 +120,39 @@ class KanbanBridgeTest(unittest.TestCase):
                 self.assertEqual(dispatch_tool.calls[0]["name"], expected_tool)
                 payload = dispatch_tool.calls[0]["args"]
                 self.assertEqual(payload["task_id"], "kb_123")
+                if expected_tool == "kanban_comment":
+                    self.assertEqual(payload["body"], payload["comment"])
                 self.assertEqual(payload["metadata"]["local_task_id"], "task_abc")
-                self.assertEqual(payload["metadata"]["task_status"], status.value)
-                self.assertEqual(payload["metadata"]["task_status_display"], f"{result['task_status_label_zh']}({status.value})")
+                self.assertEqual(payload["metadata"]["task_status"], result["task_status"])
+                self.assertEqual(payload["metadata"]["task_status_display"], result["task_status_display"])
+                self.assertNotIn("machine_task_status", payload["metadata"])
+
+    def test_sync_task_status_projects_only_public_main_status(self):
+        cases = [
+            (TaskStatus.RUNNING, "运行中(running)"),
+            (TaskStatus.FAILED, "失败(failed)"),
+            (TaskStatus.READY_FOR_MERGE_TEST, "等待手动执行 merge test(ready_for_merge_test)"),
+            (TaskStatus.NEEDS_HUMAN, "待人工确认(needs_human)"),
+        ]
+        for public_status, public_display in cases:
+            with self.subTest(status=public_status.value):
+                dispatch_tool = FakeDispatchTool(result={"ok": True})
+                bridge = KanbanBridge(dispatch_tool=dispatch_tool)
+
+                result = bridge.sync_task_status(
+                    local_task_id="task_abc",
+                    kanban_task_id="kb_123",
+                    task_status=public_status,
+                    reason="state transition",
+                )
+
+                self.assertTrue(result["ok"])
+                self.assertEqual(result["task_status"], public_status.value)
+                self.assertEqual(result["task_status_display"], public_display)
+                payload = dispatch_tool.calls[0]["args"]
+                self.assertEqual(payload["metadata"]["task_status"], public_status.value)
+                self.assertEqual(payload["metadata"]["task_status_display"], public_display)
+                self.assertNotIn("machine_task_status", payload["metadata"])
 
     def test_sync_task_status_failure_is_non_blocking_result(self):
         bridge = KanbanBridge(dispatch_tool=ExplodingDispatchTool())

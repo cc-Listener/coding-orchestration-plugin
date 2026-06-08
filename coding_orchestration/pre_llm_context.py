@@ -23,6 +23,7 @@ def build_pre_llm_context(orchestrator: Any, *, session_id: str, platform: str) 
         f"- runner: {status.get('runner') or ''}",
         f"- next_actions: {', '.join(str(action) for action in next_actions)}",
         "- preferred_tools: coding_task_status, coding_source_resolve, coding_lark_preflight, coding_task_run",
+        "- coding_task_run modes: plan-only, implementation, qa, merge-test; QA is optional and must be explicitly requested.",
         "- rule: source/auth problems are not hard blocked unless human input is strictly required.",
     ]
     return "\n".join(lines)

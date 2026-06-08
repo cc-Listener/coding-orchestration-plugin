@@ -39,7 +39,7 @@ class DashboardApiContractTest(unittest.TestCase):
                 },
                 requirement_summary="订单列表新增店铺筛选",
                 project_path=str(root / "repo"),
-                status=TaskStatus.SOURCE_AUTH_NEEDED.value,
+                status=TaskStatus.NEEDS_HUMAN.value,
                 phase=TaskPhase.DRAFT.value,
                 llm_wiki_refs=[],
                 human_decisions=[],
@@ -54,7 +54,7 @@ class DashboardApiContractTest(unittest.TestCase):
 
             payload = orchestrator.dashboard_status_payload()
 
-            self.assertEqual(payload["task_counts_by_status"][TaskStatus.SOURCE_AUTH_NEEDED.value], 1)
+            self.assertEqual(payload["task_counts_by_status"][TaskStatus.NEEDS_HUMAN.value], 1)
             self.assertEqual(payload["source_health"]["auth_needed"], 1)
             self.assertIn("lark_preflight", payload)
             self.assertIn("kanban_available", payload)
