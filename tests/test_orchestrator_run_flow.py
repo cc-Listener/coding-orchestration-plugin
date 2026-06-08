@@ -1718,6 +1718,45 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(gateway.messages, [])
             self.assertEqual(ledger.list_recent_tasks(limit=5), [])
 
+    def test_coding_task_rejects_blank_or_flag_only_requirement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            resolver = ProjectResolver(
+                ProjectRegistry(
+                    [
+                        {
+                            "name": "order-system",
+                            "aliases": ["订单系统"],
+                            "path": str(project),
+                            "keywords": ["发货"],
+                        }
+                    ]
+                )
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=resolver,
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+
+            blank = orchestrator.handle_gateway_event(FakeGatewayEvent("/coding task   "), gateway=gateway)
+            flag_only_message = orchestrator.command_coding_task("  --project 订单系统   ")
+            missing_flag_value_message = orchestrator.command_coding_task("  --project   ")
+
+            self.assertEqual(blank["reason"], "handled_by_coding_orchestration")
+            self.assertIn("请提供任务需求", gateway.messages[-1])
+            self.assertIn("请提供任务需求", flag_only_message)
+            self.assertIn("--project 缺少参数值", missing_flag_value_message)
+            self.assertEqual(ledger.list_recent_tasks(limit=5), [])
+
     def test_commands_listing_includes_coding_plugin_commands(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

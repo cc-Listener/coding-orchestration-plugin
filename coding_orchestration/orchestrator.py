@@ -206,6 +206,9 @@ class CodingOrchestrator:
         return {"context": context} if context else None
 
     def command_coding_task(self, raw_args: str) -> str:
+        validation_error = self._task_creation_validation_error(raw_args)
+        if validation_error:
+            return validation_error
         return self.create_task_from_text(raw_args)
 
     def tool_task_create(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -907,6 +910,9 @@ class CodingOrchestrator:
         source_context: dict[str, Any] | None = None,
         event: Any | None = None,
     ) -> CreatedTask:
+        validation_error = self._task_creation_validation_error(text, source_context)
+        if validation_error:
+            raise ValueError(validation_error)
         raw_text = text
         text = normalize_project_text(text)
         source_context = self._normalize_document_source_context_for_codex(
@@ -1053,6 +1059,36 @@ class CodingOrchestrator:
             auto_plan_started=auto_plan_started,
             auto_implementation_started=auto_implementation_on_ready,
         )
+
+    @staticmethod
+    def _task_creation_flag_error(text: str) -> str:
+        parts = text.split()
+        flags_with_value = {"--project", "--runner", "--bug-of", "--parent-task"}
+        for idx, part in enumerate(parts):
+            if part not in flags_with_value:
+                continue
+            if idx + 1 >= len(parts) or parts[idx + 1].startswith("--"):
+                return f"{part} 缺少参数值。用法：/coding task --project <项目名> <完整需求>"
+        return ""
+
+    def _task_creation_validation_error(
+        self,
+        text: str,
+        source_context: dict[str, Any] | None = None,
+    ) -> str:
+        normalized = normalize_project_text(text)
+        flag_error = self._task_creation_flag_error(normalized)
+        if flag_error:
+            return flag_error
+        normalized_source_context = self._normalize_document_source_context_for_codex(
+            normalized,
+            source_context if isinstance(source_context, dict) else None,
+        )
+        clean_text = self._strip_flags(normalized)
+        requirement_summary = self._requirement_summary(clean_text, normalized_source_context)
+        if not requirement_summary.strip():
+            return "请提供任务需求。用法：/coding task <需求> 或 /coding task --project <项目名> <完整需求>"
+        return ""
 
     def _sync_task_to_kanban(
         self,
@@ -1611,6 +1647,10 @@ class CodingOrchestrator:
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
         if command == "coding-task":
             source_context = self._read_source_context(raw_args, gateway)
+            validation_error = self._task_creation_validation_error(raw_args, source_context)
+            if validation_error:
+                self._reply_if_possible(gateway, event, validation_error)
+                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
             created = self._create_task_from_text(
                 raw_args,
                 auto_plan_on_ready=True,
