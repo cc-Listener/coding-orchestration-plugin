@@ -16,6 +16,7 @@ from typing import Any
 
 from .diff_guard import DiffGuard
 from .execution_policy import control_policy_for_mode
+from .feishu_copy import render_user_update
 from .feishu_messages import render_task_created, render_task_needs_human, render_task_needs_source_context
 from .feishu_project_reader import FeishuProjectReader
 from .hermes_runtime import HermesRuntime
@@ -6512,34 +6513,11 @@ class CodingOrchestrator:
     @staticmethod
     def _format_run_completion_message(task_id: str, result: dict[str, Any]) -> str:
         artifacts = result.get("artifacts") or {}
-        report = {}
-        report_path = Path(str(artifacts.get("report") or ""))
-        if report_path.exists():
-            try:
-                import json
-
-                report = json.loads(report_path.read_text(encoding="utf-8"))
-            except Exception:
-                report = {}
-
-        lines = [
-            f"[{task_id}] plan-only run 已完成：{result['run_id']}",
-            f"状态：{task_status_display(result.get('task_status'))}",
-        ]
-        summary = CodingOrchestrator._read_text_excerpt(artifacts.get("summary"), limit=1800)
-        if summary:
-            lines.extend(["", "计划摘要：", summary])
-            lines.extend(["", "请人工确认计划完整度和正确性；确认后再进入 implementation。"])
-
-        risks = [str(item) for item in report.get("risks") or [] if str(item).strip()]
-        if risks:
-            lines.extend(["", "风险："])
-            lines.extend(f"- {item}" for item in risks[:5])
-
-        next_actions = [str(item) for item in report.get("next_actions") or [] if str(item).strip()]
-        if next_actions:
-            lines.extend(["", "下一步："])
-            lines.extend(f"- {item}" for item in next_actions[:5])
+        report = CodingOrchestrator._load_report_from_artifacts(artifacts)
+        next_actions = CodingOrchestrator._completion_next_actions(report)
+        next_actions.append("请人工确认计划完整度和正确性；确认后再进入 implementation。")
+        risk_note = CodingOrchestrator._completion_risk_note(report)
+        summary = CodingOrchestrator._completion_user_summary(report, artifacts, summary_limit=1800)
 
         details = CodingOrchestrator._run_status_details_from_report(report, RunMode.PLAN_ONLY)
         if not summary and (
@@ -6547,178 +6525,179 @@ class CodingOrchestrator:
         ):
             stderr = CodingOrchestrator._read_text_excerpt(artifacts.get("stderr"), limit=1000)
             if stderr:
-                lines.extend(["", "执行错误摘要：", stderr])
+                summary = f"执行没有产出结构化计划摘要。\n执行错误摘要：{stderr}"
 
-        lines.extend(["", f"artifact：{artifacts.get('run_dir')}"])
-        return "\n".join(lines)
+        return render_user_update(
+            title="计划已生成",
+            task_id=task_id,
+            user_facing_summary=CodingOrchestrator._completion_user_summary_with_status(result, summary),
+            next_actions=CodingOrchestrator._dedupe_texts(next_actions),
+            risk_note=risk_note,
+        )
 
     @staticmethod
     def _format_implementation_completion_message(task_id: str, result: dict[str, Any]) -> str:
         artifacts = result.get("artifacts") or {}
-        report = {}
-        report_path = Path(str(artifacts.get("report") or ""))
-        if report_path.exists():
-            try:
-                import json
-
-                report = json.loads(report_path.read_text(encoding="utf-8"))
-            except Exception:
-                report = {}
-
-        lines = [
-            f"[{task_id}] implementation run 已完成：{result['run_id']}",
-            f"状态：{task_status_display(result.get('task_status'))}",
-        ]
-        summary = CodingOrchestrator._read_text_excerpt(artifacts.get("summary"), limit=1600)
-        if summary:
-            lines.extend(["", "执行摘要：", summary])
-
-        risks = [str(item) for item in report.get("risks") or [] if str(item).strip()]
-        if risks:
-            lines.extend(["", "风险："])
-            lines.extend(f"- {item}" for item in risks[:5])
-
-        next_actions = [str(item) for item in report.get("next_actions") or [] if str(item).strip()]
-        if next_actions:
-            lines.extend(["", "下一步："])
-            lines.extend(f"- {item}" for item in next_actions[:5])
+        report = CodingOrchestrator._load_report_from_artifacts(artifacts)
+        next_actions = CodingOrchestrator._completion_next_actions(report)
 
         status = str(result.get("task_status") or "")
         if status == TaskStatus.READY_FOR_MERGE_TEST.value:
-            lines.extend(
-                [
-                    "",
-                    "下一步：",
-                    f"- 测试为可选项；需要继续 QA 时发送 /coding qa {task_id}。",
-                    f"- 如人工确认现有验证已足够，发送 /coding merge-test {task_id}。",
-                ]
+            next_actions.extend(
+                (
+                    f"测试为可选项；需要继续 QA 时发送 /coding qa {task_id}。",
+                    f"如人工确认现有验证已足够，发送 /coding merge-test {task_id}。",
+                )
             )
         elif bool(report.get("known_gaps")):
-            lines.extend(
-                [
-                    "",
-                    "下一步：",
-                    f"- 测试为可选项；需要补验证时发送 /coding qa {task_id}。",
-                    f"- 如人工接受已知缺口，再发送 /coding merge-test {task_id}。",
-                ]
+            next_actions.extend(
+                (
+                    f"测试为可选项；需要补验证时发送 /coding qa {task_id}。",
+                    f"如人工接受已知缺口，再发送 /coding merge-test {task_id}。",
+                )
             )
-        lines.extend(["", "提醒：插件不会自动进入测试、合并或发布测试环境；QA 和 merge-test 都需要人工触发。"])
-        lines.extend(["", f"artifact：{artifacts.get('run_dir')}"])
-        return "\n".join(lines)
+        next_actions.append("插件不会自动进入测试、合并或发布测试环境；QA 和 merge-test 都需要人工触发。")
+        return render_user_update(
+            title="实现已完成",
+            task_id=task_id,
+            user_facing_summary=CodingOrchestrator._completion_user_summary_with_status(
+                result,
+                CodingOrchestrator._completion_user_summary(report, artifacts, summary_limit=1600),
+            ),
+            next_actions=CodingOrchestrator._dedupe_texts(next_actions),
+            risk_note=CodingOrchestrator._completion_risk_note(report),
+        )
 
     @staticmethod
     def _format_qa_completion_message(task_id: str, result: dict[str, Any]) -> str:
         artifacts = result.get("artifacts") or {}
-        report = {}
-        report_path = Path(str(artifacts.get("report") or ""))
-        if report_path.exists():
-            try:
-                import json
-
-                report = json.loads(report_path.read_text(encoding="utf-8"))
-            except Exception:
-                report = {}
-
-        lines = [
-            f"[{task_id}] QA run 已完成：{result['run_id']}",
-            f"状态：{task_status_display(result.get('task_status'))}",
-        ]
-        summary = CodingOrchestrator._read_text_excerpt(artifacts.get("summary"), limit=1600)
-        if summary:
-            lines.extend(["", "QA 摘要：", summary])
-
+        report = CodingOrchestrator._load_report_from_artifacts(artifacts)
+        summary = CodingOrchestrator._completion_user_summary(report, artifacts, summary_limit=1600)
+        next_actions = CodingOrchestrator._completion_next_actions(report)
         qa_artifacts = report.get("qa_artifacts") or {}
         if qa_artifacts.get("report"):
-            lines.extend(["", f"QA report：{qa_artifacts.get('report')}"])
             health_score = CodingOrchestrator._qa_health_score_from_report_path(qa_artifacts.get("report"))
             if health_score:
-                lines.append(f"QA health score：{health_score}")
-
-        risks = [str(item) for item in report.get("risks") or [] if str(item).strip()]
-        if risks:
-            lines.extend(["", "风险："])
-            lines.extend(f"- {item}" for item in risks[:5])
+                summary = f"{summary}\nQA health score：{health_score}".strip()
 
         limitations = report.get("verification_limitations") or []
         if limitations:
-            lines.extend(["", "已知缺口："])
+            limitation_lines = []
             for item in limitations[:3]:
                 if isinstance(item, dict):
-                    lines.append(f"- {item.get('reason') or 'unknown'}：{item.get('recovery_action') or ''}")
+                    limitation_lines.append(f"{item.get('reason') or 'unknown'}：{item.get('recovery_action') or ''}")
+            if limitation_lines:
+                summary = f"{summary}\n已知缺口：\n" + "\n".join(f"- {item}" for item in limitation_lines)
 
-        next_actions = [str(item) for item in report.get("next_actions") or [] if str(item).strip()]
-        if next_actions:
-            lines.extend(["", "下一步："])
-            lines.extend(f"- {item}" for item in next_actions[:5])
-
-        lines.extend(["", f"artifact：{artifacts.get('run_dir')}"])
-        return "\n".join(lines)
+        return render_user_update(
+            title="QA 已完成",
+            task_id=task_id,
+            user_facing_summary=CodingOrchestrator._completion_user_summary_with_status(result, summary),
+            next_actions=CodingOrchestrator._dedupe_texts(next_actions),
+            risk_note=CodingOrchestrator._completion_risk_note(report),
+        )
 
     @staticmethod
     def _format_stale_run_completion_message(task_id: str, result: dict[str, Any]) -> str:
         artifacts = result.get("artifacts") or {}
-        return "\n".join(
-            [
-                f"[{task_id}] 旧 {result.get('mode') or 'agent'} run 已完成但不是当前任务最新 run：{result.get('run_id')}",
-                f"当前任务状态：{task_status_display(result.get('current_task_status'))}",
-                f"原因：任务期间已有更新 run：{result.get('observed_active_run_id') or 'unknown'}",
-                "处理：仅保留本次 artifact 用于审计，不用它回退 Task Ledger 状态。",
-                "",
-                f"artifact：{artifacts.get('run_dir')}",
-            ]
+        summary = (
+            f"旧 {result.get('mode') or 'agent'} run 已完成，但任务期间已有更新 run。"
+            f"\n当前任务状态：{task_status_display(result.get('current_task_status'))}"
+            "\n本次结果仅保留用于审计，不会回退 Task Ledger 状态。"
+        )
+        return render_user_update(
+            title="旧 run 已归档",
+            task_id=task_id,
+            user_facing_summary=summary,
+            next_actions=[f"查看当前最新任务状态：/coding status {task_id}"],
         )
 
     @staticmethod
     def _format_merge_test_completion_message(task_id: str, result: dict[str, Any]) -> str:
         artifacts = result.get("artifacts") or {}
-        report = {}
-        report_path = Path(str(artifacts.get("report") or ""))
-        if report_path.exists():
-            try:
-                import json
-
-                report = json.loads(report_path.read_text(encoding="utf-8"))
-            except Exception:
-                report = {}
-
-        lines = [
-            f"[{task_id}] merge-test run 已完成：{result['run_id']}",
-            f"状态：{task_status_display(result.get('task_status'))}",
-        ]
-        summary = CodingOrchestrator._read_text_excerpt(artifacts.get("summary"), limit=1600)
-        if summary:
-            lines.extend(["", "执行摘要：", summary])
-
-        risks = [str(item) for item in report.get("risks") or [] if str(item).strip()]
-        if risks:
-            lines.extend(["", "风险："])
-            lines.extend(f"- {item}" for item in risks[:5])
-
-        next_actions = [str(item) for item in report.get("next_actions") or [] if str(item).strip()]
-        if next_actions:
-            lines.extend(["", "下一步："])
-            lines.extend(f"- {item}" for item in next_actions[:5])
+        report = CodingOrchestrator._load_report_from_artifacts(artifacts)
+        next_actions = CodingOrchestrator._completion_next_actions(report)
 
         if bool(report.get("human_required")):
-            lines.extend(
-                [
-                    "",
-                    "下一步：回复“确认”继续当前 merge-test，或直接发送 /coding merge-test "
-                    f"{task_id}。",
-                    "提醒：本次 merge-test 尚未完成；Hermes 会优先续接待确认动作，不会把确认词交给 LLM rewrite。",
-                ]
+            next_actions.extend(
+                (
+                    f"回复“确认”继续当前 merge-test，或直接发送 /coding merge-test {task_id}。",
+                    "本次 merge-test 尚未完成；Hermes 会优先续接待确认动作，不会把确认词交给 LLM rewrite。",
+                )
             )
         else:
-            lines.extend(
-                [
-                    "",
-                    "下一步：确认测试环境符合预期后，发送 /coding complete "
-                    f"{task_id} 手动标记完成。",
-                    "提醒：已允许 merge/push test；发布测试环境仍需人工。merge-test 成功不代表 task 已完成。",
-                ]
+            next_actions.extend(
+                (
+                    f"确认测试环境符合预期后，发送 /coding complete {task_id} 手动标记完成。",
+                    "已允许 merge/push test；发布测试环境仍需人工。merge-test 成功不代表 task 已完成。",
+                )
             )
-        lines.extend(["", f"artifact：{artifacts.get('run_dir')}"])
-        return "\n".join(lines)
+        return render_user_update(
+            title="merge-test 已处理",
+            task_id=task_id,
+            user_facing_summary=CodingOrchestrator._completion_user_summary_with_status(
+                result,
+                CodingOrchestrator._completion_user_summary(report, artifacts, summary_limit=1600),
+            ),
+            next_actions=CodingOrchestrator._dedupe_texts(next_actions),
+            risk_note=CodingOrchestrator._completion_risk_note(report),
+        )
+
+    @staticmethod
+    def _load_report_from_artifacts(artifacts: dict[str, Any]) -> dict[str, Any]:
+        report_path = Path(str(artifacts.get("report") or ""))
+        if not report_path.exists():
+            return {}
+        try:
+            loaded = json.loads(report_path.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+        return loaded if isinstance(loaded, dict) else {}
+
+    @staticmethod
+    def _completion_user_summary(report: dict[str, Any], artifacts: dict[str, Any], *, summary_limit: int) -> str:
+        for value in (
+            report.get("user_facing_summary"),
+            report.get("summary_markdown"),
+            CodingOrchestrator._read_text_excerpt(artifacts.get("summary"), limit=summary_limit),
+        ):
+            text = str(value or "").strip()
+            if text:
+                return text
+        return ""
+
+    @staticmethod
+    def _completion_user_summary_with_status(result: dict[str, Any], summary: str) -> str:
+        status = task_status_display(result.get("task_status"))
+        status_line = f"结果状态：{status}"
+        summary = summary.strip()
+        if summary:
+            return f"{status_line}\n{summary}"
+        return status_line
+
+    @staticmethod
+    def _completion_next_actions(report: dict[str, Any]) -> list[str]:
+        return CodingOrchestrator._dedupe_texts(report.get("next_actions") or [])
+
+    @staticmethod
+    def _dedupe_texts(items: list[Any]) -> list[str]:
+        seen = set()
+        result = []
+        for item in items:
+            text = str(item).strip()
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            result.append(text)
+        return result
+
+    @staticmethod
+    def _completion_risk_note(report: dict[str, Any]) -> str:
+        risk_note = str(report.get("risk_note") or "").strip()
+        if risk_note:
+            return risk_note
+        risks = [str(item).strip() for item in report.get("risks") or [] if str(item).strip()]
+        return "\n".join(f"- {item}" for item in risks[:5])
 
     @staticmethod
     def _merge_test_started_message(task: dict[str, Any]) -> str:
