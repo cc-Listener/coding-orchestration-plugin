@@ -2581,14 +2581,14 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["agent_runs"][0]["status"], AgentRunStatus.SUCCEEDED.value)
             self.assertEqual(task["agent_runs"][1]["status"], AgentRunStatus.SUCCEEDED.value)
 
-    def test_start_run_writes_execution_policy_to_manifest_and_context_index(self):
+    def test_start_run_writes_execution_policy_from_plan_report_to_manifest_and_context_index(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "bps-admin"
             project.mkdir()
             _write_workflow(project)
             ledger = TaskLedger(root / "ledger.db")
-            task_id = "task_fast_fix"
+            task_id = "task_codex_policy"
             ledger.create_task(
                 task_id=task_id,
                 source={"type": "manual", "project_name": "bps-admin"},
@@ -2598,6 +2598,16 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 llm_wiki_refs=[],
                 human_decisions=[],
                 phase=TaskPhase.DRAFT.value,
+                task_session={
+                    "plan_report": {
+                        "execution_policy_decision": {
+                            "route": "fast_fix",
+                            "planning": "inline",
+                            "verification": "targeted",
+                            "reasoning_summary": "Codex selected a fast policy.",
+                        }
+                    }
+                },
             )
             fake_runner = FakeRunner()
             orchestrator = CodingOrchestrator(
@@ -2618,6 +2628,45 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(context_index["execution_policy"]["route"], "fast_fix")
             self.assertIn("execution-policy.json", prompt)
             self.assertIn("execution-policy.json", result["artifacts"]["execution_policy"])
+
+    def test_start_run_without_plan_report_decision_uses_safe_plan_only_execution_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            task_id = "task_missing_policy"
+            ledger.create_task(
+                task_id=task_id,
+                source={"type": "manual", "project_name": "bps-admin"},
+                requirement_summary="订单管理页面商品标题复制按钮需要复制产品标题，不要复制超链接",
+                project_path=str(project),
+                status=TaskStatus.NEW.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.DRAFT.value,
+            )
+            fake_runner = FakeRunner()
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+
+            result = orchestrator.start_run(task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
+            run_dir = Path(result["artifacts"]["run_dir"])
+            context_index = json.loads((run_dir / "context-index.json").read_text(encoding="utf-8"))
+            policy = fake_runner.calls[0]["manifest_at_start"]["execution_policy"]
+
+            self.assertEqual(policy["route"], "standard_change")
+            self.assertEqual(policy["planning"], "plan_only")
+            self.assertEqual(policy["verification"], "standard")
+            self.assertEqual(policy["reasons"], ["codex_decision_missing"])
+            self.assertEqual(context_index["execution_policy"]["planning"], "plan_only")
 
     def test_gateway_event_handles_feishu_escaped_project_slug_and_media(self):
         class RecordingOrchestrator(CodingOrchestrator):
@@ -2873,7 +2922,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             )
             self.assertIn("必须先完成 Codex plan-only", gateway.messages[-1])
 
-    def test_gateway_simple_ui_task_starts_targeted_implementation_without_plan_only(self):
+    def test_gateway_simple_ui_task_starts_plan_only_not_keyword_implementation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "bps-admin"
@@ -2908,17 +2957,15 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 gateway=gateway,
             )
 
-            task_id = orchestrator.auto_implementation_started[0][0]
+            task_id = orchestrator.auto_plan_started[0][0]
             task = ledger.get_task(task_id)
             self.assertEqual(result["action"], "skip")
-            self.assertEqual(orchestrator.auto_plan_started, [])
+            self.assertEqual(orchestrator.auto_implementation_started, [])
             self.assertEqual(task["status"], TaskStatus.PLANNED.value)
-            self.assertIn("implementation 已自动启动", gateway.messages[0])
-            self.assertIn("已跳过 plan-only", gateway.messages[0])
-            self.assertIn("执行策略：targeted_ui_fix / inline", gateway.messages[0])
-            self.assertIn("跳过原因：UI 改动、简单 UI 行为", gateway.messages[0])
-            self.assertIn(f"/coding cancel {task_id}", gateway.messages[0])
-            self.assertIn(f"/coding run {task_id}", gateway.messages[0])
+            self.assertEqual(task["phase"], TaskPhase.PLANNING.value)
+            self.assertIn("plan-only 已自动启动", gateway.messages[0])
+            self.assertNotIn("implementation 已自动启动", gateway.messages[0])
+            self.assertNotIn("已跳过 plan-only", gateway.messages[0])
 
     def test_gateway_multi_part_api_skill_task_starts_plan_only_not_implementation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -6071,7 +6118,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertNotIn("GitOps 实现阶段契约", implementation_prompt)
             self.assertNotIn("GitOps 检查清单", implementation_prompt)
 
-    def test_inline_implementation_prompt_uses_lightweight_strategy_without_fallback_plan_artifact(self):
+    def test_implementation_run_uses_inline_fast_fix_plan_report_decision(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "bps-admin"
@@ -6104,6 +6151,19 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                     "--project bps-admin 订单管理页面商品标题复制按钮需要复制产品标题，不要复制超链接"
                 )
             )
+            ledger.update_task_session(
+                task_id,
+                {
+                    "plan_report": {
+                        "execution_policy_decision": {
+                            "route": "fast_fix",
+                            "planning": "inline",
+                            "verification": "targeted",
+                            "reasoning_summary": "Codex selected inline implementation.",
+                        }
+                    }
+                },
+            )
 
             orchestrator.start_run(task_id, mode=RunMode.IMPLEMENTATION, timeout_seconds=5)
 
@@ -6111,7 +6171,12 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             implementation_prompt = Path(task["artifacts"][0]["input_prompt"]).read_text(encoding="utf-8")
             run_dir = Path(task["artifacts"][0]["run_dir"])
             confirmed_plan_artifact = run_dir / "confirmed-plan.md"
+            manifest = json.loads(Path(task["artifacts"][0]["manifest"]).read_text(encoding="utf-8"))
             self.assertFalse(confirmed_plan_artifact.exists())
+            self.assertEqual(manifest["execution_policy"]["route"], "fast_fix")
+            self.assertEqual(manifest["execution_policy"]["planning"], "inline")
+            self.assertEqual(manifest["execution_policy"]["verification"], "targeted")
+            self.assertIn("codex_decision", manifest["execution_policy"]["reasons"])
             self.assertIn("## 轻量实现策略", implementation_prompt)
             self.assertIn("inline planning", implementation_prompt)
             self.assertNotIn("## 已确认计划", implementation_prompt)

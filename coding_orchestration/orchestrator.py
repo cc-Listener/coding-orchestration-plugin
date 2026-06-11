@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .diff_guard import DiffGuard
-from .execution_policy import classify_execution_policy
+from .execution_policy import control_policy_for_mode
 from .feishu_messages import render_task_created, render_task_needs_human, render_task_needs_source_context
 from .feishu_project_reader import FeishuProjectReader
 from .hermes_runtime import HermesRuntime
@@ -943,17 +943,8 @@ class CodingOrchestrator:
         source_context = source_context or {}
         source_type = str(source_context.get("source_type") or "feishu_chat")
         source_needs_human = self._source_context_requires_human(source_context)
-        execution_policy = classify_execution_policy(
-            requirement=requirement_summary,
-            mode=RunMode.IMPLEMENTATION,
-        )
-        auto_implementation_on_ready = bool(
-            auto_plan_on_ready
-            and not resolved.needs_human
-            and not source_needs_human
-            and execution_policy.planning == "inline"
-            and not execution_policy.require_human_confirmation
-        )
+        execution_policy = control_policy_for_mode(mode=RunMode.IMPLEMENTATION, codex_decision={})
+        auto_implementation_on_ready = False
         task_id = f"task_{uuid.uuid4().hex[:12]}"
         initial_status = self._initial_task_status_for_create(
             resolved_needs_human=resolved.needs_human,
@@ -4249,10 +4240,9 @@ class CodingOrchestrator:
         run_dir.mkdir(parents=True, exist_ok=True)
         project_path = Path(task["project_path"]).expanduser().resolve()
         source = task["source"]
-        execution_policy = classify_execution_policy(
-            requirement=self._execution_policy_requirement_text(task),
+        execution_policy = control_policy_for_mode(
             mode=mode,
-            feedback_type=self._latest_feedback_type(task),
+            codex_decision=self._latest_execution_policy_decision(task),
         ).to_dict()
         timeout = self._timeout_seconds_for_mode(mode, timeout_seconds, execution_policy=execution_policy)
         project_name = source.get("project_name") or self._project_name_for_path(str(project_path)) or project_path.name
@@ -4949,6 +4939,15 @@ class CodingOrchestrator:
         return {field: report[field] for field in fields if field in report}
 
     @staticmethod
+    def _latest_execution_policy_decision(task: dict[str, Any]) -> dict[str, Any]:
+        session = task.get("task_session") or {}
+        plan_report = session.get("plan_report") or {}
+        if not isinstance(plan_report, dict):
+            return {}
+        decision = plan_report.get("execution_policy_decision") or {}
+        return decision if isinstance(decision, dict) else {}
+
+    @staticmethod
     def _source_base_branch_for_task(task: dict[str, Any]) -> str:
         session = task.get("task_session") or {}
         existing = session.get("source_base_branch")
@@ -5490,27 +5489,6 @@ class CodingOrchestrator:
             index["source"]["source_context"] = source_context
         context_index_path.write_text(self._json(index), encoding="utf-8")
         return artifacts
-
-    @staticmethod
-    def _execution_policy_requirement_text(task: dict[str, Any]) -> str:
-        source = task.get("source") or {}
-        parts = [
-            task.get("requirement_summary"),
-            source.get("title"),
-            source.get("message_summary"),
-        ]
-        for decision in task.get("human_decisions") or []:
-            if decision.get("type") in {"plan_feedback", "implementation_feedback", "bugfix_feedback"}:
-                parts.append(decision.get("text"))
-        return "\n".join(str(part).strip() for part in parts if str(part or "").strip())
-
-    @staticmethod
-    def _latest_feedback_type(task: dict[str, Any]) -> str:
-        for decision in reversed(task.get("human_decisions") or []):
-            decision_type = str(decision.get("type") or "")
-            if decision_type in {"plan_feedback", "implementation_feedback", "bugfix_feedback"}:
-                return decision_type
-        return ""
 
     @staticmethod
     def _is_source_doc_for_task(doc: dict[str, Any], task_id: str) -> bool:
