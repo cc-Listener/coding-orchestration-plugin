@@ -12,6 +12,40 @@ from coding_orchestration.runners.hermes_autonomous_codex import HermesAutonomou
 
 
 class CodexCliRunnerTest(unittest.TestCase):
+    @staticmethod
+    def plan_semantic_fields():
+        return {
+            "user_facing_summary": "计划已整理好，可以确认后进入实现。",
+            "technical_summary": "已识别实现范围和验证方式。",
+            "execution_policy_decision": {
+                "route": "standard_change",
+                "planning": "plan_only",
+                "verification": "targeted",
+                "reasoning_summary": "需要先规划再实现。",
+            },
+            "branch_slug_candidate": "status-filter",
+        }
+
+    @staticmethod
+    def implementation_semantic_fields():
+        return {
+            "user_facing_summary": "订单筛选已实现。",
+            "technical_summary": "更新订单列表查询参数和单测。",
+            "implementation_landed": True,
+            "commit_sha": "abc1234",
+            "changed_files_summary": ["src/orders.py: 增加状态筛选"],
+            "branch_slug_candidate": "order-status-filter",
+            "execution_policy_decision": {"route": "standard_change", "verification": "targeted"},
+        }
+
+    @staticmethod
+    def merge_semantic_fields():
+        return {
+            "user_facing_summary": "测试环境合入已完成。",
+            "technical_summary": "已合入 test 分支并完成验证。",
+            "merge_readiness": {"ready": True, "risk_level": "low", "risk_note": ""},
+        }
+
     def test_plan_only_command_uses_read_only_sandbox_and_stdin_prompt(self):
         runner = CodexCliRunner(command="codex")
         command = runner.build_command(
@@ -459,6 +493,7 @@ class CodexCliRunnerTest(unittest.TestCase):
                         "verification_limitations": [],
                         "human_required": False,
                         "next_actions": ["Review plan"],
+                        **self.plan_semantic_fields(),
                     },
                     ensure_ascii=False,
                 ),
@@ -513,6 +548,87 @@ class CodexCliRunnerTest(unittest.TestCase):
             for field, value in semantic_fields.items():
                 self.assertEqual(saved[field], value)
 
+    def test_implementation_success_report_missing_semantic_fields_is_report_incomplete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "stdout.log").write_text("", encoding="utf-8")
+            (run_dir / "stderr.log").write_text("", encoding="utf-8")
+            (run_dir / "report.json").write_text(
+                json.dumps(
+                    {
+                        "runner": "codex_cli",
+                        "status": "succeeded",
+                        "mode": "implementation",
+                        "summary_markdown": "实现完成。",
+                        "modified_files": ["src/orders.py"],
+                        "test_commands": ["rtk python3 -m unittest tests.test_orders"],
+                        "test_results": [],
+                        "risks": [],
+                        "verification_limitations": [],
+                        "human_required": False,
+                        "next_actions": ["发送 /coding merge-test task_1"],
+                        "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
+                        "tested_commit": "abc1234",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            report = CodexCliRunner(command="codex").load_or_build_report(
+                run_dir,
+                RunMode.IMPLEMENTATION,
+            )
+
+            self.assertEqual(report["status"], AgentRunStatus.BLOCKED.value)
+            self.assertEqual(report["failure_type"], "report_incomplete")
+            self.assertEqual(
+                report["verification_limitations"][0]["reason"],
+                "codex_report_incomplete",
+            )
+            self.assertEqual(report["next_actions"], ["续接 Codex，让它补齐完整结构化 report。"])
+            self.assertNotIn("开发和验证完成，确认后发送", json.dumps(report, ensure_ascii=False))
+
+    def test_implementation_success_report_missing_implementation_landed_is_report_incomplete(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "stdout.log").write_text("", encoding="utf-8")
+            (run_dir / "stderr.log").write_text("", encoding="utf-8")
+            semantic_fields = self.implementation_semantic_fields()
+            semantic_fields.pop("implementation_landed")
+            (run_dir / "report.json").write_text(
+                json.dumps(
+                    {
+                        "runner": "codex_cli",
+                        "status": "succeeded",
+                        "mode": "implementation",
+                        "summary_markdown": "实现完成。",
+                        "modified_files": ["src/orders.py"],
+                        "test_commands": ["rtk python3 -m unittest tests.test_orders"],
+                        "test_results": [],
+                        "risks": [],
+                        "verification_limitations": [],
+                        "human_required": False,
+                        "next_actions": ["发送 /coding merge-test task_1"],
+                        "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
+                        "tested_commit": "abc1234",
+                        **semantic_fields,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            report = CodexCliRunner(command="codex").load_or_build_report(
+                run_dir,
+                RunMode.IMPLEMENTATION,
+            )
+
+            self.assertEqual(report["status"], AgentRunStatus.BLOCKED.value)
+            self.assertEqual(report["failure_type"], "report_incomplete")
+            self.assertIn("implementation_landed", report["technical_summary"])
+            self.assertEqual(report["next_actions"], ["续接 Codex，让它补齐完整结构化 report。"])
+
     def test_valid_report_generates_compact_run_log(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
@@ -542,6 +658,7 @@ class CodexCliRunnerTest(unittest.TestCase):
                         "verification_limitations": [],
                         "human_required": False,
                         "next_actions": ["Review plan"],
+                        **self.plan_semantic_fields(),
                     },
                     ensure_ascii=False,
                 ),
@@ -572,6 +689,7 @@ class CodexCliRunnerTest(unittest.TestCase):
                         "verification_limitations": [],
                         "human_required": False,
                         "next_actions": ["发送 /coding implement task_1"],
+                        **self.plan_semantic_fields(),
                     },
                     ensure_ascii=False,
                 ),
@@ -601,6 +719,7 @@ class CodexCliRunnerTest(unittest.TestCase):
                         "verification_limitations": [],
                         "human_required": False,
                         "next_actions": ["发送 /coding complete task_1"],
+                        **self.merge_semantic_fields(),
                     },
                     ensure_ascii=False,
                 ),
@@ -613,7 +732,7 @@ class CodexCliRunnerTest(unittest.TestCase):
             saved = json.loads((run_dir / "report.json").read_text(encoding="utf-8"))
             self.assertEqual(saved["status"], AgentRunStatus.SUCCESS.value)
 
-    def test_invalid_report_recovers_plan_from_json_stdout(self):
+    def test_invalid_report_does_not_recover_plan_from_json_stdout(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
             (run_dir / "report.json").write_text("not json", encoding="utf-8")
@@ -631,8 +750,10 @@ class CodexCliRunnerTest(unittest.TestCase):
             report = CodexCliRunner(command="codex").load_or_build_report(run_dir, RunMode.PLAN_ONLY)
 
             self.assertEqual(report["status"], AgentRunStatus.COMPLETED_UNSTRUCTURED.value)
-            self.assertIn("非结构化输出中恢复", report["risks"][1])
-            self.assertEqual((run_dir / "summary.md").read_text(encoding="utf-8"), "## 计划\n- 增加状态筛选\n- 补充测试")
+            self.assertEqual(report["summary_markdown"], "")
+            self.assertEqual(len(report["risks"]), 1)
+            self.assertIn("semantic fallback", report["verification_limitations"][0]["impact"])
+            self.assertFalse((run_dir / "summary.md").exists())
 
     def test_invalid_output_schema_stdout_is_runner_failed(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -657,7 +778,7 @@ class CodexCliRunnerTest(unittest.TestCase):
             self.assertEqual(report["verification_limitations"][0]["reason"], "codex_invalid_output_schema")
             self.assertIn("report.schema.json", report["verification_limitations"][0]["recovery_action"])
 
-    def test_partial_structured_stdout_report_is_normalized(self):
+    def test_partial_structured_stdout_report_is_not_recovered_on_active_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp) / "task_26603ef00507" / "run_1"
             run_dir.mkdir(parents=True)
@@ -704,25 +825,24 @@ class CodexCliRunnerTest(unittest.TestCase):
 
             report = CodexCliRunner(command="codex").load_or_build_report(run_dir, RunMode.IMPLEMENTATION)
 
-            self.assertEqual(report["status"], AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value)
+            self.assertEqual(report["status"], AgentRunStatus.COMPLETED_UNSTRUCTURED.value)
             self.assertEqual(report["runner"], "codex_cli")
             self.assertEqual(report["mode"], RunMode.IMPLEMENTATION.value)
-            self.assertEqual(report["modified_files"], ["apps/web-ele/src/views/order/order-list-2/index.vue"])
-            self.assertEqual(report["test_commands"], ["rtk pnpm exec vitest run logic.test.ts"])
-            self.assertEqual(report["tested_commit"], "abc123")
-            self.assertEqual(report["user_facing_summary"], "订单列表 2.0 已实现，存在登录验证缺口。")
-            self.assertEqual(report["technical_summary"], "恢复到 partial structured report 后保留实现摘要。")
-            self.assertTrue(report["implementation_landed"])
-            self.assertEqual(report["commit_sha"], "abc123")
-            self.assertEqual(report["changed_files_summary"], ["订单列表新增筛选入口"])
-            self.assertEqual(report["branch_slug_candidate"], "order-list-2")
-            self.assertEqual(report["execution_policy_decision"], {"route": "standard_change"})
-            self.assertEqual(report["merge_readiness"], {"ready": False, "reason": "login_required"})
-            self.assertEqual(report["verification_limitations"][0]["reason"], "login_required")
-            self.assertIn("/coding merge-test task_26603ef00507", report["next_actions"][0])
-            self.assertNotIn("Structured report was not produced", "\n".join(report["risks"]))
+            self.assertEqual(report["modified_files"], [])
+            self.assertEqual(report["test_commands"], [])
+            self.assertEqual(report["tested_commit"], "")
+            self.assertEqual(report["user_facing_summary"], "")
+            self.assertEqual(report["technical_summary"], "")
+            self.assertFalse(report["implementation_landed"])
+            self.assertEqual(report["commit_sha"], "")
+            self.assertEqual(report["changed_files_summary"], [])
+            self.assertEqual(report["branch_slug_candidate"], "")
+            self.assertEqual(report["execution_policy_decision"], {})
+            self.assertEqual(report["merge_readiness"], {})
+            self.assertEqual(report["verification_limitations"][0]["reason"], "structured_report_missing")
+            self.assertNotIn("/coding merge-test task_26603ef00507", "\n".join(report["next_actions"]))
 
-    def test_partial_structured_report_uses_safe_defaults_for_missing_semantic_fields(self):
+    def test_partial_structured_report_with_missing_semantic_fields_uses_fallback(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp) / "task_26603ef00507" / "run_1"
             run_dir.mkdir(parents=True)
@@ -740,6 +860,7 @@ class CodexCliRunnerTest(unittest.TestCase):
 
             report = CodexCliRunner(command="codex").load_or_build_report(run_dir, RunMode.IMPLEMENTATION)
 
+            self.assertEqual(report["status"], AgentRunStatus.COMPLETED_UNSTRUCTURED.value)
             self.assertEqual(report["user_facing_summary"], "")
             self.assertEqual(report["technical_summary"], "")
             self.assertFalse(report["implementation_landed"])
@@ -748,8 +869,9 @@ class CodexCliRunnerTest(unittest.TestCase):
             self.assertEqual(report["branch_slug_candidate"], "")
             self.assertEqual(report["execution_policy_decision"], {})
             self.assertEqual(report["merge_readiness"], {})
+            self.assertEqual(report["modified_files"], [])
 
-    def test_invalid_report_recovers_plan_from_item_completed_stdout(self):
+    def test_invalid_report_does_not_recover_plan_from_item_completed_stdout(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
             (run_dir / "report.json").write_text("not json", encoding="utf-8")
@@ -776,7 +898,8 @@ class CodexCliRunnerTest(unittest.TestCase):
             report = CodexCliRunner(command="codex").load_or_build_report(run_dir, RunMode.PLAN_ONLY)
 
             self.assertEqual(report["status"], AgentRunStatus.COMPLETED_UNSTRUCTURED.value)
-            self.assertEqual((run_dir / "summary.md").read_text(encoding="utf-8"), "## 计划\n- 从真实 Codex 事件恢复")
+            self.assertEqual(report["summary_markdown"], "")
+            self.assertFalse((run_dir / "summary.md").exists())
 
 
 if __name__ == "__main__":

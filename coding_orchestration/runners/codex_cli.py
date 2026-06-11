@@ -19,6 +19,7 @@ from ..models import (
     agent_run_status_details,
     normalize_agent_run_status,
 )
+from ..report_contract import validate_codex_semantic_report
 from ..run_log_compactor import compact_run_logs
 
 
@@ -413,6 +414,9 @@ class CodexCliRunner(CodingAgentRunner):
                 raw_report = report_path.read_text(encoding="utf-8")
                 report = json.loads(raw_report)
                 if self._is_valid_report(report):
+                    completeness = validate_codex_semantic_report(report, mode)
+                    if not completeness.ok:
+                        return self.build_report_incomplete_report(run_dir, mode, completeness.missing)
                     report = self.ensure_report_contract(run_dir, mode, report)
                     self.ensure_summary(run_dir, report)
                     return report
@@ -429,16 +433,9 @@ class CodexCliRunner(CodingAgentRunner):
                 limitation_recovery_action=runner_failure["recovery_action"],
                 limitation_fallback_evidence=runner_failure["fallback_evidence"],
             )
-        recovered_report = self.recover_partial_structured_report(run_dir=run_dir, raw_report=raw_report, mode=mode)
-        if recovered_report:
-            recovered_report = self.ensure_report_contract(run_dir, mode, recovered_report)
-            self.ensure_summary(run_dir, recovered_report)
-            return recovered_report
-        recovered_summary = self.recover_summary_markdown(run_dir=run_dir, raw_report=raw_report)
         return self.build_fallback_report(
             run_dir=run_dir,
             mode=mode,
-            recovered_summary=recovered_summary,
         )
 
     def ensure_summary(self, run_dir: Path, report: dict[str, Any]) -> None:
@@ -480,8 +477,8 @@ class CodexCliRunner(CodingAgentRunner):
         else:
             risks = ["Structured report was not produced or failed schema validation."]
             next_actions = ["Review stdout/stderr and decide whether to rerun or continue manually."]
-            default_impact = "Hermes cannot fully trust this run result without human review."
-            default_recovery_action = "Review stdout/stderr and rerun or continue manually."
+            default_impact = "Hermes cannot fully trust this run result because Python semantic fallback from stdout/stderr is disabled."
+            default_recovery_action = "Rerun or resume Codex so it writes a complete structured report; Hermes will not infer semantic completion from stdout/stderr."
         if recovered_summary:
             (run_dir / "summary.md").write_text(recovered_summary, encoding="utf-8")
             risks.append("已从非结构化输出中恢复可读摘要；仍需人工确认完整度和正确性。")
@@ -508,6 +505,47 @@ class CodexCliRunner(CodingAgentRunner):
             "tested_commit": "",
             **self._semantic_report_fields({}),
         }
+        (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        return self._attach_operator_log_refs(run_dir, report)
+
+    def build_report_incomplete_report(
+        self,
+        run_dir: Path,
+        mode: RunMode,
+        missing: list[str],
+    ) -> dict[str, Any]:
+        missing_text = ", ".join(missing)
+        limitation = self._verification_limitation(
+            reason="codex_report_incomplete",
+            impact="Codex 输出的结构化 report 缺少 Hermes 必须消费的语义字段。",
+            recovery_action="续接 Codex，让它补齐完整结构化 report。",
+            fallback_evidence=str(run_dir / "report.json"),
+        )
+        report = {
+            "runner": self.name,
+            **agent_run_status_details(AgentRunStatus.BLOCKED.value, mode),
+            "failure_type": "report_incomplete",
+            "mode": mode.value,
+            "summary_markdown": "Codex 输出缺少必要结构化字段，Hermes 不会用 Python 猜测结果。",
+            "modified_files": [],
+            "test_commands": [],
+            "test_results": [],
+            "risks": ["Codex report incomplete; Python semantic fallback is disabled."],
+            "verification_limitations": [limitation],
+            "human_required": True,
+            "next_actions": ["续接 Codex，让它补齐完整结构化 report。"],
+            "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
+            "tested_commit": "",
+            "user_facing_summary": "Codex 结果不完整，需要续接补齐。",
+            "technical_summary": f"缺少字段：{missing_text}",
+            "implementation_landed": False,
+            "commit_sha": "",
+            "changed_files_summary": [],
+            "branch_slug_candidate": "",
+            "execution_policy_decision": {},
+            "merge_readiness": {},
+        }
+        report = self._report_contract_fields(report)
         (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return self._attach_operator_log_refs(run_dir, report)
 
