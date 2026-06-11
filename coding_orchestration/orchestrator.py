@@ -72,6 +72,7 @@ _PENDING_ACTION_TASK_ID = "__coding_pending_action__"
 _ACTIVE_PROJECT_TASK_ID_PREFIX = "__coding_project__:"
 _RECOMMENDED_OPERATOR_SKILL = "coding_orchestration:hermes-coding-operator"
 _CODING_REWRITE_CONFIDENCE_THRESHOLD = 0.85
+_SOURCE_BRANCH_SLUG_MAX_LENGTH = 64
 _FEISHU_PROJECT_LINK_RE = re.compile(
     r"(?P<url>https?://project\.feishu\.cn/"
     r"(?P<project_key>[^/\s]+)/"
@@ -4637,6 +4638,10 @@ class CodingOrchestrator:
             },
         )
         if not stale_completion:
+            if mode == RunMode.PLAN_ONLY:
+                plan_report = self._plan_report_session_fields(report)
+                if plan_report:
+                    self.ledger.update_task_session(task_id, {"plan_report": plan_report})
             usable_session_id = "" if self._run_details_are_runner_failed(report) else session_id
             runner_session_update = {
                 "provider": runner.name,
@@ -4923,11 +4928,25 @@ class CodingOrchestrator:
         existing = session.get("source_branch")
         if existing:
             return str(existing)
-        requirement = str(task.get("requirement_summary") or task.get("source", {}).get("raw_text") or "")
-        slug = CodingOrchestrator._semantic_branch_slug(requirement)
+        plan_report = session.get("plan_report") or {}
+        candidate = plan_report.get("branch_slug_candidate") if isinstance(plan_report, dict) else ""
+        slug = CodingOrchestrator._slugify_ascii(str(candidate or ""))
+        if slug:
+            slug = slug[:_SOURCE_BRANCH_SLUG_MAX_LENGTH].rstrip("-")
         if not slug:
-            slug = CodingOrchestrator._slugify_ascii(project_name.strip() or "task")
+            slug = "task"
         return f"codex/{slug}-{CodingOrchestrator._task_short_id(str(task['task_id']))}"
+
+    @staticmethod
+    def _plan_report_session_fields(report: dict[str, Any]) -> dict[str, Any]:
+        fields = (
+            "branch_slug_candidate",
+            "execution_policy_decision",
+            "user_facing_summary",
+            "technical_summary",
+            "next_actions",
+        )
+        return {field: report[field] for field in fields if field in report}
 
     @staticmethod
     def _source_base_branch_for_task(task: dict[str, Any]) -> str:
@@ -4942,76 +4961,6 @@ class CodingOrchestrator:
     @staticmethod
     def _task_short_id(task_id: str) -> str:
         return task_id.removeprefix("task_")
-
-    @staticmethod
-    def _semantic_branch_slug(text: str) -> str:
-        domain_terms = [
-            ("推单列表", "fulfill-task"),
-            ("推单类型", "fulfill-type"),
-            ("推OMS", "oms"),
-            ("推到OMS", "oms"),
-            ("虚拟产品", "virtual"),
-            ("虚拟品", "virtual"),
-            ("total_virtual", "total-virtual"),
-        ]
-        generic_terms = [
-            ("修复", "fix"),
-            ("新增", "add"),
-            ("订单流", "orderflows"),
-            ("订单列表", "orders-list"),
-            ("订单", "orders"),
-            ("发货", "shipping"),
-            ("筛选", "filter"),
-            ("过滤", "filter"),
-            ("状态", "status"),
-            ("操作", "actions"),
-            ("按钮", "button"),
-            ("列表", "list"),
-        ]
-        tokens: list[str] = []
-        lowered = text.lower()
-        for term, slug in domain_terms + generic_terms:
-            term_lower = term.lower()
-            if term in text or term_lower in lowered:
-                tokens.extend(slug.split("-"))
-        cleaned = re.sub(r"https?://[^\s，。；、]+", " ", lowered)
-        cleaned = re.sub(r"/api/[a-z0-9_./-]+", " ", cleaned)
-        stop_words = {
-            "the",
-            "a",
-            "an",
-            "and",
-            "or",
-            "to",
-            "of",
-            "for",
-            "with",
-            "task",
-            "project",
-            "system",
-            "需求",
-            "api",
-            "bps",
-            "ops",
-            "admin",
-            "swagger",
-            "http",
-            "https",
-            "index",
-            "html",
-            "v1",
-            "v2",
-        }
-        for token in re.findall(r"[A-Za-z0-9]+", cleaned):
-            if token in stop_words or len(token) <= 1 or token.isdigit():
-                continue
-            tokens.append(token)
-        deduped: list[str] = []
-        for token in tokens:
-            safe = CodingOrchestrator._slugify_ascii(token)
-            if safe and safe not in deduped:
-                deduped.append(safe)
-        return "-".join(deduped[:5]).strip("-")
 
     @staticmethod
     def _slugify_ascii(text: str) -> str:

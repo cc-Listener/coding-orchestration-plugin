@@ -17,11 +17,19 @@ from coding_orchestration.runners.base import RunResult
 class FakeRunner:
     name = "codex_cli"
 
-    def __init__(self, mutate=None, status="success", stdout_text="stdout", verification_limitations=None):
+    def __init__(
+        self,
+        mutate=None,
+        status="success",
+        stdout_text="stdout",
+        verification_limitations=None,
+        report_updates=None,
+    ):
         self.mutate = mutate
         self.status = status
         self.stdout_text = stdout_text
         self.verification_limitations = list(verification_limitations or [])
+        self.report_updates = dict(report_updates or {})
         self.calls = []
 
     def capabilities(self):
@@ -89,6 +97,7 @@ class FakeRunner:
                     "changed_files_summary": ["src/app.ts: test implementation changes"],
                 }
             )
+        report.update(self.report_updates)
         (run_dir / "report.json").write_text(
             json.dumps(report, ensure_ascii=False),
             encoding="utf-8",
@@ -5307,15 +5316,15 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(result["status"], "blocked")
             self.assertEqual(task["status"], "blocked")
             self.assertTrue(fake_runner.calls[0]["workspace_path"].is_dir())
-            self.assertEqual(task["task_session"]["source_branch"], f"codex/fix-shipping-{task_id.removeprefix('task_')}")
+            self.assertEqual(task["task_session"]["source_branch"], f"codex/task-{task_id.removeprefix('task_')}")
             self.assertEqual(task["task_session"]["worktree_path"], str(fake_runner.calls[0]["workspace_path"]))
-            self.assertEqual(manifest["source_branch"], f"codex/fix-shipping-{task_id.removeprefix('task_')}")
+            self.assertEqual(manifest["source_branch"], f"codex/task-{task_id.removeprefix('task_')}")
             self.assertFalse((project / "deploy" / "release.sh").exists())
             self.assertEqual(report["status"], "blocked")
             self.assertIn("deploy/release.sh", "\n".join(report["risks"]))
             self.assertEqual(report["verification_limitations"][0]["reason"], "diff_guard_violation")
 
-    def test_implementation_branch_uses_semantic_slug_and_short_task_id(self):
+    def test_implementation_branch_uses_plan_report_candidate_and_short_task_id(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "order"
@@ -5330,6 +5339,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 status="planned",
                 llm_wiki_refs=[],
                 human_decisions=[],
+                task_session={"plan_report": {"branch_slug_candidate": "fix-order-status"}},
             )
             fake_runner = FakeRunner()
             orchestrator = CodingOrchestrator(
@@ -5345,10 +5355,10 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             task = ledger.get_task("task_43141b20c03e")
             manifest = json.loads(Path(task["artifacts"][0]["manifest"]).read_text(encoding="utf-8"))
-            self.assertEqual(task["task_session"]["source_branch"], "codex/orderflows-filter-actions-43141b20c03e")
-            self.assertEqual(manifest["source_branch"], "codex/orderflows-filter-actions-43141b20c03e")
+            self.assertEqual(task["task_session"]["source_branch"], "codex/fix-order-status-43141b20c03e")
+            self.assertEqual(manifest["source_branch"], "codex/fix-order-status-43141b20c03e")
 
-    def test_implementation_branch_ignores_swagger_url_noise_for_chinese_requirement(self):
+    def test_implementation_branch_sanitizes_plan_report_candidate_without_requirement_semantics(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "order"
@@ -5369,6 +5379,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 status="planned",
                 llm_wiki_refs=[],
                 human_decisions=[],
+                task_session={"plan_report": {"branch_slug_candidate": "修复 订单/status!!!"}},
             )
             fake_runner = FakeRunner()
             orchestrator = CodingOrchestrator(
@@ -5384,8 +5395,130 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             task = ledger.get_task("task_d7bd20850ef5")
             manifest = json.loads(Path(task["artifacts"][0]["manifest"]).read_text(encoding="utf-8"))
-            self.assertEqual(task["task_session"]["source_branch"], "codex/fulfill-task-type-oms-virtual-d7bd20850ef5")
-            self.assertEqual(manifest["source_branch"], "codex/fulfill-task-type-oms-virtual-d7bd20850ef5")
+            self.assertEqual(task["task_session"]["source_branch"], "codex/status-d7bd20850ef5")
+            self.assertEqual(manifest["source_branch"], "codex/status-d7bd20850ef5")
+
+    def test_source_branch_for_task_falls_back_for_non_ascii_candidate(self):
+        branch = CodingOrchestrator._source_branch_for_task(
+            {
+                "task_id": "task_9f8e7d6c5b4a",
+                "requirement_summary": "订单状态修复",
+                "task_session": {
+                    "plan_report": {
+                        "branch_slug_candidate": "修复 订单/状态!!!",
+                    },
+                },
+            },
+            "order-system",
+        )
+
+        self.assertEqual(branch, "codex/task-9f8e7d6c5b4a")
+
+    def test_source_branch_for_task_prefers_existing_source_branch(self):
+        branch = CodingOrchestrator._source_branch_for_task(
+            {
+                "task_id": "task_existing_branch",
+                "task_session": {
+                    "source_branch": "codex/already-created-existing_branch",
+                    "plan_report": {
+                        "branch_slug_candidate": "fix-order-status",
+                    },
+                },
+            },
+            "order-system",
+        )
+
+        self.assertEqual(branch, "codex/already-created-existing_branch")
+
+    def test_source_branch_for_task_limits_sanitized_candidate_length(self):
+        branch = CodingOrchestrator._source_branch_for_task(
+            {
+                "task_id": "task_long_slug",
+                "task_session": {
+                    "plan_report": {
+                        "branch_slug_candidate": f"{'a' * 63}-bbbbbbbbbbbb",
+                    },
+                },
+            },
+            "order-system",
+        )
+
+        self.assertEqual(branch, f"codex/{'a' * 63}-long_slug")
+
+    def test_source_branch_for_task_without_candidate_falls_back_to_task_not_project(self):
+        branch = CodingOrchestrator._source_branch_for_task(
+            {
+                "task_id": "task_no_candidate",
+                "task_session": {
+                    "plan_report": {},
+                },
+            },
+            "order-system",
+        )
+
+        self.assertEqual(branch, "codex/task-no_candidate")
+
+    def test_implementation_branch_uses_candidate_from_prior_plan_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_plan_to_impl",
+                source={"type": "manual", "project_name": "order-system"},
+                requirement_summary="修复订单状态展示",
+                project_path=str(project),
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+            )
+            fake_runner = FakeRunner(
+                report_updates={
+                    "branch_slug_candidate": "fix-order-status",
+                    "execution_policy_decision": {
+                        "route": "standard_change",
+                        "planning": "plan_only",
+                        "verification": "targeted",
+                        "reasoning_summary": "Codex selected branch candidate.",
+                    },
+                    "implementation_landed": False,
+                    "commit_sha": "",
+                    "changed_files_summary": [],
+                    "merge_readiness": {
+                        "ready": False,
+                        "risk_level": "unknown",
+                        "risk_note": "plan-only default",
+                        "required_confirmation": False,
+                    },
+                }
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+
+            orchestrator.start_run("task_plan_to_impl", mode=RunMode.PLAN_ONLY, timeout_seconds=5)
+            implementation = orchestrator.start_run("task_plan_to_impl", mode=RunMode.IMPLEMENTATION, timeout_seconds=5)
+
+            task = ledger.get_task("task_plan_to_impl")
+            manifest = json.loads(Path(implementation["artifacts"]["manifest"]).read_text(encoding="utf-8"))
+            self.assertEqual(task["task_session"]["plan_report"]["branch_slug_candidate"], "fix-order-status")
+            self.assertEqual(
+                task["task_session"]["plan_report"]["execution_policy_decision"]["route"],
+                "standard_change",
+            )
+            self.assertNotIn("implementation_landed", task["task_session"]["plan_report"])
+            self.assertNotIn("commit_sha", task["task_session"]["plan_report"])
+            self.assertNotIn("changed_files_summary", task["task_session"]["plan_report"])
+            self.assertNotIn("merge_readiness", task["task_session"]["plan_report"])
+            self.assertEqual(task["task_session"]["source_branch"], "codex/fix-order-status-plan_to_impl")
+            self.assertEqual(manifest["source_branch"], "codex/fix-order-status-plan_to_impl")
 
     def test_implementation_worktree_defaults_to_main_even_when_project_on_test(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -5771,6 +5904,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 status="planned",
                 llm_wiki_refs=[],
                 human_decisions=[],
+                task_session={"plan_report": {"branch_slug_candidate": "orderflows-filter-actions"}},
             )
             fake_runner = FakeRunner(stdout_text='{"type":"thread.started","thread_id":"019e-visible-session"}\n')
             orchestrator = CodingOrchestrator(
