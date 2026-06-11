@@ -183,7 +183,7 @@ class LedgerWikiOrchestratorTest(unittest.TestCase):
 
             message = orchestrator.command_coding_task("--project 订单系统 修复发货失败")
 
-            self.assertIn("已创建编码任务", message)
+            self.assertIn("已记录新任务", message)
             self.assertEqual(len(wiki.search("发货", {"project": "order-system"})), 1)
 
 

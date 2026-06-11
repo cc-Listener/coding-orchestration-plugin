@@ -286,6 +286,8 @@ def _task_id_from_message(message: str) -> str:
     for part in message.split():
         if part.startswith("task_"):
             return part
+        if "task_" in part:
+            return part[part.index("task_") :]
     raise AssertionError(f"task id not found in message: {message}")
 
 
@@ -525,7 +527,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             task = ledger.get_task(task_id)
             self.assertEqual(task["status"], "planned")
             self.assertEqual(task["source"]["raw_text"], "订单系统新增发货状态筛选")
-            self.assertIn("已创建编码任务", gateway.messages[-1])
+            self.assertIn("已记录新任务", gateway.messages[-1])
 
     def test_gateway_coding_mode_project_task_with_feishu_wiki_source_creates_deferred_task(self):
         class RecordingOrchestrator(CodingOrchestrator):
@@ -2135,7 +2137,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(len(orchestrator.auto_started), 1)
             task_id = orchestrator.auto_started[0][0]
             self.assertEqual(ledger.get_task(task_id)["status"], "planned")
-            self.assertIn(f"任务ID： {task_id}", gateway.messages[0])
+            self.assertIn(f"任务：{task_id}", gateway.messages[0])
             self.assertIn("需求小结：订单系统有个需求，新增发货状态筛选", gateway.messages[0])
 
     def test_command_coding_group_dispatches_task_command(self):
@@ -2168,7 +2170,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             response = orchestrator.command_coding("task 订单系统有个需求，新增发货状态筛选")
 
-            self.assertIn("已创建编码任务", response)
+            self.assertIn("已记录新任务", response)
             self.assertIn("需求小结：订单系统有个需求，新增发货状态筛选", response)
             self.assertEqual(len(ledger.list_recent_tasks(limit=5)), 1)
 

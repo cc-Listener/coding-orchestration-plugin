@@ -67,7 +67,7 @@ class OrchestratorToolsTest(unittest.TestCase):
             self.assertEqual(result["status"], "planned")
             self.assertEqual(result["status_label_zh"], "已规划")
             self.assertEqual(result["status_display"], "已规划(planned)")
-            self.assertIn("已创建编码任务", result["message"])
+            self.assertIn("已记录新任务", result["message"])
 
     def test_tool_task_status_returns_structured_payload(self):
         with tempfile.TemporaryDirectory() as tmp:

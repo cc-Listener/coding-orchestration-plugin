@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .feishu_copy import render_user_update
 from .models import ProjectCandidate, task_status_display
 
 
@@ -17,24 +18,21 @@ def render_task_created(
     auto_implementation_started: bool = False,
     execution_policy: dict[str, Any] | None = None,
 ) -> str:
-    lines = [
-        "已创建编码任务",
-        f"任务ID： {task_id}",
-        f"需求小结：{summary}",
-        f"当前状态：{task_status_display(status)}",
-        f"项目：{project_name} ({project_path})",
-    ]
     if auto_implementation_started:
         next_step = "implementation 已自动启动，完成后会回写结果。"
-        lines.append(f"下一步：{next_step}")
-        lines.extend(_inline_implementation_notice(task_id, execution_policy))
+        next_actions = [next_step, *_inline_implementation_notice(task_id, execution_policy)]
     elif auto_plan_started:
         next_step = "plan-only 已自动启动，完成后会回写结果。"
-        lines.append(f"下一步：{next_step}")
+        next_actions = [next_step]
     else:
         next_step = "进入 plan-only。"
-        lines.append(f"下一步：{next_step}")
-    return "\n".join(lines)
+        next_actions = [next_step]
+    return render_user_update(
+        title="已记录新任务",
+        task_id=task_id,
+        user_facing_summary=f"需求小结：{summary}\n项目：{project_name} ({project_path})",
+        next_actions=next_actions,
+    )
 
 
 def _inline_implementation_notice(task_id: str, execution_policy: dict[str, Any] | None) -> list[str]:
