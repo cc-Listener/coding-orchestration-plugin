@@ -66,6 +66,23 @@ class ProjectInitializationQualityTest(unittest.TestCase):
             self.assertTrue(quality.has_component_contract)
             self.assertTrue(quality.has_verification_commands)
 
+    def test_package_json_test_script_counts_as_verification_entry(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "admin"
+            project.mkdir()
+            (project / "package.json").write_text(
+                '{"scripts":{"test":"vitest","build":"vite build"}}',
+                encoding="utf-8",
+            )
+
+            quality = evaluate_project_initialization_quality(
+                project_path=project,
+                profile={"test_commands": []},
+            )
+
+            self.assertTrue(quality.has_verification_commands)
+            self.assertNotIn("verification_commands", quality.missing)
+
 
 if __name__ == "__main__":
     unittest.main()

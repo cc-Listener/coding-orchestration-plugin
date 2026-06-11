@@ -63,10 +63,6 @@ def normalize_text(value: str) -> str:
 
 
 class ProjectResolver:
-    AUTO_ROUTE_THRESHOLD = 0.8
-    HUMAN_REVIEW_THRESHOLD = 0.5
-    AMBIGUITY_GAP = 0.15
-
     def __init__(self, registry: ProjectRegistry):
         self.registry = registry
 
@@ -125,13 +121,7 @@ class ProjectResolver:
             ProjectCandidate(project.name, project.path, confidence)
             for project, confidence, _ in scored
         ]
-        if len(scored) > 1 and scored[0][1] - scored[1][1] < self.AMBIGUITY_GAP:
-            return ProjectResolveResult(None, None, scored[0][1], scored[0][2], candidates, True)
-
-        project, confidence, evidence = scored[0]
-        if confidence >= self.AUTO_ROUTE_THRESHOLD:
-            return self._result(project, confidence, evidence, False)
-        return ProjectResolveResult(None, None, confidence, evidence, candidates, True)
+        return ProjectResolveResult(None, None, scored[0][1], scored[0][2], candidates, True)
 
     @staticmethod
     def _unique_projects(items: list[tuple[Project, MatchEvidence]]) -> list[tuple[Project, MatchEvidence]]:

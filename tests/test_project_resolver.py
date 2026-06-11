@@ -68,6 +68,21 @@ class ProjectResolverTest(unittest.TestCase):
         self.assertIsNone(result.project_path)
         self.assertGreaterEqual(len(result.candidates), 2)
 
+    def test_keyword_only_match_returns_candidates_for_codex_rerank(self):
+        registry = ProjectRegistry(
+            [
+                {"name": "oms", "path": "/repo/oms", "keywords": ["订单"]},
+                {"name": "wms", "path": "/repo/wms", "keywords": ["订单"]},
+            ]
+        )
+        resolver = ProjectResolver(registry)
+
+        result = resolver.resolve("订单状态优化")
+
+        self.assertIsNone(result.project_name)
+        self.assertTrue(result.needs_human)
+        self.assertEqual([item.project_name for item in result.candidates], ["oms", "wms"])
+
     def test_no_match_requires_human(self):
         result = self.resolver.resolve(text="修一下首页样式")
 
