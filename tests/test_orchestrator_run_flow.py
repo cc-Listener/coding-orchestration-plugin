@@ -4800,6 +4800,29 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             for field in ("raw_status", "status_detail", "failure_type", "known_gaps", "structured"):
                 self.assertIn(field, schema["properties"])
 
+    def test_report_schema_requires_codex_owned_semantic_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            schema_path = Path(tmp) / "report.schema.json"
+
+            CodingOrchestrator._write_report_schema(schema_path)
+
+            schema = json.loads(schema_path.read_text(encoding="utf-8"))
+            properties = schema["properties"]
+            required = set(schema["required"])
+
+            for field in (
+                "user_facing_summary",
+                "technical_summary",
+                "implementation_landed",
+                "commit_sha",
+                "changed_files_summary",
+                "branch_slug_candidate",
+                "execution_policy_decision",
+                "merge_readiness",
+            ):
+                self.assertIn(field, properties)
+                self.assertIn(field, required)
+
     def test_report_schema_requires_every_declared_property_for_strict_structured_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             schema_path = Path(tmp) / "report.schema.json"
@@ -5240,6 +5263,14 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             def mutate_implementation(cwd: Path) -> None:
                 (cwd / "src" / "app.ts").write_text("export const ok = false\n", encoding="utf-8")
                 (cwd / "src" / "new-page.ts").write_text("export const page = true\n", encoding="utf-8")
+                subprocess.run(["git", "add", "src/app.ts", "src/new-page.ts"], cwd=cwd, check=True, stdout=subprocess.PIPE)
+                subprocess.run(
+                    ["git", "commit", "-m", "fix(order): 修复发货失败"],
+                    cwd=cwd,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
 
             ledger = TaskLedger(root / "ledger.db")
             ledger.create_task(
@@ -5271,10 +5302,52 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             latest_run = task["agent_runs"][-1]
 
             self.assertEqual(result["task_status"], TaskStatus.READY_FOR_MERGE_TEST.value)
-            self.assertEqual(last_commit, "Implement task_impl_commit after implementation")
+            self.assertEqual(last_commit, "fix(order): 修复发货失败")
             self.assertEqual(status, "")
-            self.assertEqual(manifest["implementation_checkpoint"]["status"], "committed")
-            self.assertEqual(latest_run["implementation_checkpoint"]["status"], "committed")
+            self.assertIsNone(manifest.get("implementation_checkpoint"))
+            self.assertIsNone(latest_run["implementation_checkpoint"])
+
+    def test_implementation_success_blocks_when_codex_leaves_uncommitted_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            subprocess.run(["git", "init", "-b", "main"], cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=project, check=True)
+            subprocess.run(["git", "config", "user.name", "Test"], cwd=project, check=True)
+            _write_workflow(project)
+            subprocess.run(["git", "add", "."], cwd=project, check=True)
+            subprocess.run(["git", "commit", "-m", "main baseline"], cwd=project, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+
+            def mutate_without_commit(cwd: Path) -> None:
+                (cwd / "src" / "app.ts").write_text("export const ok = false\n", encoding="utf-8")
+
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_missing_commit",
+                source={"type": "manual", "project_name": "order-system"},
+                requirement_summary="修复发货失败",
+                project_path=str(project),
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+            )
+            fake_runner = FakeRunner(mutate=mutate_without_commit)
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+
+            result = orchestrator.start_run("task_missing_commit", mode=RunMode.IMPLEMENTATION, timeout_seconds=5)
+            report = json.loads(Path(result["artifacts"]["report"]).read_text(encoding="utf-8"))
+
+            self.assertEqual(result["task_status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(report["verification_limitations"][0]["reason"], "implementation_commit_missing")
+            self.assertIn("Codex", report["verification_limitations"][0]["recovery_action"])
 
     def test_implementation_default_timeout_is_longer_than_plan_only(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -7137,7 +7210,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(pending["command_text"], "/coding merge-test task_1")
             self.assertIn("回复“确认”继续当前 merge-test", gateway.messages[-1])
 
-    def test_merge_test_checkpoints_untracked_implementation_files_before_runner(self):
+    def test_merge_test_blocks_uncommitted_implementation_files_before_runner(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "order"
@@ -7164,7 +7237,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             ledger.create_task(
                 task_id="task_1",
                 source={"type": "manual", "project_name": "order"},
-                requirement_summary="done",
+                requirement_summary="新增订单导出",
                 project_path=str(project),
                 status=TaskStatus.READY_FOR_MERGE_TEST.value,
                 llm_wiki_refs=[],
@@ -7197,13 +7270,17 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             )
 
             message = orchestrator.command_coding_merge_test("task_1")
-            last_commit = subprocess.check_output(["git", "log", "-1", "--pretty=%s"], cwd=workspace, text=True).strip()
-            manifest = fake_runner.calls[-1]["manifest_at_start"]
+            task = ledger.get_task("task_1")
+            latest_run = task["agent_runs"][-1]
+            report = json.loads(Path(latest_run["artifact"]["report"]).read_text(encoding="utf-8"))
+            manifest = json.loads(Path(latest_run["artifact"]["manifest"]).read_text(encoding="utf-8"))
 
-            self.assertEqual(status_at_runner_start, [""])
-            self.assertEqual(last_commit, "Implement task_1 before merge-test")
-            self.assertEqual(manifest["merge_test_checkpoint"]["status"], "committed")
-            self.assertIn("merge-test run 已完成", message)
+            self.assertEqual(status_at_runner_start, [])
+            self.assertEqual(fake_runner.calls, [])
+            self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(manifest["merge_test_checkpoint"]["status"], "failed")
+            self.assertEqual(report["verification_limitations"][0]["reason"], "implementation_commit_missing")
+            self.assertIn("source worktree 仍有未提交实现改动", message)
 
     def test_implementation_notification_does_not_auto_run_qa_after_ready_status(self):
         class RecordingOrchestrator(CodingOrchestrator):
@@ -7513,7 +7590,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(latest_run["qa_artifacts"]["baseline"].endswith("baseline.json"), True)
             self.assertEqual(latest_run["qa_artifacts"]["screenshots_dir"].endswith("screenshots"), True)
 
-    def test_qa_run_creates_checkpoint_commit_before_runner_starts(self):
+    def test_qa_run_blocks_uncommitted_implementation_files_before_runner_starts(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             workspace = root / "workspaces" / "task_1" / "run_impl"
@@ -7537,7 +7614,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             ledger.create_task(
                 task_id=task_id,
                 source={"type": "manual", "project_name": "order"},
-                requirement_summary="done",
+                requirement_summary="修复订单状态展示",
                 project_path=str(workspace),
                 status=TaskStatus.READY_FOR_MERGE_TEST.value,
                 llm_wiki_refs=[],
@@ -7559,21 +7636,25 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             )
 
             orchestrator.start_run(task_id, mode=RunMode.QA, timeout_seconds=5)
-            last_commit = subprocess.check_output(["git", "log", "-1", "--pretty=%s"], cwd=workspace, text=True).strip()
-            manifest = fake_runner.calls[-1]["manifest_at_start"]
+            task = ledger.get_task(task_id)
+            latest_run = task["agent_runs"][-1]
+            report = json.loads(Path(latest_run["artifact"]["report"]).read_text(encoding="utf-8"))
+            manifest = json.loads(Path(latest_run["artifact"]["manifest"]).read_text(encoding="utf-8"))
 
-            self.assertEqual(status_at_runner_start, [""])
-            self.assertEqual(last_commit, "Implement task_1 before QA")
-            self.assertEqual(manifest["qa_checkpoint"]["status"], "committed")
+            self.assertEqual(status_at_runner_start, [])
+            self.assertEqual(fake_runner.calls, [])
+            self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(manifest["qa_checkpoint"]["status"], "failed")
+            self.assertEqual(report["verification_limitations"][0]["reason"], "implementation_commit_missing")
 
-    def test_qa_run_blocks_when_checkpoint_commit_fails(self):
+    def test_qa_run_blocks_when_clean_tree_gate_fails(self):
         class FailingCheckpointOrchestrator(CodingOrchestrator):
             @staticmethod
             def _prepare_qa_checkpoint(workspace_path, task_id):
                 return {
                     "status": "failed",
-                    "reason": "checkpoint_commit_failed",
-                    "error": "missing git identity",
+                    "reason": "implementation_commit_missing",
+                    "error": "source worktree has uncommitted changes",
                 }
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -7616,8 +7697,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(result["task_status"], TaskStatus.BLOCKED.value)
             self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
             self.assertEqual(report["status"], "blocked")
-            self.assertEqual(report["verification_limitations"][0]["reason"], "checkpoint_commit_failed")
-            self.assertIn("配置 git user.name/user.email", report["verification_limitations"][0]["recovery_action"])
+            self.assertEqual(report["verification_limitations"][0]["reason"], "implementation_commit_missing")
+            self.assertIn("让 Codex", report["verification_limitations"][0]["recovery_action"])
             self.assertEqual(report["qa_artifacts"], {"report": "", "baseline": "", "screenshots_dir": ""})
             self.assertEqual(report["tested_commit"], "")
 

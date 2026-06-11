@@ -41,6 +41,14 @@ REPORT_CONTRACT_FIELDS = (
     "next_actions",
     "qa_artifacts",
     "tested_commit",
+    "user_facing_summary",
+    "technical_summary",
+    "implementation_landed",
+    "commit_sha",
+    "changed_files_summary",
+    "branch_slug_candidate",
+    "execution_policy_decision",
+    "merge_readiness",
 )
 
 
@@ -262,6 +270,7 @@ class CodexCliRunner(CodingAgentRunner):
             "next_actions": ["Use Hermes process/terminal notifications to collect completion artifacts."],
             "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
             "tested_commit": "",
+            **self._semantic_report_fields({}),
             "raw_stdout_ref": str(run_dir / "stdout.log"),
             "raw_stderr_ref": str(run_dir / "stderr.log"),
             "summary_ref": str(run_dir / "summary.md"),
@@ -497,6 +506,7 @@ class CodexCliRunner(CodingAgentRunner):
             "next_actions": next_actions,
             "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
             "tested_commit": "",
+            **self._semantic_report_fields({}),
         }
         (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return self._attach_operator_log_refs(run_dir, report)
@@ -622,6 +632,28 @@ class CodexCliRunner(CodingAgentRunner):
             if isinstance(candidate.get("qa_artifacts"), dict)
             else {"report": "", "baseline": "", "screenshots_dir": ""},
             "tested_commit": str(candidate.get("tested_commit") or ""),
+            **self._semantic_report_fields(candidate),
+        }
+
+    @staticmethod
+    def _semantic_report_fields(report: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "user_facing_summary": str(report.get("user_facing_summary") or ""),
+            "technical_summary": str(report.get("technical_summary") or ""),
+            "implementation_landed": report.get("implementation_landed")
+            if isinstance(report.get("implementation_landed"), bool)
+            else False,
+            "commit_sha": str(report.get("commit_sha") or ""),
+            "changed_files_summary": report.get("changed_files_summary")
+            if isinstance(report.get("changed_files_summary"), list)
+            else [],
+            "branch_slug_candidate": str(report.get("branch_slug_candidate") or ""),
+            "execution_policy_decision": report.get("execution_policy_decision")
+            if isinstance(report.get("execution_policy_decision"), dict)
+            else {},
+            "merge_readiness": report.get("merge_readiness")
+            if isinstance(report.get("merge_readiness"), dict)
+            else {},
         }
 
     @staticmethod
@@ -664,6 +696,7 @@ class CodexCliRunner(CodingAgentRunner):
         report.setdefault("verification_limitations", [])
         report.setdefault("qa_artifacts", {"report": "", "baseline": "", "screenshots_dir": ""})
         report.setdefault("tested_commit", "")
+        report.update(self._semantic_report_fields(report))
         if self._report_requires_limitation(report) and not report["verification_limitations"]:
             report["verification_limitations"] = [
                 self._verification_limitation(

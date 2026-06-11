@@ -301,6 +301,27 @@ class RouterPromptSummaryTest(unittest.TestCase):
         self.assertIn("不要启动浏览器 QA", instructions)
         self.assertNotIn("使用 `$qa` skill 执行测试链路", instructions)
 
+    def test_implementation_run_instructions_require_codex_commit_with_change_summary(self):
+        instructions = PromptBuilder().build_run_instructions(mode=RunMode.IMPLEMENTATION)
+
+        self.assertIn("由 Codex 在当前 task workspace 内创建 git commit", instructions)
+        self.assertIn("commit subject 必须描述本次实际代码改动", instructions)
+        self.assertIn("不要使用 task/run/status/checkpoint", instructions)
+        self.assertIn("status=blocked", instructions)
+
+    def test_run_instructions_require_codex_owned_user_summary_and_no_python_fallback(self):
+        instructions = PromptBuilder().build_run_instructions(mode=RunMode.IMPLEMENTATION)
+
+        self.assertIn("user_facing_summary", instructions)
+        self.assertIn("technical_summary", instructions)
+        self.assertIn("implementation_landed", instructions)
+        self.assertIn("commit_sha", instructions)
+        self.assertIn(
+            "implementation 必须填写 `implementation_landed`、`commit_sha`、`changed_files_summary`、`branch_slug_candidate` 和 `execution_policy_decision`",
+            instructions,
+        )
+        self.assertIn("Python 不会替你补默认摘要或下一步", instructions)
+
     def test_run_summary_writer_upserts_to_wiki(self):
         with tempfile.TemporaryDirectory() as tmp:
             wiki = LocalLlmWikiAdapter(Path(tmp))

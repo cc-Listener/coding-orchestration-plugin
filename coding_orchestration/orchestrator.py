@@ -4008,7 +4008,7 @@ class CodingOrchestrator:
         if (
             mode == RunMode.MERGE_TEST
             and bool(report.get("human_required"))
-            and status not in {AgentRunStatus.FAILED.value, AgentRunStatus.CANCELLED.value}
+            and status not in {AgentRunStatus.BLOCKED.value, AgentRunStatus.FAILED.value, AgentRunStatus.CANCELLED.value}
         ):
             task_status = TaskStatus.READY_FOR_MERGE_TEST
             task_phase = TaskPhase.READY_TO_MERGE_TEST
@@ -4547,31 +4547,34 @@ class CodingOrchestrator:
             )
             status = str(details["status"])
             report.update(details)
-            if mode == RunMode.IMPLEMENTATION and status == AgentRunStatus.SUCCEEDED.value:
-                manifest.implementation_checkpoint = self._prepare_implementation_checkpoint(workspace_path, task_id)
+            if (
+                mode == RunMode.IMPLEMENTATION
+                and status == AgentRunStatus.SUCCEEDED.value
+                and self._workspace_has_uncommitted_changes(workspace_path)
+            ):
+                manifest.implementation_checkpoint = self._workspace_clean_checkpoint(workspace_path)
                 result.artifacts.manifest.write_text(
                     self._json(manifest.to_dict()),
                     encoding="utf-8",
                 )
-                if manifest.implementation_checkpoint.get("status") == "failed":
-                    details = agent_run_status_details("blocked", mode)
-                    status = str(details["status"])
-                    report.update(details)
-                    report["human_required"] = True
-                    report["risks"] = list(report.get("risks") or []) + [
-                        "implementation 完成后无法创建 checkpoint commit，不能安全进入 QA。"
-                    ]
-                    report["verification_limitations"] = list(report.get("verification_limitations") or []) + [
-                        {
-                            "reason": "checkpoint_commit_failed",
-                            "impact": "Implementation changes were produced but not committed, so QA cannot safely run on a clean source branch.",
-                            "recovery_action": "配置 git user.name/user.email 或手动提交当前 implementation 改动后，重新触发 implementation 或 QA。",
-                            "fallback_evidence": str(manifest.implementation_checkpoint.get("error") or result.artifacts.stderr),
-                        }
-                    ]
-                    report["next_actions"] = list(report.get("next_actions") or []) + [
-                        "修复 implementation checkpoint commit 问题后再继续 QA。"
-                    ]
+                details = agent_run_status_details("blocked", mode)
+                status = str(details["status"])
+                report.update(details)
+                report["human_required"] = True
+                report["risks"] = list(report.get("risks") or []) + [
+                    "implementation 已返回成功，但 Codex 未提交本次实现改动，不能安全进入 QA 或 merge-test。"
+                ]
+                report["verification_limitations"] = list(report.get("verification_limitations") or []) + [
+                    {
+                        "reason": "implementation_commit_missing",
+                        "impact": "Implementation changes remain uncommitted in the task workspace, so downstream QA/merge-test would not have a stable source commit.",
+                        "recovery_action": "让 Codex 依据实际 diff 按 Git Flow/Conventional Commit 规范创建提交，或重新触发 implementation 完成提交后再继续。",
+                        "fallback_evidence": str(result.artifacts.diff),
+                    }
+                ]
+                report["next_actions"] = list(report.get("next_actions") or []) + [
+                    "让 Codex 提交当前 implementation 改动后，再重新触发 QA 或 merge-test。"
+                ]
         report = self._ensure_verification_limitations(report, status, result.artifacts)
         result.artifacts.report.write_text(self._json(report), encoding="utf-8")
 
@@ -4584,7 +4587,7 @@ class CodingOrchestrator:
         if (
             mode == RunMode.MERGE_TEST
             and bool(report.get("human_required"))
-            and status not in {AgentRunStatus.FAILED.value, AgentRunStatus.CANCELLED.value}
+            and status not in {AgentRunStatus.BLOCKED.value, AgentRunStatus.FAILED.value, AgentRunStatus.CANCELLED.value}
         ):
             task_status = TaskStatus.READY_FOR_MERGE_TEST
             task_phase = TaskPhase.READY_TO_MERGE_TEST
@@ -4854,28 +4857,20 @@ class CodingOrchestrator:
         return artifacts
 
     @staticmethod
-    def _prepare_implementation_checkpoint(workspace_path: Path | None, task_id: str) -> dict[str, str]:
-        return CodingOrchestrator._prepare_checkpoint_commit(
-            workspace_path=workspace_path,
-            message=f"Implement {task_id} after implementation",
-        )
-
-    @staticmethod
     def _prepare_qa_checkpoint(workspace_path: Path | None, task_id: str) -> dict[str, str]:
-        return CodingOrchestrator._prepare_checkpoint_commit(
-            workspace_path=workspace_path,
-            message=f"Implement {task_id} before QA",
-        )
+        return CodingOrchestrator._workspace_clean_checkpoint(workspace_path)
 
     @staticmethod
     def _prepare_merge_test_checkpoint(workspace_path: Path | None, task_id: str) -> dict[str, str]:
-        return CodingOrchestrator._prepare_checkpoint_commit(
-            workspace_path=workspace_path,
-            message=f"Implement {task_id} before merge-test",
-        )
+        return CodingOrchestrator._workspace_clean_checkpoint(workspace_path)
 
     @staticmethod
-    def _prepare_checkpoint_commit(workspace_path: Path | None, message: str) -> dict[str, str]:
+    def _workspace_has_uncommitted_changes(workspace_path: Path | None) -> bool:
+        checkpoint = CodingOrchestrator._workspace_clean_checkpoint(workspace_path)
+        return checkpoint.get("status") == "failed"
+
+    @staticmethod
+    def _workspace_clean_checkpoint(workspace_path: Path | None) -> dict[str, str]:
         if workspace_path is None:
             return {"status": "skipped", "reason": "no_workspace"}
         if not (workspace_path / ".git").exists():
@@ -4889,32 +4884,13 @@ class CodingOrchestrator:
                 stderr=subprocess.PIPE,
                 text=True,
             )
-            if not status.stdout.strip():
-                head = subprocess.run(
-                    ["git", "rev-parse", "HEAD"],
-                    cwd=workspace_path,
-                    check=True,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True,
-                )
-                return {"status": "clean", "head": head.stdout.strip()}
-            subprocess.run(
-                ["git", "add", "--all"],
-                cwd=workspace_path,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            subprocess.run(
-                ["git", "commit", "-m", message],
-                cwd=workspace_path,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
+            if status.stdout.strip():
+                return {
+                    "status": "failed",
+                    "reason": "implementation_commit_missing",
+                    "error": "source worktree has uncommitted changes",
+                    "status_porcelain": status.stdout.strip(),
+                }
             head = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
                 cwd=workspace_path,
@@ -4923,11 +4899,11 @@ class CodingOrchestrator:
                 stderr=subprocess.PIPE,
                 text=True,
             )
-            return {"status": "committed", "message": message, "head": head.stdout.strip()}
+            return {"status": "clean", "head": head.stdout.strip()}
         except Exception as exc:
             return {
                 "status": "failed",
-                "reason": "checkpoint_commit_failed",
+                "reason": "implementation_commit_missing",
                 "error": str(exc),
             }
 
@@ -5807,6 +5783,14 @@ class CodingOrchestrator:
                 "verification_limitations",
                 "qa_artifacts",
                 "tested_commit",
+                "user_facing_summary",
+                "technical_summary",
+                "implementation_landed",
+                "commit_sha",
+                "changed_files_summary",
+                "branch_slug_candidate",
+                "execution_policy_decision",
+                "merge_readiness",
             ],
             "properties": {
                 "runner": {"type": "string"},
@@ -5870,6 +5854,14 @@ class CodingOrchestrator:
                     },
                 },
                 "tested_commit": {"type": "string"},
+                "user_facing_summary": {"type": "string"},
+                "technical_summary": {"type": "string"},
+                "implementation_landed": {"type": "boolean"},
+                "commit_sha": {"type": "string"},
+                "changed_files_summary": {"type": "array", "items": {"type": "string"}},
+                "branch_slug_candidate": {"type": "string"},
+                "execution_policy_decision": {"type": "object", "additionalProperties": True},
+                "merge_readiness": {"type": "object", "additionalProperties": True},
             },
         }
         path.write_text(CodingOrchestrator._json(schema), encoding="utf-8")
@@ -5957,20 +5949,20 @@ class CodingOrchestrator:
     ) -> RunResult:
         artifacts = self._artifact_set_for_run_dir(run_dir)
         artifacts.stdout.touch(exist_ok=True)
-        error = str(checkpoint.get("error") or "checkpoint commit failed")
+        error = str(checkpoint.get("error") or "source worktree has uncommitted changes")
         artifacts.stderr.write_text(error, encoding="utf-8")
         if mode == RunMode.MERGE_TEST:
-            summary = "merge-test 未启动：merge-test 前 checkpoint commit 失败。"
-            risk = "merge-test 前无法创建 checkpoint commit，不能保证 source branch 已包含本次实现改动。"
-            impact = "merge-test run 未执行，当前 source branch 可能缺少未跟踪实现文件。"
-            recovery_action = "配置 git user.name/user.email 或手动提交当前 implementation 改动后，重新触发 merge-test。"
-            next_actions = ["修复 checkpoint commit 问题后重新触发 merge-test。"]
+            summary = "merge-test 未启动：source worktree 仍有未提交实现改动。"
+            risk = "merge-test 前 source branch 必须已经由 Codex 按 Git Flow/Conventional Commit 规范提交干净。"
+            impact = "merge-test run 未执行，避免把未提交实现改动用流程状态信息提交。"
+            recovery_action = "让 Codex 根据实际 diff 创建符合规范的实现提交后，重新触发 merge-test。"
+            next_actions = ["让 Codex 提交当前 implementation 改动后重新触发 merge-test。"]
         else:
-            summary = "QA 未启动：QA 前 checkpoint commit 失败。"
-            risk = "QA 前无法创建 checkpoint commit，不能保证 `$qa` 在 clean working tree 上运行。"
+            summary = "QA 未启动：source worktree 仍有未提交实现改动。"
+            risk = "QA 前 source branch 必须已经由 Codex 按 Git Flow/Conventional Commit 规范提交干净。"
             impact = "QA run 未执行，当前缺少自动测试证据。"
-            recovery_action = "配置 git user.name/user.email 或手动提交当前 implementation 改动后，重新运行 QA。"
-            next_actions = ["修复 checkpoint commit 问题后重新触发 QA；也可以人工判断后继续 merge-test。"]
+            recovery_action = "让 Codex 根据实际 diff 创建符合规范的实现提交后，重新运行 QA。"
+            next_actions = ["让 Codex 提交当前 implementation 改动后重新触发 QA；也可以人工判断后继续 merge-test。"]
         artifacts.summary.write_text(summary, encoding="utf-8")
         report = {
             "runner": runner_name,
@@ -5983,7 +5975,7 @@ class CodingOrchestrator:
             "risks": [risk],
             "verification_limitations": [
                 {
-                    "reason": "checkpoint_commit_failed",
+                    "reason": str(checkpoint.get("reason") or "implementation_commit_missing"),
                     "impact": impact,
                     "recovery_action": recovery_action,
                     "fallback_evidence": str(artifacts.stderr),
