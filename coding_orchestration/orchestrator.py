@@ -3980,13 +3980,10 @@ class CodingOrchestrator:
             return None
 
         changed_files = self._changed_files_for_existing_run(run, report)
-        details = self._normalize_implementation_run_details(
-            mode=mode,
-            details=details,
-            changed_files=changed_files,
-        )
-        status = str(details["status"])
         report = dict(report)
+        report["modified_files"] = changed_files
+        details = self._normalize_implementation_run_status(report, mode)
+        status = str(details["status"])
         report.update(details)
         runner_name = str(run.get("runner") or runner_session.get("provider") or report.get("runner") or RunnerName.CODEX_CLI.value)
         report["runner"] = runner_name
@@ -4540,11 +4537,7 @@ class CodingOrchestrator:
                 "人工检查越权 diff，确认是否丢弃或重跑。"
             ]
         else:
-            details = self._normalize_implementation_run_details(
-                mode=mode,
-                details=details,
-                changed_files=changed_files,
-            )
+            details = self._normalize_implementation_run_status(report, mode)
             status = str(details["status"])
             report.update(details)
             if (
@@ -5181,16 +5174,6 @@ class CodingOrchestrator:
                 "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
             }
         limitations = self._structured_verification_limitations(report)
-        if not limitations:
-            return {
-                "mergeable": False,
-                "requires_acceptance": True,
-                "source_run_id": str(run.get("run_id") or ""),
-                "reason": "missing_verification_limitation_details",
-                "impact": "blocked/partial 缺少完整结构化风险字段，默认不合入 test；人工可基于 summary/stdout/stderr 覆盖风险。",
-                "recovery_action": f"补齐验证受限结构化字段，或确认 artifact 后执行 /coding merge-test {task_id} --accept-risk。",
-                "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
-            }
         disallowed_reason = self._disallowed_blocked_merge_test_reason(run, report, limitations)
         if disallowed_reason:
             return {
@@ -5202,21 +5185,24 @@ class CodingOrchestrator:
                 "recovery_action": f"建议先处理阻断原因并重新执行 implementation；如确认可接受，执行 /coding merge-test {task_id} --accept-risk。",
                 "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
             }
-        summary_text = " ".join(
-            [
-                str(report.get("summary_markdown") or ""),
-                " ".join(str(item) for item in report.get("risks") or []),
-                " ".join(str(item) for item in report.get("next_actions") or []),
-            ]
-        )
-        if self._report_says_no_implementation(summary_text):
+        if self._implementation_report_explicitly_not_landed(report):
             return {
                 "mergeable": False,
                 "requires_acceptance": True,
                 "source_run_id": str(run.get("run_id") or ""),
                 "reason": "implementation_not_landed",
-                "impact": "报告显示代码未实际落地或无法实现，默认不合入 test；如果人工确认 source branch 已有目标改动，可覆盖风险。",
-                "recovery_action": f"先确认 source branch/worktree 是否确有目标改动；确认后执行 /coding merge-test {task_id} --accept-risk。",
+                "impact": "结构化报告显示 implementation 未落地到提交，默认不合入 test；如果人工确认 source branch 已有目标改动，可覆盖风险。",
+                "recovery_action": f"先让 Codex 完成实现提交，或确认 source branch/worktree 后执行 /coding merge-test {task_id} --accept-risk。",
+                "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
+            }
+        if not limitations:
+            return {
+                "mergeable": False,
+                "requires_acceptance": True,
+                "source_run_id": str(run.get("run_id") or ""),
+                "reason": "missing_verification_limitation_details",
+                "impact": "blocked/partial 缺少完整结构化风险字段，默认不合入 test；人工可基于 summary/stdout/stderr 覆盖风险。",
+                "recovery_action": f"补齐验证受限结构化字段，或确认 artifact 后执行 /coding merge-test {task_id} --accept-risk。",
                 "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
             }
         first_limitation = limitations[0]
@@ -5275,23 +5261,6 @@ class CodingOrchestrator:
         if report.get("human_required") and str(report.get("summary_markdown") or "").strip() == "":
             return "missing_implementation_summary"
         return ""
-
-    @staticmethod
-    def _report_says_no_implementation(text: str) -> bool:
-        normalized = normalize_project_text(text)
-        negative_markers = (
-            "未实际变更",
-            "未实际修改",
-            "未实际落地",
-            "未落地",
-            "未实现",
-            "无法实现",
-            "不能实现",
-            "没有实际代码改动",
-            "未产生代码改动",
-            "未修改代码",
-        )
-        return any(marker in normalized for marker in negative_markers)
 
     @staticmethod
     def _blocked_merge_test_risk_confirmation_message(task_id: str, assessment: dict[str, Any]) -> str:
@@ -6232,18 +6201,51 @@ class CodingOrchestrator:
         return details
 
     @staticmethod
-    def _normalize_implementation_run_status(
-        *,
-        mode: RunMode,
-        status: str,
-        changed_files: list[str],
-    ) -> str:
+    def _normalize_implementation_run_status(report: dict[str, Any], mode: RunMode) -> dict[str, Any]:
+        details = CodingOrchestrator._run_status_details_from_report(report, mode)
+        if mode == RunMode.IMPLEMENTATION:
+            if CodingOrchestrator._report_has_implementation_not_landed_detail(report):
+                details = agent_run_status_details("blocked", mode)
+                details["failure_type"] = "implementation_not_landed"
+                details["status_detail"] = "implementation_not_landed"
+                return details
         details = CodingOrchestrator._normalize_implementation_run_details(
             mode=mode,
-            details=agent_run_status_details(status, mode),
-            changed_files=changed_files,
+            details=details,
+            changed_files=list(report.get("modified_files") or []),
         )
-        return str(details["status"])
+        if (
+            mode == RunMode.IMPLEMENTATION
+            and str(details.get("status") or "") == AgentRunStatus.SUCCEEDED.value
+            and not details.get("known_gaps")
+            and details.get("structured") is not False
+            and CodingOrchestrator._implementation_report_not_landed(report)
+        ):
+            details = agent_run_status_details("blocked", mode)
+            details["failure_type"] = "implementation_not_landed"
+            details["status_detail"] = "implementation_not_landed"
+        return details
+
+    @staticmethod
+    def _implementation_report_not_landed(report: dict[str, Any]) -> bool:
+        if CodingOrchestrator._report_has_implementation_not_landed_detail(report):
+            return True
+        return report.get("implementation_landed") is not True or not str(report.get("commit_sha") or "").strip()
+
+    @staticmethod
+    def _implementation_report_explicitly_not_landed(report: dict[str, Any]) -> bool:
+        if CodingOrchestrator._report_has_implementation_not_landed_detail(report):
+            return True
+        if "implementation_landed" not in report and "commit_sha" not in report:
+            return False
+        return report.get("implementation_landed") is not True or not str(report.get("commit_sha") or "").strip()
+
+    @staticmethod
+    def _report_has_implementation_not_landed_detail(report: dict[str, Any]) -> bool:
+        return "implementation_not_landed" in {
+            str(report.get("failure_type") or ""),
+            str(report.get("status_detail") or ""),
+        }
 
     def _ensure_verification_limitations(
         self,

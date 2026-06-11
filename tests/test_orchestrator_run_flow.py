@@ -77,6 +77,18 @@ class FakeRunner:
             "human_required": False,
             "next_actions": ["人工 review 后合并 test"],
         }
+        if mode == RunMode.IMPLEMENTATION and self.status in {
+            "success",
+            "succeeded",
+            "ready_for_merge_test",
+        }:
+            report.update(
+                {
+                    "implementation_landed": True,
+                    "commit_sha": "abc123",
+                    "changed_files_summary": ["src/app.ts: test implementation changes"],
+                }
+            )
         (run_dir / "report.json").write_text(
             json.dumps(report, ensure_ascii=False),
             encoding="utf-8",
@@ -2365,6 +2377,106 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["agent_runs"][0]["runner"], "codex_cli")
             self.assertEqual(len(task["agent_runs"]), 1)
             self.assertEqual((run_dir / "summary.md").read_text(encoding="utf-8"), "需要确认目标页面和后端字段。")
+
+    def test_reconcile_completed_implementation_blocks_when_report_is_not_landed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "bps-admin"
+            project.mkdir()
+            _write_workflow(project)
+            run_dir = root / "runs" / "task_impl_reconcile" / "run_done"
+            run_dir.mkdir(parents=True)
+            report_json = run_dir / "report.json"
+            report_json.write_text(
+                json.dumps(
+                    {
+                        "runner": "codex_cli",
+                        "status": AgentRunStatus.SUCCEEDED.value,
+                        "mode": RunMode.IMPLEMENTATION.value,
+                        "summary_markdown": "实现未提交。",
+                        "modified_files": ["src/app.ts"],
+                        "test_commands": [],
+                        "test_results": [],
+                        "risks": [],
+                        "verification_limitations": [],
+                        "human_required": False,
+                        "next_actions": [],
+                        "implementation_landed": False,
+                        "commit_sha": "",
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            (run_dir / "summary.md").write_text("Hermes runtime 已启动后台 Codex 任务。", encoding="utf-8")
+            (run_dir / "stdout.log").write_text("{}", encoding="utf-8")
+            (run_dir / "stderr.log").write_text("", encoding="utf-8")
+            (run_dir / "diff.patch").write_text("", encoding="utf-8")
+
+            task_id = "task_impl_reconcile"
+            artifact = {
+                "run_dir": str(run_dir),
+                "input_prompt": str(run_dir / "input-prompt.md"),
+                "manifest": str(run_dir / "run-manifest.json"),
+                "stdout": str(run_dir / "stdout.log"),
+                "stderr": str(run_dir / "stderr.log"),
+                "events": str(run_dir / "events.jsonl"),
+                "report": str(report_json),
+                "summary": str(run_dir / "summary.md"),
+                "diff": str(run_dir / "diff.patch"),
+            }
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id=task_id,
+                source={"type": "manual", "project_name": "bps-admin"},
+                requirement_summary="订单筛选",
+                project_path=str(project),
+                status=TaskStatus.RUNNING.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.IMPLEMENTING.value,
+                task_session={
+                    "runner": {
+                        "provider": "codex_cli",
+                        "active_run_id": "run_done",
+                        "active_mode": RunMode.IMPLEMENTATION.value,
+                        "last_run_status": "queued",
+                    }
+                },
+            )
+            ledger.append_agent_run(
+                task_id,
+                {
+                    "run_id": "run_done",
+                    "runner": "codex_cli",
+                    "mode": RunMode.IMPLEMENTATION.value,
+                    "status": "queued",
+                    "artifact": artifact,
+                    "diff_guard": {"changed_files": ["src/app.ts"], "violations": []},
+                },
+            )
+            ledger.append_artifact(task_id, artifact)
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            message = orchestrator._status_for_event(task_id, FakeGatewayEvent(""))
+            task = ledger.get_task(task_id)
+            reconciled_report = json.loads(report_json.read_text(encoding="utf-8"))
+
+            self.assertIn("已自动回收后台 run：run_done", message)
+            self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(task["phase"], TaskPhase.BLOCKED.value)
+            self.assertEqual(task["agent_runs"][0]["status"], AgentRunStatus.BLOCKED.value)
+            self.assertEqual(task["agent_runs"][0]["failure_type"], "implementation_not_landed")
+            self.assertEqual(reconciled_report["status"], AgentRunStatus.BLOCKED.value)
+            self.assertEqual(reconciled_report["failure_type"], "implementation_not_landed")
+            self.assertEqual(reconciled_report["status_detail"], "implementation_not_landed")
 
     def test_start_run_reconciles_completed_active_run_before_blocking_retry(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -4823,6 +4935,82 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 self.assertIn(field, properties)
                 self.assertIn(field, required)
 
+    def test_implementation_status_requires_landed_commit_from_report(self):
+        base_report = {
+            "status": AgentRunStatus.SUCCEEDED.value,
+            "mode": RunMode.IMPLEMENTATION.value,
+            "modified_files": ["src/order.py"],
+            "implementation_landed": True,
+            "commit_sha": "abc123",
+        }
+
+        for report in (
+            {**base_report, "implementation_landed": False},
+            {**base_report, "commit_sha": ""},
+        ):
+            details = CodingOrchestrator._normalize_implementation_run_status(report, RunMode.IMPLEMENTATION)
+
+            self.assertEqual(details["status"], AgentRunStatus.BLOCKED.value)
+            self.assertEqual(details["failure_type"], "implementation_not_landed")
+            self.assertEqual(details["status_detail"], "implementation_not_landed")
+
+    def test_implementation_control_statuses_are_not_overwritten_by_landed_commit_gate(self):
+        cases = [
+            (
+                {
+                    "status": "timeout",
+                    "mode": RunMode.IMPLEMENTATION.value,
+                    "modified_files": [],
+                },
+                AgentRunStatus.FAILED.value,
+                "runner_failed",
+            ),
+            (
+                {
+                    "status": "runner_failed",
+                    "mode": RunMode.IMPLEMENTATION.value,
+                    "modified_files": [],
+                },
+                AgentRunStatus.FAILED.value,
+                "runner_failed",
+            ),
+            (
+                {
+                    "status": "blocked",
+                    "mode": RunMode.IMPLEMENTATION.value,
+                    "modified_files": ["src/order.py"],
+                },
+                AgentRunStatus.SUCCEEDED.value,
+                "ready_for_merge_test_with_known_gaps",
+            ),
+        ]
+
+        for report, expected_status, expected_detail in cases:
+            with self.subTest(report_status=report["status"]):
+                details = CodingOrchestrator._normalize_implementation_run_status(report, RunMode.IMPLEMENTATION)
+
+                self.assertEqual(details["status"], expected_status)
+                self.assertNotEqual(details["failure_type"], "implementation_not_landed")
+                self.assertEqual(details["status_detail"] or details["failure_type"], expected_detail)
+
+    def test_non_implementation_status_does_not_require_landed_commit_fields(self):
+        details = CodingOrchestrator._normalize_implementation_run_status(
+            {
+                "status": AgentRunStatus.SUCCEEDED.value,
+                "mode": RunMode.QA.value,
+                "modified_files": [],
+                "implementation_landed": False,
+                "commit_sha": "",
+            },
+            RunMode.QA,
+        )
+
+        self.assertEqual(details["status"], AgentRunStatus.SUCCEEDED.value)
+        self.assertNotEqual(details["failure_type"], "implementation_not_landed")
+
+    def test_orchestrator_does_not_have_report_says_no_implementation_keyword_scanner(self):
+        self.assertFalse(hasattr(CodingOrchestrator, "_report_says_no_implementation"))
+
     def test_report_schema_requires_every_declared_property_for_strict_structured_output(self):
         with tempfile.TemporaryDirectory() as tmp:
             schema_path = Path(tmp) / "report.schema.json"
@@ -5986,6 +6174,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                     {
                         "status": "blocked",
                         "summary_markdown": "实现已完成，但测试环境不可用。",
+                        "implementation_landed": True,
+                        "commit_sha": "abc123",
                         "verification_limitations": [
                             {
                                 "reason": "test_environment_unavailable",
@@ -6204,6 +6394,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                         "status": "blocked",
                         "summary_markdown": "实现已完成，自动验证受环境限制。",
                         "modified_files": ["src/app.ts"],
+                        "implementation_landed": True,
+                        "commit_sha": "abc123",
                         "verification_limitations": [
                             {
                                 "reason": "test_environment_unavailable",
@@ -6270,6 +6462,236 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(release_records[0]["reason"], "test_environment_unavailable")
             self.assertEqual(task["human_decisions"][-1]["type"], "blocked_merge_test_release")
 
+    def test_blocked_merge_test_assessment_allows_legacy_known_gaps_without_landed_fields(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            workspace = root / "workspaces" / "task_legacy" / "run_impl"
+            workspace.mkdir(parents=True)
+            impl_run = root / "runs" / "task_legacy" / "run_impl"
+            impl_run.mkdir(parents=True)
+            (impl_run / "report.json").write_text(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "summary_markdown": "实现已完成，自动验证受环境限制。",
+                        "modified_files": ["src/app.ts"],
+                        "verification_limitations": [
+                            {
+                                "reason": "test_environment_unavailable",
+                                "impact": "缺少自动测试证据，需在 test 环境补验。",
+                                "recovery_action": "人工确认风险后执行 merge-test，并在测试环境补验。",
+                                "fallback_evidence": "stdout.log",
+                            }
+                        ],
+                        "human_required": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_legacy",
+                source={"type": "manual", "project_name": "order"},
+                requirement_summary="legacy known gaps",
+                project_path=str(project),
+                status=TaskStatus.BLOCKED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.BLOCKED.value,
+                task_session={
+                    "source_branch": "codex/order-task_legacy",
+                    "worktree_path": str(workspace),
+                    "runner": {"resume_session_id": "019e-blocked-thread"},
+                },
+            )
+            ledger.append_agent_run(
+                "task_legacy",
+                {
+                    "run_id": "run_impl",
+                    "runner": "codex_cli",
+                    "mode": RunMode.IMPLEMENTATION.value,
+                    "status": AgentRunStatus.BLOCKED.value,
+                    "artifact": {"report": str(impl_run / "report.json")},
+                    "workspace_path": str(workspace),
+                    "source_branch": "codex/order-task_legacy",
+                    "diff_guard": {"changed_files": ["src/app.ts"], "violations": []},
+                },
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            assessment = orchestrator._blocked_task_merge_test_assessment(ledger.get_task("task_legacy"))
+
+            self.assertTrue(assessment["mergeable"])
+            self.assertEqual(assessment["reason"], "test_environment_unavailable")
+
+    def test_blocked_merge_test_assessment_rejects_structured_not_landed_implementation(self):
+        cases = [
+            {"implementation_landed": False, "commit_sha": "abc123"},
+            {"implementation_landed": True, "commit_sha": ""},
+            {"implementation_landed": True, "commit_sha": "abc123", "status_detail": "implementation_not_landed"},
+        ]
+
+        for index, report_overrides in enumerate(cases):
+            with self.subTest(report_overrides=report_overrides):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    project = root / "order"
+                    project.mkdir()
+                    _write_workflow(project)
+                    workspace = root / "workspaces" / f"task_{index}" / "run_impl"
+                    workspace.mkdir(parents=True)
+                    impl_run = root / "runs" / f"task_{index}" / "run_impl"
+                    impl_run.mkdir(parents=True)
+                    report = {
+                        "status": "blocked",
+                        "summary_markdown": "实现未落地。",
+                        "modified_files": ["src/app.ts"],
+                        "verification_limitations": [
+                            {
+                                "reason": "test_environment_unavailable",
+                                "impact": "缺少自动测试证据。",
+                                "recovery_action": "人工确认后合入 test，并在测试环境补验。",
+                                "fallback_evidence": "stdout.log",
+                            }
+                        ],
+                        "human_required": True,
+                    }
+                    report.update(report_overrides)
+                    (impl_run / "report.json").write_text(
+                        json.dumps(report, ensure_ascii=False),
+                        encoding="utf-8",
+                    )
+                    ledger = TaskLedger(root / "ledger.db")
+                    task_id = f"task_{index}"
+                    ledger.create_task(
+                        task_id=task_id,
+                        source={"type": "manual", "project_name": "order"},
+                        requirement_summary="not landed",
+                        project_path=str(project),
+                        status=TaskStatus.BLOCKED.value,
+                        llm_wiki_refs=[],
+                        human_decisions=[],
+                        phase=TaskPhase.BLOCKED.value,
+                        task_session={
+                            "source_branch": f"codex/order-{task_id}",
+                            "worktree_path": str(workspace),
+                            "runner": {"resume_session_id": "019e-blocked-thread"},
+                        },
+                    )
+                    ledger.append_agent_run(
+                        task_id,
+                        {
+                            "run_id": "run_impl",
+                            "runner": "codex_cli",
+                            "mode": RunMode.IMPLEMENTATION.value,
+                            "status": AgentRunStatus.BLOCKED.value,
+                            "artifact": {"report": str(impl_run / "report.json")},
+                            "workspace_path": str(workspace),
+                            "source_branch": f"codex/order-{task_id}",
+                            "diff_guard": {"changed_files": ["src/app.ts"], "violations": []},
+                        },
+                    )
+                    orchestrator = CodingOrchestrator(
+                        ledger=ledger,
+                        resolver=ProjectResolver(ProjectRegistry([])),
+                        wiki=LocalLlmWikiAdapter(root / "wiki"),
+                        run_root=root / "runs",
+                        workspace_root=root / "workspaces",
+                        runner_router=FakeRouter(FakeRunner()),
+                    )
+
+                    assessment = orchestrator._blocked_task_merge_test_assessment(ledger.get_task(task_id))
+
+                    self.assertFalse(assessment["mergeable"])
+                    self.assertEqual(assessment["reason"], "implementation_not_landed")
+
+    def test_blocked_merge_test_assessment_prioritizes_diff_guard_over_not_landed_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            workspace = root / "workspaces" / "task_diff_guard_not_landed" / "run_impl"
+            workspace.mkdir(parents=True)
+            impl_run = root / "runs" / "task_diff_guard_not_landed" / "run_impl"
+            impl_run.mkdir(parents=True)
+            (impl_run / "report.json").write_text(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "summary_markdown": "实现改动越权且未落地。",
+                        "implementation_landed": False,
+                        "commit_sha": "",
+                        "verification_limitations": [
+                            {
+                                "reason": "test_environment_unavailable",
+                                "impact": "缺少自动测试证据。",
+                                "recovery_action": "人工确认后合入 test，并在测试环境补验。",
+                                "fallback_evidence": "stdout.log",
+                            }
+                        ],
+                        "human_required": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_diff_guard_not_landed",
+                source={"type": "manual", "project_name": "order"},
+                requirement_summary="diff guard and not landed",
+                project_path=str(project),
+                status=TaskStatus.BLOCKED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.BLOCKED.value,
+                task_session={
+                    "source_branch": "codex/order-task_diff_guard_not_landed",
+                    "worktree_path": str(workspace),
+                    "runner": {"resume_session_id": "019e-blocked-thread"},
+                },
+            )
+            ledger.append_agent_run(
+                "task_diff_guard_not_landed",
+                {
+                    "run_id": "run_impl",
+                    "runner": "codex_cli",
+                    "mode": RunMode.IMPLEMENTATION.value,
+                    "status": AgentRunStatus.BLOCKED.value,
+                    "artifact": {"report": str(impl_run / "report.json")},
+                    "workspace_path": str(workspace),
+                    "source_branch": "codex/order-task_diff_guard_not_landed",
+                    "diff_guard": {"changed_files": ["../outside.ts"], "violations": ["outside path"]},
+                },
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            assessment = orchestrator._blocked_task_merge_test_assessment(
+                ledger.get_task("task_diff_guard_not_landed")
+            )
+
+            self.assertFalse(assessment["mergeable"])
+            self.assertEqual(assessment["reason"], "diff_guard_violation")
+
     def test_coding_merge_test_rejects_blocked_diff_guard_violation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -6285,6 +6707,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                     {
                         "status": "blocked",
                         "summary_markdown": "实现改动越权。",
+                        "implementation_landed": True,
+                        "commit_sha": "abc123",
                         "verification_limitations": [
                             {
                                 "reason": "diff_guard_violation",
@@ -6471,6 +6895,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                     {
                         "status": "blocked",
                         "summary_markdown": "实现已完成，浏览器 QA 环境不可用。",
+                        "implementation_landed": True,
+                        "commit_sha": "abc123",
                         "verification_limitations": [
                             {
                                 "reason": "browser_qa_unavailable",
