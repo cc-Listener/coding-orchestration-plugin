@@ -57,9 +57,56 @@ class FeishuProjectReaderTest(unittest.TestCase):
 
         self.assertEqual(context["read_status"], "success")
         self.assertEqual(context["source_type"], "feishu_project_story")
+        self.assertEqual(context["raw_fields"][0]["name"], "需求描述")
+        self.assertEqual(context["raw_fields"][1]["name"], "状态")
+        self.assertNotIn("description", context)
+        self.assertNotIn("fields", context)
         self.assertIn("BPS 订单列表新增店铺筛选", context["summary_markdown"])
+        self.assertIn("### 原始字段", context["summary_markdown"])
         self.assertIn("订单列表需要支持按店铺筛选", context["summary_markdown"])
         self.assertIn("状态", context["summary_markdown"])
+        self.assertIn("请在 plan 阶段从 raw_fields 中提取需求", context["summary_markdown"])
+
+    def test_feishu_reader_preserves_raw_fields_without_guessing_description(self):
+        reader = FeishuProjectReader()
+        link = FeishuProjectReader.extract_first_link(
+            "https://project.feishu.cn/foo/story/detail/123"
+        )
+        payload = {
+            "data": {
+                "work_item": {
+                    "name": "订单状态优化",
+                    "fields": [
+                        {"field_name": "需求描述", "field_value": "优化订单状态展示"},
+                        {"field_name": "验收标准", "field_value": "状态准确"},
+                    ],
+                }
+            }
+        }
+
+        context = reader.normalize_payload(link, payload)
+
+        self.assertEqual(context["raw_fields"][0]["name"], "需求描述")
+        self.assertEqual(context["raw_fields"][1]["name"], "验收标准")
+        self.assertNotIn("description", context)
+        self.assertNotIn("fields", context)
+        self.assertIn("### 原始字段", context["summary_markdown"])
+        self.assertIn("请在 plan 阶段从 raw_fields 中提取需求", context["summary_markdown"])
+
+    def test_feishu_reader_empty_raw_fields_summary_is_explicit(self):
+        reader = FeishuProjectReader()
+        link = FeishuProjectReader.extract_first_link(
+            "https://project.feishu.cn/foo/story/detail/123"
+        )
+
+        context = reader.normalize_payload(
+            link,
+            {"data": {"work_item": {"name": "订单状态优化", "fields": []}}},
+        )
+
+        self.assertEqual(context["raw_fields"], [])
+        self.assertIn("### 原始字段", context["summary_markdown"])
+        self.assertIn("未返回可用字段", context["summary_markdown"])
 
     def test_normalizes_lark_doc_payload_to_codex_context(self):
         reader = FeishuProjectReader()

@@ -1477,6 +1477,8 @@ class CodingOrchestrator:
     def _requirement_summary(clean_text: str, source_context: dict[str, Any] | None) -> str:
         if not source_context or source_context.get("read_status") != "success":
             return clean_text
+        if "raw_fields" in source_context:
+            return clean_text
         summary = str(source_context.get("summary_markdown") or "").strip()
         if not summary:
             return clean_text
@@ -1500,6 +1502,7 @@ class CodingOrchestrator:
             "work_item_type_key",
             "work_item_id",
             "title",
+            "raw_fields",
             "document_kind",
             "document_token",
             "document_id",

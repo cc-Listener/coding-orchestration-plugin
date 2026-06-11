@@ -185,6 +185,67 @@ class RouterPromptSummaryTest(unittest.TestCase):
         self.assertIn("lark_cli_command", prompt)
         self.assertIn("请优先在本 Codex session 中使用 lark_cli_command", prompt)
 
+    def test_prompt_source_block_exposes_project_raw_fields(self):
+        prompt = PromptBuilder().build(
+            requirement_summary="按飞书需求优化订单状态",
+            source={
+                "type": "feishu_project_story",
+                "source_context": {
+                    "read_status": "success",
+                    "source_type": "feishu_project_story",
+                    "url": "https://project.feishu.cn/foo/story/detail/123",
+                    "project_key": "foo",
+                    "work_item_type_key": "story",
+                    "work_item_id": "123",
+                    "raw_fields": [
+                        {"name": "需求描述", "value": "优化订单状态展示"},
+                        {"name": "验收标准", "value": "状态准确"},
+                    ],
+                },
+            },
+            project_path="/repo/order",
+            workflow=WorkflowSpec(
+                project_path="/repo/order",
+                allowed_paths=["src/"],
+                forbidden_paths=[".env"],
+                default_test_commands=["rtk pytest"],
+            ),
+            wiki_refs=[],
+            mode=RunMode.PLAN_ONLY,
+            runner_name="codex_cli",
+        )
+
+        self.assertIn("raw_fields", prompt)
+        self.assertIn("需求描述: 优化订单状态展示", prompt)
+        self.assertIn("验收标准: 状态准确", prompt)
+
+    def test_prompt_source_block_handles_empty_project_raw_field_items(self):
+        prompt = PromptBuilder().build(
+            requirement_summary="按飞书需求优化订单状态",
+            source={
+                "type": "feishu_project_story",
+                "source_context": {
+                    "read_status": "success",
+                    "source_type": "feishu_project_story",
+                    "raw_fields": [{}],
+                },
+            },
+            project_path="/repo/order",
+            workflow=WorkflowSpec(
+                project_path="/repo/order",
+                allowed_paths=["src/"],
+                forbidden_paths=[".env"],
+                default_test_commands=["rtk pytest"],
+            ),
+            wiki_refs=[],
+            mode=RunMode.PLAN_ONLY,
+            runner_name="codex_cli",
+        )
+
+        self.assertIn("raw_fields", prompt)
+        self.assertIn("未返回可用字段", prompt)
+        self.assertNotIn("    - : ", prompt)
+
     def test_prompt_builder_incremental_prompt_is_chinese(self):
         prompt = PromptBuilder().build_incremental(
             task_id="task_1",

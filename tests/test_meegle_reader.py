@@ -42,6 +42,43 @@ class MeegleReaderTest(unittest.TestCase):
         self.assertTrue(context["deferred_source_resolution"])
         self.assertFalse(context["requires_human_context"])
 
+    def test_meegle_reader_preserves_raw_fields_without_guessing_description(self):
+        reader = MeegleReader()
+        link = MeegleReader.extract_first_link("https://project.feishu.cn/foo/story/detail/123")
+        payload = {
+            "data": {
+                "work_item": {
+                    "name": "订单状态优化",
+                    "fields": [
+                        {"field_name": "需求描述", "field_value": "优化订单状态展示"},
+                        {"field_name": "验收标准", "field_value": "状态准确"},
+                    ],
+                }
+            }
+        }
+
+        context = reader.normalize_payload(link, payload)
+
+        self.assertEqual(context["raw_fields"][0]["name"], "需求描述")
+        self.assertEqual(context["raw_fields"][1]["name"], "验收标准")
+        self.assertNotIn("description", context)
+        self.assertNotIn("fields", context)
+        self.assertIn("### 原始字段", context["summary_markdown"])
+        self.assertIn("请在 plan 阶段从 raw_fields 中提取需求", context["summary_markdown"])
+
+    def test_meegle_reader_empty_raw_fields_summary_is_explicit(self):
+        reader = MeegleReader()
+        link = MeegleReader.extract_first_link("https://project.feishu.cn/foo/story/detail/123")
+
+        context = reader.normalize_payload(
+            link,
+            {"data": {"work_item": {"name": "订单状态优化", "fields": []}}},
+        )
+
+        self.assertEqual(context["raw_fields"], [])
+        self.assertIn("### 原始字段", context["summary_markdown"])
+        self.assertIn("未返回可用字段", context["summary_markdown"])
+
     def test_source_resolver_routes_project_links_to_meegle_reader(self):
         resolver = SourceResolver(meegle_reader=FakeMeegleReader(), feishu_reader=FakeFeishuReader())
 

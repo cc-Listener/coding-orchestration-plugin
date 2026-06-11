@@ -5228,6 +5228,36 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             final_manifest = json.loads(Path(task["artifacts"][0]["manifest"]).read_text(encoding="utf-8"))
             self.assertIn("--dangerously-bypass-approvals-and-sandbox", final_manifest["resume_command"])
 
+    def test_source_context_for_ledger_preserves_project_raw_fields(self):
+        context = CodingOrchestrator._source_context_for_ledger(
+            {
+                "read_status": "success",
+                "source_type": "feishu_project_story",
+                "url": "https://project.feishu.cn/foo/story/detail/123",
+                "raw_fields": [
+                    {"name": "需求描述", "value": "优化订单状态展示"},
+                    {"name": "验收标准", "value": "状态准确"},
+                ],
+                "summary_markdown": "不应写入 ledger source_context",
+            }
+        )
+
+        self.assertEqual(context["raw_fields"][0]["name"], "需求描述")
+        self.assertEqual(context["raw_fields"][1]["value"], "状态准确")
+        self.assertNotIn("summary_markdown", context)
+
+    def test_requirement_summary_does_not_duplicate_project_raw_fields_summary(self):
+        summary = CodingOrchestrator._requirement_summary(
+            "按飞书需求优化订单状态",
+            {
+                "read_status": "success",
+                "raw_fields": [{"name": "需求描述", "value": "优化订单状态展示"}],
+                "summary_markdown": "## 飞书 Project 需求\n\n### 原始字段\n- 需求描述: 优化订单状态展示",
+            },
+        )
+
+        self.assertEqual(summary, "按飞书需求优化订单状态")
+
     def test_plan_only_runner_task_status_is_normalized_before_state_machine(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

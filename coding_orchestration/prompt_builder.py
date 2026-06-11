@@ -124,6 +124,21 @@ class PromptBuilder:
             command = str(source_context.get("lark_cli_command") or "").strip()
             if command:
                 context_lines.append(f"  - lark_cli_command: `{command}`")
+            raw_fields = source_context.get("raw_fields")
+            if isinstance(raw_fields, list):
+                context_lines.append("  - raw_fields:")
+                rendered_fields = False
+                if raw_fields:
+                    for field in raw_fields[:50]:
+                        if isinstance(field, dict):
+                            name = str(field.get("name") or "").strip()
+                            value = PromptBuilder._truncate_source_context_value(str(field.get("value") or ""))
+                            if not name and not value:
+                                continue
+                            context_lines.append(f"    - {name}: {value}")
+                            rendered_fields = True
+                if not rendered_fields:
+                    context_lines.append("    - 未返回可用字段。")
             if source_context.get("codex_resolvable"):
                 context_lines.append("  - note: 来源正文未注入；请优先在本 Codex session 中使用 lark_cli_command 读取。读取失败时按 recovery_action 报告恢复方案。")
             elif source_context.get("deferred_source_resolution"):
@@ -132,6 +147,13 @@ class PromptBuilder:
                 lines.append("- 外部来源上下文：")
                 lines.extend(context_lines)
         return "\n".join(lines) or "- 未记录"
+
+    @staticmethod
+    def _truncate_source_context_value(value: str, limit: int = 2000) -> str:
+        text = value.strip()
+        if len(text) <= limit:
+            return text
+        return text[:limit].rstrip() + "\n      ...（已截断）"
 
     @staticmethod
     def _context_block(wiki_refs: list[dict[str, Any]], context_artifacts: dict[str, str]) -> str:
