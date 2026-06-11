@@ -793,7 +793,12 @@ class CodingOrchestrator:
             return f"未找到任务：{task_id}"
         if self._task_is_cancelled(task):
             return self._cancelled_task_message(task)
-        status_update = self._status_update_for_prepare_merge_test(task)
+        blocked_assessment = None
+        if task["status"] == TaskStatus.BLOCKED.value:
+            blocked_assessment = self._blocked_task_merge_test_assessment(task)
+            if blocked_assessment.get("mergeable") and blocked_assessment.get("requires_acceptance"):
+                return self._blocked_merge_test_risk_confirmation_message(task_id, blocked_assessment)
+        status_update = self._status_update_for_prepare_merge_test(task, assessment=blocked_assessment)
         if task["status"] not in {
             TaskStatus.READY_FOR_MERGE_TEST.value,
         } and status_update is None:
@@ -807,7 +812,7 @@ class CodingOrchestrator:
             )
         else:
             self.ledger.update_phase(task_id, TaskPhase.READY_TO_MERGE_TEST.value)
-        known_gaps = bool(status_update is not None and self._blocked_task_merge_test_assessment(task).get("mergeable"))
+        known_gaps = bool(status_update is not None)
         self.ledger.append_merge_record(
             task_id,
             {
@@ -824,11 +829,16 @@ class CodingOrchestrator:
             f"下一步：确认后发送 /coding merge-test {task_id}，让 Hermes 续接 Codex session 执行 merge-to-test；发布测试环境仍然人工。"
         )
 
-    def _status_update_for_prepare_merge_test(self, task: dict[str, Any]) -> TaskStatus | None:
+    def _status_update_for_prepare_merge_test(
+        self,
+        task: dict[str, Any],
+        *,
+        assessment: dict[str, Any] | None = None,
+    ) -> TaskStatus | None:
         status = str(task.get("status") or "")
         if status != TaskStatus.BLOCKED.value:
             return None
-        assessment = self._blocked_task_merge_test_assessment(task)
+        assessment = assessment if assessment is not None else self._blocked_task_merge_test_assessment(task)
         return TaskStatus.READY_FOR_MERGE_TEST if assessment.get("mergeable") else None
 
     def command_coding_merge_test(self, raw_args: str) -> str:
@@ -1746,7 +1756,24 @@ class CodingOrchestrator:
             self._start_background_qa(task_id, gateway, event)
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
         if command == "coding-prepare-merge-test":
-            self._reply_if_possible(gateway, event, self.command_prepare_merge_test(raw_args))
+            task_id = raw_args.strip() or self._active_task_id_for_event(event) or ""
+            task = self.ledger.get_task(task_id) if task_id else None
+            assessment = (
+                self._blocked_task_merge_test_assessment(task)
+                if task is not None and task.get("status") == TaskStatus.BLOCKED.value
+                else {}
+            )
+            message = self.command_prepare_merge_test(task_id)
+            if assessment.get("mergeable") and assessment.get("requires_acceptance"):
+                self._store_pending_action_for_event(
+                    event,
+                    task_id=task_id,
+                    action="merge_test_accept_risk",
+                    command_text=f"/coding merge-test {task_id} --accept-risk",
+                    reason=str(assessment.get("impact") or "blocked task merge-test 需要人工接受风险"),
+                    mode=RunMode.MERGE_TEST.value,
+                )
+            self._reply_if_possible(gateway, event, message)
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
         if command == "coding-merge-test":
             args = raw_args.split()
@@ -5121,8 +5148,7 @@ class CodingOrchestrator:
                 "recovery_action": f"建议先修复失败原因并重跑 implementation；如确认可接受，执行 /coding merge-test {task_id} --accept-risk。",
                 "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
             }
-        limitations = self._structured_verification_limitations(report)
-        disallowed_reason = self._disallowed_blocked_merge_test_reason(run, report, limitations)
+        disallowed_reason = self._disallowed_blocked_merge_test_reason(run)
         if disallowed_reason:
             return {
                 "mergeable": False,
@@ -5143,24 +5169,35 @@ class CodingOrchestrator:
                 "recovery_action": f"先让 Codex 完成实现提交，或确认 source branch/worktree 后执行 /coding merge-test {task_id} --accept-risk。",
                 "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
             }
-        if not limitations:
+        readiness = report.get("merge_readiness") if isinstance(report.get("merge_readiness"), dict) else {}
+        if not readiness:
             return {
                 "mergeable": False,
                 "requires_acceptance": True,
                 "source_run_id": str(run.get("run_id") or ""),
-                "reason": "missing_verification_limitation_details",
-                "impact": "blocked/partial 缺少完整结构化风险字段，默认不合入 test；人工可基于 summary/stdout/stderr 覆盖风险。",
-                "recovery_action": f"补齐验证受限结构化字段，或确认 artifact 后执行 /coding merge-test {task_id} --accept-risk。",
+                "reason": "merge_readiness_missing",
+                "impact": "Codex report 缺少 merge_readiness，Hermes 不会推断能否继续。",
+                "recovery_action": f"续接 Codex 补齐 merge_readiness，或人工确认后执行 /coding merge-test {task_id} --accept-risk。",
                 "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
             }
-        first_limitation = limitations[0]
+        if readiness.get("ready") is True:
+            return {
+                "mergeable": True,
+                "requires_acceptance": bool(readiness.get("required_confirmation")),
+                "source_run_id": str(run.get("run_id") or ""),
+                "reason": "codex_merge_readiness",
+                "impact": str(readiness.get("risk_note") or "Codex 判断可继续 merge-test。"),
+                "recovery_action": str(readiness.get("recovery_action") or "按 Codex 风险说明继续。"),
+                "fallback_evidence": str(readiness.get("fallback_evidence") or ""),
+            }
         return {
-            "mergeable": True,
+            "mergeable": False,
+            "requires_acceptance": True,
             "source_run_id": str(run.get("run_id") or ""),
-            "reason": str(first_limitation.get("reason") or "blocked_with_known_gaps"),
-            "impact": str(first_limitation.get("impact") or "存在已知验证缺口。"),
-            "recovery_action": str(first_limitation.get("recovery_action") or "按报告补充验证。"),
-            "fallback_evidence": str(first_limitation.get("fallback_evidence") or ""),
+            "reason": str(readiness.get("reason") or "codex_merge_readiness_blocked"),
+            "impact": str(readiness.get("risk_note") or readiness.get("impact") or "Codex 判断暂不应继续 merge-test。"),
+            "recovery_action": str(readiness.get("recovery_action") or "按 Codex 风险说明处理后重试。"),
+            "fallback_evidence": str(readiness.get("fallback_evidence") or ""),
         }
 
     @staticmethod
@@ -5171,43 +5208,15 @@ class CodingOrchestrator:
         return None
 
     @staticmethod
-    def _structured_verification_limitations(report: dict[str, Any]) -> list[dict[str, Any]]:
-        required = {"reason", "impact", "recovery_action", "fallback_evidence"}
-        limitations = []
-        for item in report.get("verification_limitations") or []:
-            if not isinstance(item, dict):
-                continue
-            if all(str(item.get(key) or "").strip() for key in required):
-                limitations.append(item)
-        return limitations
-
-    @staticmethod
     def _source_branch_for_blocked_merge_test(task: dict[str, Any], run: dict[str, Any]) -> str:
         session = task.get("task_session") or {}
         return str(session.get("source_branch") or run.get("source_branch") or "").strip()
 
     @staticmethod
-    def _disallowed_blocked_merge_test_reason(
-        run: dict[str, Any],
-        report: dict[str, Any],
-        limitations: list[dict[str, Any]],
-    ) -> str:
+    def _disallowed_blocked_merge_test_reason(run: dict[str, Any]) -> str:
         diff_guard = run.get("diff_guard") or {}
         if diff_guard.get("violations"):
             return "diff_guard_violation"
-        limitation_reasons = {str(item.get("reason") or "") for item in limitations}
-        disallowed = {
-            "diff_guard_violation",
-            "runner_exception",
-            "codex_invalid_output_schema",
-            "checkpoint_commit_failed",
-            "blocked_or_partial_without_details",
-        }
-        matched = sorted(reason for reason in limitation_reasons if reason in disallowed)
-        if matched:
-            return matched[0]
-        if report.get("human_required") and str(report.get("summary_markdown") or "").strip() == "":
-            return "missing_implementation_summary"
         return ""
 
     @staticmethod

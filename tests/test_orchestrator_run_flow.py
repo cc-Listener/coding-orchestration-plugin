@@ -6375,6 +6375,14 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                         "summary_markdown": "实现已完成，但测试环境不可用。",
                         "implementation_landed": True,
                         "commit_sha": "abc123",
+                        "merge_readiness": {
+                            "ready": True,
+                            "risk_level": "medium",
+                            "risk_note": "缺少自动测试证据。",
+                            "required_confirmation": False,
+                            "recovery_action": "人工确认后合入 test，并在测试环境补验。",
+                            "fallback_evidence": "stdout.log",
+                        },
                         "verification_limitations": [
                             {
                                 "reason": "test_environment_unavailable",
@@ -6595,6 +6603,14 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                         "modified_files": ["src/app.ts"],
                         "implementation_landed": True,
                         "commit_sha": "abc123",
+                        "merge_readiness": {
+                            "ready": True,
+                            "risk_level": "medium",
+                            "risk_note": "缺少自动测试证据，需在 test 环境补验。",
+                            "required_confirmation": False,
+                            "recovery_action": "人工确认风险后执行 merge-test，并在测试环境补验。",
+                            "fallback_evidence": "stdout.log",
+                        },
                         "verification_limitations": [
                             {
                                 "reason": "test_environment_unavailable",
@@ -6658,10 +6674,420 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIn("Blocked 放行", message)
             self.assertEqual(fake_runner.calls[-1]["mode"], RunMode.MERGE_TEST)
             self.assertEqual(task["status"], TaskStatus.MERGED_TEST.value)
-            self.assertEqual(release_records[0]["reason"], "test_environment_unavailable")
+            self.assertEqual(release_records[0]["reason"], "codex_merge_readiness")
             self.assertEqual(task["human_decisions"][-1]["type"], "blocked_merge_test_release")
 
-    def test_blocked_merge_test_assessment_allows_legacy_known_gaps_without_landed_fields(self):
+    def test_prepare_merge_test_requires_accept_risk_when_codex_readiness_requires_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            workspace = root / "workspaces" / "task_1" / "run_impl"
+            workspace.mkdir(parents=True)
+            impl_run = root / "runs" / "task_1" / "run_impl"
+            impl_run.mkdir(parents=True)
+            (impl_run / "report.json").write_text(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "summary_markdown": "实现已提交，但需要人工接受风险。",
+                        "implementation_landed": True,
+                        "commit_sha": "abc123",
+                        "merge_readiness": {
+                            "ready": True,
+                            "risk_level": "medium",
+                            "risk_note": "只跑了定向验证，需要人工确认风险。",
+                            "required_confirmation": True,
+                            "recovery_action": "人工确认风险后继续 merge-test。",
+                            "fallback_evidence": "summary.md",
+                        },
+                        "verification_limitations": [
+                            {
+                                "reason": "targeted_tests_only",
+                                "impact": "未跑全量回归。",
+                                "recovery_action": "人工接受风险后继续 merge-test。",
+                                "fallback_evidence": "summary.md",
+                            }
+                        ],
+                        "human_required": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_1",
+                source={"type": "manual", "project_name": "order"},
+                requirement_summary="requires confirmation",
+                project_path=str(project),
+                status=TaskStatus.BLOCKED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.BLOCKED.value,
+                task_session={
+                    "source_branch": "codex/order-task_1",
+                    "worktree_path": str(workspace),
+                    "runner": {"resume_session_id": "019e-blocked-thread"},
+                },
+            )
+            ledger.append_agent_run(
+                "task_1",
+                {
+                    "run_id": "run_impl",
+                    "runner": "codex_cli",
+                    "mode": RunMode.IMPLEMENTATION.value,
+                    "status": AgentRunStatus.BLOCKED.value,
+                    "artifact": {"report": str(impl_run / "report.json")},
+                    "workspace_path": str(workspace),
+                    "source_branch": "codex/order-task_1",
+                    "diff_guard": {"changed_files": ["src/app.ts"], "violations": []},
+                },
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            message = orchestrator.command_prepare_merge_test("task_1")
+            task = ledger.get_task("task_1")
+
+            self.assertIn("codex_merge_readiness", message)
+            self.assertIn("/coding merge-test task_1 --accept-risk", message)
+            self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(task["phase"], TaskPhase.BLOCKED.value)
+            self.assertEqual(task["merge_records"], [])
+
+    def test_blocked_merge_test_uses_codex_merge_readiness_for_semantic_risk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            workspace = root / "workspaces" / "task_1" / "run_impl"
+            workspace.mkdir(parents=True)
+            impl_run = root / "runs" / "task_1" / "run_impl"
+            impl_run.mkdir(parents=True)
+            (impl_run / "report.json").write_text(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "implementation_landed": True,
+                        "commit_sha": "abc123",
+                        "merge_readiness": {
+                            "ready": True,
+                            "risk_level": "medium",
+                            "risk_note": "验证受限，但实现提交存在且变更范围清楚。",
+                            "required_confirmation": True,
+                        },
+                        "verification_limitations": [
+                            {
+                                "reason": "targeted_tests_only",
+                                "impact": "未跑全量回归。",
+                                "recovery_action": "人工接受风险后继续 merge-test。",
+                                "fallback_evidence": "summary.md",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_1",
+                source={"type": "manual", "project_name": "order"},
+                requirement_summary="semantic risk",
+                project_path=str(project),
+                status=TaskStatus.BLOCKED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.BLOCKED.value,
+                task_session={
+                    "source_branch": "codex/fix-order-task_1",
+                    "worktree_path": str(workspace),
+                    "runner": {"resume_session_id": "019e-session"},
+                },
+            )
+            ledger.append_agent_run(
+                "task_1",
+                {
+                    "run_id": "run_impl",
+                    "runner": "codex_cli",
+                    "mode": RunMode.IMPLEMENTATION.value,
+                    "status": AgentRunStatus.BLOCKED.value,
+                    "artifact": {"report": str(impl_run / "report.json")},
+                    "workspace_path": str(workspace),
+                    "source_branch": "codex/fix-order-task_1",
+                    "diff_guard": {"changed_files": ["src/app.ts"], "violations": []},
+                },
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            assessment = orchestrator._blocked_task_merge_test_assessment(ledger.get_task("task_1"))
+
+            self.assertTrue(assessment["mergeable"])
+            self.assertEqual(assessment["reason"], "codex_merge_readiness")
+            self.assertTrue(assessment["requires_acceptance"])
+            self.assertEqual(assessment["impact"], "验证受限，但实现提交存在且变更范围清楚。")
+
+    def test_blocked_merge_test_rejects_string_true_readiness_without_limitation_inference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            workspace = root / "workspaces" / "task_string_ready" / "run_impl"
+            workspace.mkdir(parents=True)
+            impl_run = root / "runs" / "task_string_ready" / "run_impl"
+            impl_run.mkdir(parents=True)
+            (impl_run / "report.json").write_text(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "summary_markdown": "实现已完成，自动验证受环境限制。",
+                        "implementation_landed": True,
+                        "commit_sha": "abc123",
+                        "merge_readiness": {
+                            "ready": "true",
+                        },
+                        "verification_limitations": [
+                            {
+                                "reason": "test_environment_unavailable",
+                                "impact": "缺少自动测试证据，需在 test 环境补验。",
+                                "recovery_action": "人工确认风险后执行 merge-test。",
+                                "fallback_evidence": "stdout.log",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_string_ready",
+                source={"type": "manual", "project_name": "order"},
+                requirement_summary="string ready",
+                project_path=str(project),
+                status=TaskStatus.BLOCKED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.BLOCKED.value,
+                task_session={
+                    "source_branch": "codex/order-task_string_ready",
+                    "worktree_path": str(workspace),
+                    "runner": {"resume_session_id": "019e-blocked-thread"},
+                },
+            )
+            ledger.append_agent_run(
+                "task_string_ready",
+                {
+                    "run_id": "run_impl",
+                    "runner": "codex_cli",
+                    "mode": RunMode.IMPLEMENTATION.value,
+                    "status": AgentRunStatus.BLOCKED.value,
+                    "artifact": {"report": str(impl_run / "report.json")},
+                    "workspace_path": str(workspace),
+                    "source_branch": "codex/order-task_string_ready",
+                    "diff_guard": {"changed_files": ["src/app.ts"], "violations": []},
+                },
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            assessment = orchestrator._blocked_task_merge_test_assessment(ledger.get_task("task_string_ready"))
+
+            self.assertFalse(assessment["mergeable"])
+            self.assertEqual(assessment["reason"], "codex_merge_readiness_blocked")
+            self.assertNotEqual(assessment["reason"], "test_environment_unavailable")
+            self.assertEqual(assessment["impact"], "Codex 判断暂不应继续 merge-test。")
+
+    def test_blocked_merge_test_treats_empty_or_non_dict_merge_readiness_as_missing(self):
+        cases = [
+            ("task_empty_readiness", {}),
+            ("task_string_readiness", "ready"),
+        ]
+
+        for task_id, merge_readiness in cases:
+            with self.subTest(merge_readiness=merge_readiness):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = Path(tmp)
+                    project = root / "order"
+                    project.mkdir()
+                    _write_workflow(project)
+                    workspace = root / "workspaces" / task_id / "run_impl"
+                    workspace.mkdir(parents=True)
+                    impl_run = root / "runs" / task_id / "run_impl"
+                    impl_run.mkdir(parents=True)
+                    (impl_run / "report.json").write_text(
+                        json.dumps(
+                            {
+                                "status": "blocked",
+                                "summary_markdown": "实现已完成，自动验证受环境限制。",
+                                "implementation_landed": True,
+                                "commit_sha": "abc123",
+                                "merge_readiness": merge_readiness,
+                                "verification_limitations": [
+                                    {
+                                        "reason": "test_environment_unavailable",
+                                        "impact": "缺少自动测试证据。",
+                                        "recovery_action": "人工确认后继续 merge-test。",
+                                        "fallback_evidence": "stdout.log",
+                                    }
+                                ],
+                            },
+                            ensure_ascii=False,
+                        ),
+                        encoding="utf-8",
+                    )
+                    ledger = TaskLedger(root / "ledger.db")
+                    ledger.create_task(
+                        task_id=task_id,
+                        source={"type": "manual", "project_name": "order"},
+                        requirement_summary="missing readiness",
+                        project_path=str(project),
+                        status=TaskStatus.BLOCKED.value,
+                        llm_wiki_refs=[],
+                        human_decisions=[],
+                        phase=TaskPhase.BLOCKED.value,
+                        task_session={
+                            "source_branch": f"codex/order-{task_id}",
+                            "worktree_path": str(workspace),
+                            "runner": {"resume_session_id": "019e-blocked-thread"},
+                        },
+                    )
+                    ledger.append_agent_run(
+                        task_id,
+                        {
+                            "run_id": "run_impl",
+                            "runner": "codex_cli",
+                            "mode": RunMode.IMPLEMENTATION.value,
+                            "status": AgentRunStatus.BLOCKED.value,
+                            "artifact": {"report": str(impl_run / "report.json")},
+                            "workspace_path": str(workspace),
+                            "source_branch": f"codex/order-{task_id}",
+                            "diff_guard": {"changed_files": ["src/app.ts"], "violations": []},
+                        },
+                    )
+                    orchestrator = CodingOrchestrator(
+                        ledger=ledger,
+                        resolver=ProjectResolver(ProjectRegistry([])),
+                        wiki=LocalLlmWikiAdapter(root / "wiki"),
+                        run_root=root / "runs",
+                        workspace_root=root / "workspaces",
+                        runner_router=FakeRouter(FakeRunner()),
+                    )
+
+                    assessment = orchestrator._blocked_task_merge_test_assessment(ledger.get_task(task_id))
+
+                    self.assertFalse(assessment["mergeable"])
+                    self.assertEqual(assessment["reason"], "merge_readiness_missing")
+                    self.assertEqual(assessment["impact"], "Codex report 缺少 merge_readiness，Hermes 不会推断能否继续。")
+                    self.assertEqual(assessment["fallback_evidence"], str(impl_run / "report.json"))
+
+    def test_blocked_merge_test_uses_not_ready_fields_without_limitation_or_summary_inference(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            workspace = root / "workspaces" / "task_not_ready" / "run_impl"
+            workspace.mkdir(parents=True)
+            impl_run = root / "runs" / "task_not_ready" / "run_impl"
+            impl_run.mkdir(parents=True)
+            (impl_run / "report.json").write_text(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "summary_markdown": "实现已完成，按摘要看似可以继续。",
+                        "implementation_landed": True,
+                        "commit_sha": "abc123",
+                        "merge_readiness": {
+                            "ready": False,
+                            "reason": "codex_needs_manual_check",
+                            "risk_note": "Codex 判断还缺少关键路径确认。",
+                            "recovery_action": "补充关键路径验证后再 merge-test。",
+                            "fallback_evidence": "codex-risk.md",
+                        },
+                        "verification_limitations": [
+                            {
+                                "reason": "test_environment_unavailable",
+                                "impact": "旧 limitations 不应决定 readiness。",
+                                "recovery_action": "旧 limitations recovery。",
+                                "fallback_evidence": "stdout.log",
+                            }
+                        ],
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_not_ready",
+                source={"type": "manual", "project_name": "order"},
+                requirement_summary="not ready",
+                project_path=str(project),
+                status=TaskStatus.BLOCKED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.BLOCKED.value,
+                task_session={
+                    "source_branch": "codex/order-task_not_ready",
+                    "worktree_path": str(workspace),
+                    "runner": {"resume_session_id": "019e-blocked-thread"},
+                },
+            )
+            ledger.append_agent_run(
+                "task_not_ready",
+                {
+                    "run_id": "run_impl",
+                    "runner": "codex_cli",
+                    "mode": RunMode.IMPLEMENTATION.value,
+                    "status": AgentRunStatus.BLOCKED.value,
+                    "artifact": {"report": str(impl_run / "report.json")},
+                    "workspace_path": str(workspace),
+                    "source_branch": "codex/order-task_not_ready",
+                    "diff_guard": {"changed_files": ["src/app.ts"], "violations": []},
+                },
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            assessment = orchestrator._blocked_task_merge_test_assessment(ledger.get_task("task_not_ready"))
+
+            self.assertFalse(assessment["mergeable"])
+            self.assertEqual(assessment["reason"], "codex_needs_manual_check")
+            self.assertEqual(assessment["impact"], "Codex 判断还缺少关键路径确认。")
+            self.assertEqual(assessment["recovery_action"], "补充关键路径验证后再 merge-test。")
+            self.assertEqual(assessment["fallback_evidence"], "codex-risk.md")
+
+    def test_blocked_merge_test_assessment_rejects_legacy_known_gaps_without_merge_readiness(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "order"
@@ -6731,8 +7157,11 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             assessment = orchestrator._blocked_task_merge_test_assessment(ledger.get_task("task_legacy"))
 
-            self.assertTrue(assessment["mergeable"])
-            self.assertEqual(assessment["reason"], "test_environment_unavailable")
+            self.assertFalse(assessment["mergeable"])
+            self.assertEqual(assessment["reason"], "merge_readiness_missing")
+            self.assertEqual(assessment["impact"], "Codex report 缺少 merge_readiness，Hermes 不会推断能否继续。")
+            self.assertIn("/coding merge-test task_legacy --accept-risk", assessment["recovery_action"])
+            self.assertEqual(assessment["fallback_evidence"], str(impl_run / "report.json"))
 
     def test_blocked_merge_test_assessment_rejects_structured_not_landed_implementation(self):
         cases = [
@@ -7096,6 +7525,14 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                         "summary_markdown": "实现已完成，浏览器 QA 环境不可用。",
                         "implementation_landed": True,
                         "commit_sha": "abc123",
+                        "merge_readiness": {
+                            "ready": True,
+                            "risk_level": "medium",
+                            "risk_note": "缺少浏览器交互验证证据。",
+                            "required_confirmation": False,
+                            "recovery_action": "人工确认后合 test，并在测试环境补跑浏览器 QA。",
+                            "fallback_evidence": "qa stdout",
+                        },
                         "verification_limitations": [
                             {
                                 "reason": "browser_qa_unavailable",
@@ -7155,7 +7592,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(orchestrator.auto_merge_test_started[0][0], "task_1")
             self.assertEqual(task["status"], TaskStatus.READY_FOR_MERGE_TEST.value)
             self.assertIn("原为 blocked", gateway.messages[-1])
-            self.assertIn("browser_qa_unavailable", gateway.messages[-1])
+            self.assertIn("codex_merge_readiness", gateway.messages[-1])
 
     def test_gateway_merge_test_blocked_risk_confirmation_uses_pending_accept_risk(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -7216,6 +7653,101 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(orchestrator.auto_merge_test_started[0][0], "task_1")
             self.assertEqual(task["status"], TaskStatus.READY_FOR_MERGE_TEST.value)
             self.assertTrue(task["merge_records"][0]["accepted_risk"])
+
+    def test_gateway_prepare_merge_test_stores_pending_accept_risk_for_required_confirmation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            workspace = root / "workspaces" / "task_1" / "run_impl"
+            workspace.mkdir(parents=True)
+            impl_run = root / "runs" / "task_1" / "run_impl"
+            impl_run.mkdir(parents=True)
+            (impl_run / "report.json").write_text(
+                json.dumps(
+                    {
+                        "status": "blocked",
+                        "summary_markdown": "实现已提交，但需要人工接受风险。",
+                        "implementation_landed": True,
+                        "commit_sha": "abc123",
+                        "merge_readiness": {
+                            "ready": True,
+                            "risk_level": "medium",
+                            "risk_note": "只跑了定向验证，需要人工确认风险。",
+                            "required_confirmation": True,
+                            "recovery_action": "人工确认风险后继续 merge-test。",
+                            "fallback_evidence": "summary.md",
+                        },
+                        "verification_limitations": [
+                            {
+                                "reason": "targeted_tests_only",
+                                "impact": "未跑全量回归。",
+                                "recovery_action": "人工接受风险后继续 merge-test。",
+                                "fallback_evidence": "summary.md",
+                            }
+                        ],
+                        "human_required": True,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_1",
+                source={"type": "manual", "project_name": "order"},
+                requirement_summary="requires confirmation",
+                project_path=str(project),
+                status=TaskStatus.BLOCKED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.BLOCKED.value,
+                task_session={
+                    "source_branch": "codex/order-task_1",
+                    "worktree_path": str(workspace),
+                    "runner": {"resume_session_id": "019e-blocked-thread"},
+                },
+            )
+            ledger.append_agent_run(
+                "task_1",
+                {
+                    "run_id": "run_impl",
+                    "runner": "codex_cli",
+                    "mode": RunMode.IMPLEMENTATION.value,
+                    "status": AgentRunStatus.BLOCKED.value,
+                    "artifact": {"report": str(impl_run / "report.json")},
+                    "workspace_path": str(workspace),
+                    "source_branch": "codex/order-task_1",
+                    "diff_guard": {"changed_files": ["src/app.ts"], "violations": []},
+                },
+            )
+            orchestrator = RecordingCodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            gateway = FakeGateway()
+            event = FakeGatewayEvent("/coding prepare-merge-test task_1")
+
+            first = orchestrator.handle_gateway_event(event, gateway)
+            pending = orchestrator._pending_action_for_event(event)
+            confirmed = orchestrator.handle_gateway_event(FakeGatewayEvent("确认"), gateway)
+            task = ledger.get_task("task_1")
+            release = next(record for record in task["merge_records"] if record["type"] == "blocked_merge_test_released")
+
+            self.assertEqual(first["reason"], "handled_by_coding_orchestration")
+            self.assertIn("/coding merge-test task_1 --accept-risk", gateway.messages[0])
+            self.assertEqual(pending["action"], "merge_test_accept_risk")
+            self.assertEqual(pending["command_text"], "/coding merge-test task_1 --accept-risk")
+            self.assertEqual(pending["mode"], RunMode.MERGE_TEST.value)
+            self.assertEqual(confirmed["reason"], "coding_pending_action_confirmed")
+            self.assertEqual(orchestrator.auto_merge_test_started[0][0], "task_1")
+            self.assertEqual(task["status"], TaskStatus.READY_FOR_MERGE_TEST.value)
+            self.assertTrue(release["accepted_risk"])
 
     def test_coding_list_includes_merged_test_tasks_until_manual_completion(self):
         with tempfile.TemporaryDirectory() as tmp:
