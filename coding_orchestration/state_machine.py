@@ -28,6 +28,8 @@ class TaskStateMachine:
         TaskStatus.PLANNED: {
             TaskStatus.RUNNING,
             TaskStatus.NEEDS_HUMAN,
+            TaskStatus.BLOCKED,
+            TaskStatus.READY_FOR_MERGE_TEST,
             TaskStatus.FAILED,
             TaskStatus.CANCELLED,
         },

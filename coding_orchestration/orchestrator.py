@@ -690,6 +690,23 @@ class CodingOrchestrator:
         return self._delete_task_from_args(raw_args)
 
     def command_coding_run(self, raw_args: str) -> str:
+        args = raw_args.split()
+        if "--next" in args:
+            task_id = next((part for part in args if not part.startswith("--")), "")
+            if not task_id:
+                return "请提供父级需求任务 ID。用法：/coding run <task_id> --next"
+            task = self.ledger.get_task(task_id)
+            if not task:
+                return f"未找到任务：{task_id}"
+            if task.get("task_kind") != TaskKind.REQUIREMENT.value:
+                return f"[{task_id}] 不是父级需求任务；请直接运行该执行任务。"
+            child = self._next_runnable_child(task)
+            if not child:
+                self._rollup_requirement_status(task_id)
+                return f"[{task_id}] 暂无可运行的子任务。请查看 /coding status {task_id} --tree。"
+            message = self.command_coding_implement(child["task_id"])
+            self._rollup_requirement_status(task_id)
+            return f"[{task_id}] 已选择下一个可执行任务：{child['task_id']}\n\n{message}"
         task_id = raw_args.strip()
         if not task_id:
             return "请提供任务 ID。"
@@ -853,6 +870,90 @@ class CodingOrchestrator:
             if child:
                 created.append(child)
         return created
+
+    def _next_runnable_child(self, parent_task: dict[str, Any]) -> dict[str, Any] | None:
+        children = self.ledger.list_child_tasks(parent_task["task_id"])
+        by_id = {child["task_id"]: child for child in children}
+        completed_statuses = {
+            TaskStatus.READY_FOR_MERGE_TEST.value,
+            TaskStatus.MERGED_TEST.value,
+            TaskStatus.DONE.value,
+        }
+        for child in children:
+            if child.get("task_kind") not in {TaskKind.EXECUTION.value, TaskKind.INTEGRATION.value}:
+                continue
+            if child.get("status") != TaskStatus.PLANNED.value:
+                continue
+            dependencies = [by_id.get(task_id) for task_id in child.get("dependency_task_ids") or []]
+            if all(dep and dep.get("status") in completed_statuses for dep in dependencies):
+                return child
+        return None
+
+    def _rollup_requirement_status(self, task_id: str) -> dict[str, Any]:
+        parent = self.ledger.get_task(task_id)
+        if not parent:
+            raise KeyError(task_id)
+        children = self.ledger.list_child_tasks(task_id)
+        if not children:
+            return {"status": parent.get("status"), "counts": {}}
+        statuses = [str(child.get("status") or "") for child in children]
+        counts = {status: statuses.count(status) for status in sorted(set(statuses))}
+        if any(status == TaskStatus.RUNNING.value for status in statuses):
+            target = TaskStatus.RUNNING
+        elif any(status == TaskStatus.FAILED.value for status in statuses):
+            target = TaskStatus.FAILED
+        elif self._next_runnable_child(parent) is None and any(status == TaskStatus.BLOCKED.value for status in statuses):
+            target = TaskStatus.BLOCKED
+        elif all(status == TaskStatus.DONE.value for status in statuses):
+            target = TaskStatus.DONE
+        elif all(
+            status in {TaskStatus.READY_FOR_MERGE_TEST.value, TaskStatus.MERGED_TEST.value, TaskStatus.DONE.value}
+            for status in statuses
+        ):
+            target = TaskStatus.READY_FOR_MERGE_TEST
+        else:
+            target = TaskStatus.PLANNED
+        self._transition_requirement_rollup_status(task_id, target)
+        self.ledger.update_task_session(task_id, {"rollup": {"status": target.value, "counts": counts}})
+        return {"status": target.value, "counts": counts}
+
+    def _transition_requirement_rollup_status(self, task_id: str, target: TaskStatus) -> None:
+        task = self.ledger.get_task(task_id) or {}
+        current = str(task.get("status") or "")
+        if target == TaskStatus.DONE and current not in {TaskStatus.DONE.value, TaskStatus.READY_FOR_MERGE_TEST.value}:
+            if current == TaskStatus.FAILED.value:
+                self._transition_task_status(
+                    task_id,
+                    TaskStatus.PLANNED,
+                    phase=TaskPhase.PLAN_READY,
+                    reason="requirement child rollup recovered from failed",
+                )
+            self._transition_task_status(
+                task_id,
+                TaskStatus.READY_FOR_MERGE_TEST,
+                phase=TaskPhase.READY_TO_MERGE_TEST,
+                reason="requirement child rollup ready before done",
+            )
+        self._transition_task_status(
+            task_id,
+            target,
+            phase=self._phase_for_requirement_rollup(target),
+            reason="requirement child rollup",
+        )
+
+    @staticmethod
+    def _phase_for_requirement_rollup(status: TaskStatus) -> TaskPhase:
+        if status == TaskStatus.RUNNING:
+            return TaskPhase.IMPLEMENTING
+        if status == TaskStatus.BLOCKED:
+            return TaskPhase.BLOCKED
+        if status == TaskStatus.FAILED:
+            return TaskPhase.FAILED
+        if status == TaskStatus.READY_FOR_MERGE_TEST:
+            return TaskPhase.READY_TO_MERGE_TEST
+        if status == TaskStatus.DONE:
+            return TaskPhase.DONE
+        return TaskPhase.PLAN_READY
 
     def _delete_task_from_args(self, raw_args: str) -> str:
         args = raw_args.split()

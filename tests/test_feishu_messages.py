@@ -2,6 +2,7 @@ import unittest
 
 from coding_orchestration.feishu_messages import (
     render_delivery_breakdown,
+    render_task_tree_status,
     render_task_created,
     render_task_needs_human,
     render_task_needs_source_context,
@@ -39,6 +40,33 @@ class FeishuMessagesTest(unittest.TestCase):
         self.assertIn("/coding approve-breakdown req_1", message)
         self.assertNotIn("runner", message)
         self.assertNotIn("raw_status", message)
+
+    def test_task_tree_status_lists_children_and_dependencies(self):
+        message = render_task_tree_status(
+            parent={
+                "task_id": "req_1",
+                "requirement_summary": "订单筛选能力升级",
+                "status": "planned",
+            },
+            children=[
+                {
+                    "task_id": "task_backend",
+                    "requirement_summary": "后端订单查询能力",
+                    "status": "ready_for_merge_test",
+                    "dependency_task_ids": [],
+                },
+                {
+                    "task_id": "task_web",
+                    "requirement_summary": "管理后台筛选入口",
+                    "status": "planned",
+                    "dependency_task_ids": ["task_backend"],
+                },
+            ],
+        )
+
+        self.assertIn("订单筛选能力升级", message)
+        self.assertIn("task_backend", message)
+        self.assertIn("依赖：task_backend", message)
 
     def test_task_created_uses_user_copy_without_internal_debug_fields(self):
         message = render_task_created(

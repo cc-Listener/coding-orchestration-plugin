@@ -462,6 +462,103 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(children[1]["dependency_task_ids"], [children[0]["task_id"]])
             self.assertEqual(children[0]["task_session"]["delivery"]["unit_id"], "unit_backend")
 
+    def test_run_parent_next_starts_first_unblocked_child(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "backend"
+            project.mkdir()
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="req_1",
+                source={"type": "manual"},
+                requirement_summary="订单筛选能力升级",
+                project_path=None,
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                task_kind=TaskKind.REQUIREMENT.value,
+            )
+            ledger.create_task(
+                task_id="task_backend",
+                source={"type": "decomposition"},
+                requirement_summary="后端订单查询能力",
+                project_path=str(project),
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.PLAN_READY.value,
+                task_kind=TaskKind.EXECUTION.value,
+                root_task_id="req_1",
+                parent_task_id="req_1",
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner(status="succeeded")),
+            )
+
+            message = orchestrator.command_coding_run("req_1 --next")
+
+            self.assertIn("task_backend", message)
+            self.assertIn("实现已完成", message)
+
+    def test_parent_rollup_blocks_when_all_remaining_children_wait_on_blocked_dependency(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="req_1",
+                source={"type": "manual"},
+                requirement_summary="订单筛选能力升级",
+                project_path=None,
+                status=TaskStatus.RUNNING.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                task_kind=TaskKind.REQUIREMENT.value,
+            )
+            ledger.create_task(
+                task_id="task_backend",
+                source={"type": "decomposition"},
+                requirement_summary="后端订单查询能力",
+                project_path="/repo/backend",
+                status=TaskStatus.BLOCKED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                task_kind=TaskKind.EXECUTION.value,
+                root_task_id="req_1",
+                parent_task_id="req_1",
+            )
+            ledger.create_task(
+                task_id="task_web",
+                source={"type": "decomposition"},
+                requirement_summary="管理后台筛选入口",
+                project_path="/repo/web",
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                task_kind=TaskKind.EXECUTION.value,
+                root_task_id="req_1",
+                parent_task_id="req_1",
+                dependency_task_ids=["task_backend"],
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            rollup = orchestrator._rollup_requirement_status("req_1")
+            parent = ledger.get_task("req_1")
+
+            self.assertEqual(rollup["status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(parent["status"], TaskStatus.BLOCKED.value)
+
     def test_gateway_standard_task_flow_reaches_done(self):
         class SyncBackgroundOrchestrator(CodingOrchestrator):
             def _start_background_plan_only(self, task_id, gateway, event):

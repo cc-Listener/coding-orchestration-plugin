@@ -119,5 +119,20 @@ def render_delivery_breakdown(*, task_id: str, report: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def render_task_tree_status(*, parent: dict[str, Any], children: list[dict[str, Any]]) -> str:
+    lines = [
+        f"需求：{parent.get('requirement_summary') or parent.get('task_id')}",
+        f"任务：{parent.get('task_id')}",
+        f"整体状态：{parent.get('status')}",
+        "",
+        "子任务：",
+    ]
+    for child in children:
+        dependencies = "、".join(child.get("dependency_task_ids") or []) or "无"
+        lines.append(f"- {child['task_id']}：{child.get('requirement_summary') or ''}")
+        lines.append(f"  状态：{child.get('status')}；依赖：{dependencies}")
+    return "\n".join(lines)
+
+
 def render_error(task_id: str, status: str, reason: str) -> str:
     return f"[{task_id}] 异常：{reason}\n当前状态：{task_status_display(status)}\n请人工确认下一步。"
