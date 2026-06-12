@@ -38,4 +38,5 @@ class GenericCliRunner(CodingAgentRunner):
             report=run_dir / "report.json",
             summary=run_dir / "summary.md",
             diff=run_dir / "diff.patch",
+            context_manifest=run_dir / "context-manifest.json",
         )

@@ -413,6 +413,7 @@ class CodexCliRunner(CodingAgentRunner):
             diff=run_dir / "diff.patch",
             operator_log=run_dir / "run-log.md",
             execution_policy=run_dir / "execution-policy.json",
+            context_manifest=run_dir / "context-manifest.json",
         )
 
     def load_or_build_report(self, run_dir: Path, mode: RunMode) -> dict[str, Any]:

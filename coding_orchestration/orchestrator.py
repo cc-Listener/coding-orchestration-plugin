@@ -31,6 +31,7 @@ from .command_catalog import (
     command_help_lines,
     command_listing_lines,
 )
+from .context_assembler import ContextAssembler
 from .models import (
     AgentRunStatus,
     ArtifactSet,
@@ -113,6 +114,7 @@ class CodingOrchestrator:
     kanban_bridge: Any | None = None
     workflow_loader: WorkflowLoader = field(default_factory=WorkflowLoader)
     prompt_builder: PromptBuilder = field(default_factory=PromptBuilder)
+    context_assembler: ContextAssembler = field(default_factory=ContextAssembler)
     diff_guard: DiffGuard = field(default_factory=DiffGuard)
     default_timeout_seconds: int = 3600
     implementation_timeout_seconds: int = 10800
@@ -5532,6 +5534,19 @@ class CodingOrchestrator:
             implementation_path.write_text(implementation_text, encoding="utf-8")
             artifacts["implementation_context"] = str(implementation_path)
 
+        context_package = self.context_assembler.assemble(
+            run_mode=mode,
+            task=task,
+            run_dir=run_dir,
+            dependency_tasks=self._context_dependency_tasks(task),
+            sibling_tasks=self._context_sibling_tasks(task),
+        )
+        if context_package.prompt_context.strip():
+            assembled_context_path = run_dir / "assembled-context.md"
+            assembled_context_path.write_text(context_package.prompt_context, encoding="utf-8")
+            artifacts["assembled_context"] = str(assembled_context_path)
+        artifacts["context_manifest"] = str(context_package.manifest_path)
+
         instructions_path = run_dir / "run-instructions.md"
         instructions_path.write_text(
             self.prompt_builder.build_run_instructions(mode=mode, execution_policy=execution_policy),
@@ -5566,6 +5581,29 @@ class CodingOrchestrator:
             index["source"]["source_context"] = source_context
         context_index_path.write_text(self._json(index), encoding="utf-8")
         return artifacts
+
+    def _context_dependency_tasks(self, task: dict[str, Any]) -> list[dict[str, Any]]:
+        dependency_ids = task.get("dependency_task_ids") or []
+        if not isinstance(dependency_ids, list):
+            return []
+        tasks: list[dict[str, Any]] = []
+        for dependency_id in dependency_ids:
+            dependency = self.ledger.get_task(str(dependency_id))
+            if dependency:
+                tasks.append(dependency)
+        return tasks
+
+    def _context_sibling_tasks(self, task: dict[str, Any]) -> list[dict[str, Any]]:
+        parent_task_id = str(task.get("parent_task_id") or "").strip()
+        if not parent_task_id:
+            return []
+        task_id = str(task.get("task_id") or "")
+        dependency_ids = {str(item) for item in task.get("dependency_task_ids") or []}
+        return [
+            child
+            for child in self.ledger.list_child_tasks(parent_task_id)
+            if str(child.get("task_id") or "") not in {task_id, *dependency_ids}
+        ]
 
     @staticmethod
     def _is_source_doc_for_task(doc: dict[str, Any], task_id: str) -> bool:
@@ -5862,6 +5900,7 @@ class CodingOrchestrator:
     def _artifact_record(artifacts: Any) -> dict[str, str]:
         operator_log = getattr(artifacts, "operator_log", None) or artifacts.run_dir / "run-log.md"
         execution_policy = getattr(artifacts, "execution_policy", None) or artifacts.run_dir / "execution-policy.json"
+        context_manifest = getattr(artifacts, "context_manifest", None) or artifacts.run_dir / "context-manifest.json"
         return {
             "run_dir": str(artifacts.run_dir),
             "input_prompt": str(artifacts.input_prompt),
@@ -5874,6 +5913,7 @@ class CodingOrchestrator:
             "diff": str(artifacts.diff),
             "operator_log": str(operator_log),
             "execution_policy": str(execution_policy),
+            "context_manifest": str(context_manifest),
         }
 
     @staticmethod
@@ -5890,6 +5930,7 @@ class CodingOrchestrator:
             diff=run_dir / "diff.patch",
             operator_log=run_dir / "run-log.md",
             execution_policy=run_dir / "execution-policy.json",
+            context_manifest=run_dir / "context-manifest.json",
         )
 
     def _runner_failed_result(self, *, runner_name: str, run_dir: Path, mode: RunMode, error: Exception) -> RunResult:

@@ -159,6 +159,8 @@ class PromptBuilder:
     def _context_block(wiki_refs: list[dict[str, Any]], context_artifacts: dict[str, str]) -> str:
         lines: list[str] = []
         artifact_labels = {
+            "assembled_context": "运行上下文",
+            "context_manifest": "上下文清单",
             "context_index": "上下文索引",
             "wiki_context": "Wiki 上下文",
             "confirmed_plan": "已确认计划",

@@ -362,6 +362,7 @@ class ArtifactSet:
     diff: Path
     operator_log: Path | None = None
     execution_policy: Path | None = None
+    context_manifest: Path | None = None
 
 
 def enum_value(value: Any) -> Any:
