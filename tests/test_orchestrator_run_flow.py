@@ -6792,7 +6792,13 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 record for record in task["merge_records"] if record["type"] == "blocked_merge_test_released"
             ]
 
-            self.assertIn("Blocked 放行", message)
+            self.assertIn("已基于 Codex 给出的验证说明继续 merge-test", message)
+            self.assertIn("缺少自动测试证据，需在 test 环境补验", message)
+            self.assertIn("替代证据：已有运行记录可供核对。", message)
+            self.assertNotIn("stdout.log", message)
+            self.assertNotIn("Blocked 放行", message)
+            self.assertNotIn("known gaps", message)
+            self.assertNotIn("codex_merge_readiness", message)
             self.assertEqual(fake_runner.calls[-1]["mode"], RunMode.MERGE_TEST)
             self.assertEqual(task["status"], TaskStatus.MERGED_TEST.value)
             self.assertEqual(release_records[0]["reason"], "codex_merge_readiness")
@@ -6878,7 +6884,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             message = orchestrator.command_prepare_merge_test("task_1")
             task = ledger.get_task("task_1")
 
-            self.assertIn("codex_merge_readiness", message)
+            self.assertIn("验证证据还不完整", message)
+            self.assertIn("只跑了定向验证", message)
             self.assertIn("/coding merge-test task_1 --accept-risk", message)
             self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
             self.assertEqual(task["phase"], TaskPhase.BLOCKED.value)
@@ -7122,7 +7129,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
                     self.assertFalse(assessment["mergeable"])
                     self.assertEqual(assessment["reason"], "merge_readiness_missing")
-                    self.assertEqual(assessment["impact"], "Codex report 缺少 merge_readiness，Hermes 不会推断能否继续。")
+                    self.assertEqual(assessment["impact"], "结构化验证结论缺失，系统不能自动判断是否可继续。")
                     self.assertEqual(assessment["fallback_evidence"], str(impl_run / "report.json"))
 
     def test_blocked_merge_test_uses_not_ready_fields_without_limitation_or_summary_inference(self):
@@ -7280,7 +7287,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             self.assertFalse(assessment["mergeable"])
             self.assertEqual(assessment["reason"], "merge_readiness_missing")
-            self.assertEqual(assessment["impact"], "Codex report 缺少 merge_readiness，Hermes 不会推断能否继续。")
+            self.assertEqual(assessment["impact"], "结构化验证结论缺失，系统不能自动判断是否可继续。")
             self.assertIn("/coding merge-test task_legacy --accept-risk", assessment["recovery_action"])
             self.assertEqual(assessment["fallback_evidence"], str(impl_run / "report.json"))
 
@@ -7514,11 +7521,32 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             message = orchestrator.command_coding_merge_test("task_1")
             task = ledger.get_task("task_1")
 
-            self.assertIn("风险原因：diff_guard_violation", message)
+            self.assertIn("验证证据还不完整", message)
             self.assertIn("--accept-risk", message)
-            self.assertIn("diff_guard_violation", message)
+            self.assertNotIn("diff_guard_violation", message)
             self.assertEqual(fake_runner.calls, [])
             self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
+
+    def test_blocked_merge_test_risk_confirmation_message_is_user_facing(self):
+        message = CodingOrchestrator._blocked_merge_test_risk_confirmation_message(
+            "task_1",
+            {
+                "impact": "只跑了定点测试。",
+                "recovery_action": "确认风险后继续 merge-test。",
+                "fallback_evidence": "/tmp/run/report.json",
+            },
+        )
+
+        self.assertIn("验证证据还不完整", message)
+        self.assertIn("影响：只跑了定点测试。", message)
+        self.assertIn("建议：确认风险后继续 merge-test。", message)
+        self.assertIn("替代证据：已有运行记录可供核对。", message)
+        self.assertIn("/coding merge-test task_1 --accept-risk", message)
+        self.assertIn("回复“确认”会继续；回复“取消”会放弃本次继续动作。", message)
+        self.assertNotIn("当前是 blocked", message)
+        self.assertNotIn("风险原因：unknown", message)
+        self.assertNotIn("report.json", message)
+        self.assertNotIn("/tmp/run", message)
 
     def test_coding_merge_test_rejects_blocked_without_structured_report(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -7568,7 +7596,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             message = orchestrator.command_coding_merge_test("task_1")
 
-            self.assertIn("missing_structured_report", message)
+            self.assertIn("验证证据还不完整", message)
+            self.assertIn("缺少结构化验证报告", message)
             self.assertEqual(fake_runner.calls, [])
             self.assertEqual(ledger.get_task("task_1")["status"], TaskStatus.BLOCKED.value)
 
@@ -7623,6 +7652,9 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             release = next(record for record in task["merge_records"] if record["type"] == "blocked_merge_test_released")
 
             self.assertIn("merge-test 已处理", message)
+            self.assertIn("已按你的风险确认继续 merge-test", message)
+            self.assertIn("缺少结构化验证报告", message)
+            self.assertNotIn("missing_structured_report", message)
             self.assertEqual(fake_runner.calls[-1]["mode"], RunMode.MERGE_TEST)
             self.assertEqual(task["status"], TaskStatus.MERGED_TEST.value)
             self.assertEqual(release["reason"], "missing_structured_report")
@@ -7712,8 +7744,13 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(result["reason"], "handled_by_coding_orchestration")
             self.assertEqual(orchestrator.auto_merge_test_started[0][0], "task_1")
             self.assertEqual(task["status"], TaskStatus.READY_FOR_MERGE_TEST.value)
-            self.assertIn("原为 blocked", gateway.messages[-1])
-            self.assertIn("codex_merge_readiness", gateway.messages[-1])
+            self.assertIn("已基于 Codex 给出的验证说明继续 merge-test", gateway.messages[-1])
+            self.assertIn("缺少浏览器交互验证证据", gateway.messages[-1])
+            self.assertIn("替代证据：已有运行记录可供核对。", gateway.messages[-1])
+            self.assertNotIn("qa stdout", gateway.messages[-1])
+            self.assertNotIn("原为 blocked", gateway.messages[-1])
+            self.assertNotIn("known gaps", gateway.messages[-1])
+            self.assertNotIn("codex_merge_readiness", gateway.messages[-1])
 
     def test_gateway_merge_test_blocked_risk_confirmation_uses_pending_accept_risk(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -7769,7 +7806,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             self.assertEqual(first["reason"], "handled_by_coding_orchestration")
             self.assertEqual(pending["command_text"], "/coding merge-test task_1 --accept-risk")
-            self.assertIn("missing_structured_report", gateway.messages[0])
+            self.assertIn("验证证据还不完整", gateway.messages[0])
+            self.assertIn("缺少结构化验证报告", gateway.messages[0])
             self.assertEqual(confirmed["reason"], "coding_pending_action_confirmed")
             self.assertEqual(orchestrator.auto_merge_test_started[0][0], "task_1")
             self.assertEqual(task["status"], TaskStatus.READY_FOR_MERGE_TEST.value)
@@ -8220,11 +8258,28 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             blocked_message = orchestrator.command_coding_merge_test("task_1")
             confirmed_message = orchestrator.command_coding_merge_test("task_1 --confirm-qa-risk")
 
-            self.assertIn("最近 QA run 状态为 failed", blocked_message)
+            self.assertIn("最近一次 QA 证据不够完整", blocked_message)
             self.assertIn("--confirm-qa-risk", blocked_message)
             self.assertIn("修复失败流程后重新 QA", blocked_message)
             self.assertEqual(fake_runner.calls[-1]["mode"], RunMode.MERGE_TEST)
             self.assertIn("merge-test 已处理", confirmed_message)
+
+    def test_merge_test_qa_risk_confirmation_message_is_user_facing(self):
+        message = CodingOrchestrator._merge_test_qa_risk_confirmation_message(
+            "task_1",
+            {
+                "status": "failed",
+                "impact": "缺少可信 QA 通过证据",
+                "recovery_action": "修复失败流程后重新 QA",
+            },
+            include_reply_hint=False,
+        )
+
+        self.assertIn("最近一次 QA 证据不够完整", message)
+        self.assertIn("影响：缺少可信 QA 通过证据", message)
+        self.assertIn("建议：修复失败流程后重新 QA", message)
+        self.assertIn("/coding merge-test task_1 --confirm-qa-risk", message)
+        self.assertNotIn("最近 QA run 状态为 failed", message)
 
     def test_gateway_merge_test_qa_risk_confirmation_uses_pending_action(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -8314,7 +8369,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             confirmed = orchestrator.handle_gateway_event(FakeGatewayEvent("确认继续"), gateway=gateway)
 
             self.assertEqual(blocked["reason"], "handled_by_coding_orchestration")
-            self.assertIn("最近 QA run 状态为 failed", gateway.messages[-2])
+            self.assertIn("最近一次 QA 证据不够完整", gateway.messages[-2])
             self.assertIn("回复“确认”继续", gateway.messages[-2])
             self.assertEqual(confirmed["reason"], "coding_pending_action_confirmed")
             self.assertEqual(orchestrator.auto_merge_test_started[0][0], "task_1")
@@ -8558,7 +8613,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
             self.assertEqual(manifest["merge_test_checkpoint"]["status"], "failed")
             self.assertEqual(report["verification_limitations"][0]["reason"], "implementation_commit_missing")
-            self.assertIn("source worktree 仍有未提交实现改动", message)
+            self.assertIn("实现工作区仍有未提交改动", message)
 
     def test_implementation_notification_does_not_auto_run_qa_after_ready_status(self):
         class RecordingOrchestrator(CodingOrchestrator):

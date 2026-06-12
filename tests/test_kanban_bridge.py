@@ -154,6 +154,30 @@ class KanbanBridgeTest(unittest.TestCase):
                 self.assertEqual(payload["metadata"]["task_status_display"], public_display)
                 self.assertNotIn("machine_task_status", payload["metadata"])
 
+    def test_status_comment_uses_user_facing_status_label(self):
+        status_view = {
+            "status": TaskStatus.RUNNING.value,
+            "status_label_zh": "运行中",
+            "status_display": "运行中(running)",
+        }
+
+        comment = KanbanBridge._status_comment(status_view, "implementation started")
+
+        self.assertEqual(comment, "任务状态已更新为：运行中。原因：implementation started")
+        self.assertNotIn("状态投影", comment)
+
+        comment_without_reason = KanbanBridge._status_comment(status_view, "")
+        self.assertEqual(comment_without_reason, "任务状态已更新为：运行中。")
+
+        fallback_comment = KanbanBridge._status_comment(
+            {"status": TaskStatus.RUNNING.value, "status_display": "运行中(running)"},
+            "",
+        )
+        self.assertEqual(fallback_comment, "任务状态已更新为：运行中(running)。")
+
+        unknown_comment = KanbanBridge._status_comment({}, "")
+        self.assertEqual(unknown_comment, "任务状态已更新为：未知。")
+
     def test_sync_task_status_failure_is_non_blocking_result(self):
         bridge = KanbanBridge(dispatch_tool=ExplodingDispatchTool())
 

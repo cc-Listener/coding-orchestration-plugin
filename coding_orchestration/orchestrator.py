@@ -879,7 +879,7 @@ class CodingOrchestrator:
         result = self.start_run(task_id, mode=RunMode.MERGE_TEST)
         message = self._format_merge_test_completion_message(task_id, result)
         if release:
-            message = f"{message}\n\nBlocked 放行：{release['reason']}；已按 known gaps 进入 merge-test。"
+            message = f"{message}\n\n{self._blocked_merge_test_release_note(release)}"
         if qa_evidence.get("message"):
             message = f"{message}\n\nQA 证据：{qa_evidence['message']}"
         return message
@@ -1838,10 +1838,7 @@ class CodingOrchestrator:
             )
             started_message = self._merge_test_started_message(task)
             if release:
-                started_message = (
-                    f"{started_message}\n"
-                    f"说明：该任务原为 blocked，已按 known gaps 人工放行；原因：{release['reason']}。"
-                )
+                started_message = f"{started_message}\n{self._blocked_merge_test_release_note(release)}"
             self._reply_if_possible(gateway, event, started_message)
             self._start_background_merge_test(task_id, gateway, event)
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
@@ -2075,8 +2072,8 @@ class CodingOrchestrator:
             return f"项目已确定；使用 /coding run {task_id} 重跑 plan-only，或查看 /coding status {task_id}。"
         if status == TaskStatus.BLOCKED.value:
             return (
-                f"先查看 /coding status {task_id} 的 reason/impact/recovery_action；"
-                f"若已有 source branch/worktree 且接受风险，可使用 /coding merge-test {task_id} --accept-risk。"
+                f"先查看 /coding status {task_id} 的影响和建议；"
+                f"若确认目标改动已完成且接受风险，可使用 /coding merge-test {task_id} --accept-risk。"
             )
         if status == TaskStatus.READY_FOR_MERGE_TEST.value:
             return f"使用 /coding merge-test {task_id}。"
@@ -3948,8 +3945,8 @@ class CodingOrchestrator:
         task_id = str(task.get("task_id") or "unknown")
         if self._merge_test_workspace(task) is None:
             return (
-                f"[{task_id}] 未找到 implementation worktree，无法执行 QA。\n"
-                "恢复动作：请先完成 implementation，或恢复该 task 的 source branch/worktree 后再发送 /coding qa。"
+                f"[{task_id}] 未找到实现工作区，无法执行 QA。\n"
+                "建议：请先完成 implementation，或恢复实现工作区后再发送 /coding qa。"
             )
         return ""
 
@@ -5019,14 +5016,13 @@ class CodingOrchestrator:
             if task.get("status") == TaskStatus.BLOCKED.value:
                 assessment = self._blocked_task_merge_test_assessment(task)
                 return (
-                    f"[{task_id}] 当前状态是 {task_status_display(task.get('status'))}，不能 merge-to-test。\n"
-                    f"原因：{assessment.get('reason') or 'blocked_task_not_mergeable'}\n"
+                    f"[{task_id}] 当前验证证据不足，暂不能 merge-to-test。\n"
                     f"影响：{assessment.get('impact') or 'Hermes 不能证明该 blocked task 已安全完成实现。'}\n"
-                    f"恢复动作：{assessment.get('recovery_action') or '先恢复 implementation，或补齐结构化报告/工作区/session 后重试。'}"
+                    f"建议：{assessment.get('recovery_action') or '先恢复 implementation，或补齐结构化报告/工作区/session 后重试。'}"
                 )
             return f"[{task_id}] 当前状态是 {task_status_display(task.get('status'))}，还不能 merge-to-test。"
         if self._merge_test_workspace(task) is None:
-            return f"[{task_id}] 未找到 implementation worktree，无法续接 Codex session 执行 merge-to-test。"
+            return f"[{task_id}] 未找到实现工作区，无法续接 Codex 会话执行 merge-to-test。"
         return ""
 
     def _release_blocked_task_for_merge_test_if_allowed(
@@ -5082,8 +5078,8 @@ class CodingOrchestrator:
             return {
                 "mergeable": False,
                 "reason": "missing_implementation_run",
-                "impact": "没有 implementation run，无法证明代码已完成。",
-                "recovery_action": f"先执行 /coding implement {task_id}，或补齐 implementation 运行记录后重试。",
+                "impact": "没有找到可用于继续的实现运行记录，无法证明代码已完成。",
+                "recovery_action": f"先执行 /coding implement {task_id}，或补齐实现运行记录后重试。",
             }
         run_status = str(run.get("status") or "")
         if run_status in {
@@ -5096,8 +5092,8 @@ class CodingOrchestrator:
                 "requires_acceptance": True,
                 "source_run_id": str(run.get("run_id") or ""),
                 "reason": f"implementation_{run_status}",
-                "impact": "最近 implementation 结果不可信，不能直接合入 test。",
-                "recovery_action": "建议先恢复或重跑 implementation；如人工确认 source branch/worktree 已包含目标改动，可使用 --accept-risk 继续 merge-test。",
+                "impact": "最近一次实现结果不可信，不能直接合入 test。",
+                "recovery_action": "建议先恢复或重跑 implementation；如人工确认目标改动已经完成，可使用 --accept-risk 继续 merge-test。",
                 "fallback_evidence": str((run.get("artifact") or {}).get("summary") or (run.get("artifact") or {}).get("stderr") or ""),
             }
         if self._merge_test_workspace(task) is None:
@@ -5105,16 +5101,16 @@ class CodingOrchestrator:
                 "mergeable": False,
                 "source_run_id": str(run.get("run_id") or ""),
                 "reason": "missing_implementation_worktree",
-                "impact": "没有可用于 merge-test 的 implementation worktree。",
-                "recovery_action": "恢复 source worktree，或重新执行 implementation 后再 merge-test。",
+                "impact": "没有找到可用于 merge-test 的实现工作区。",
+                "recovery_action": "恢复实现工作区，或重新执行 implementation 后再 merge-test。",
             }
         if not self._source_branch_for_blocked_merge_test(task, run):
             return {
                 "mergeable": False,
                 "source_run_id": str(run.get("run_id") or ""),
                 "reason": "missing_source_branch",
-                "impact": "没有 source branch，Hermes 不知道应把哪条实现分支合入 test。",
-                "recovery_action": "补齐 task_session.source_branch 或重新执行 implementation 创建 source branch。",
+                "impact": "没有找到可合入 test 的实现分支记录。",
+                "recovery_action": "重新执行 implementation 创建实现分支，或补齐实现分支记录后重试。",
             }
         if not self._codex_resume_session_id_for_task(task):
             return {
@@ -5122,8 +5118,8 @@ class CodingOrchestrator:
                 "requires_acceptance": True,
                 "source_run_id": str(run.get("run_id") or ""),
                 "reason": "missing_codex_session",
-                "impact": "无法续接原 Codex session，Hermes 将开启新的 Codex session 执行 merge-test，历史上下文可能不完整。",
-                "recovery_action": f"确认 source branch/worktree 正确后，执行 /coding merge-test {task_id} --accept-risk。",
+                "impact": "无法续接原 Codex 会话，继续 merge-test 时历史上下文可能不完整。",
+                "recovery_action": f"确认目标改动和工作区正确后，执行 /coding merge-test {task_id} --accept-risk。",
                 "fallback_evidence": str(run.get("workspace_path") or self._merge_test_workspace(task) or ""),
             }
         report = self._read_report_json((run.get("artifact") or {}).get("report"))
@@ -5133,8 +5129,8 @@ class CodingOrchestrator:
                 "requires_acceptance": True,
                 "source_run_id": str(run.get("run_id") or ""),
                 "reason": "missing_structured_report",
-                "impact": "缺少 report.json，Hermes 只能基于 source branch/worktree 和 run artifact 做人工风险放行。",
-                "recovery_action": f"检查 artifact 后如确认风险可接受，执行 /coding merge-test {task_id} --accept-risk。",
+                "impact": "缺少结构化验证报告，只能基于现有运行记录做人工风险放行。",
+                "recovery_action": f"检查现有运行记录后如确认风险可接受，执行 /coding merge-test {task_id} --accept-risk。",
                 "fallback_evidence": str((run.get("artifact") or {}).get("summary") or (run.get("artifact") or {}).get("stdout") or (run.get("artifact") or {}).get("stderr") or run.get("workspace_path") or ""),
             }
         report_status = str(report.get("status") or run_status)
@@ -5148,7 +5144,7 @@ class CodingOrchestrator:
                 "requires_acceptance": True,
                 "source_run_id": str(run.get("run_id") or ""),
                 "reason": f"report_{report_status}",
-                "impact": "结构化报告明确运行失败，默认不合入 test；人工可在确认 source branch/worktree 无误后覆盖风险。",
+                "impact": "结构化验证报告显示运行失败，默认不合入 test；人工可在确认目标改动无误后覆盖风险。",
                 "recovery_action": f"建议先修复失败原因并重跑 implementation；如确认可接受，执行 /coding merge-test {task_id} --accept-risk。",
                 "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
             }
@@ -5159,7 +5155,7 @@ class CodingOrchestrator:
                 "requires_acceptance": True,
                 "source_run_id": str(run.get("run_id") or ""),
                 "reason": disallowed_reason,
-                "impact": "该 blocked 类型风险较高，默认不合入 test；人工可在确认风险可接受后覆盖。",
+                "impact": "当前阻断风险较高，默认不合入 test；人工可在确认风险可接受后覆盖。",
                 "recovery_action": f"建议先处理阻断原因并重新执行 implementation；如确认可接受，执行 /coding merge-test {task_id} --accept-risk。",
                 "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
             }
@@ -5169,8 +5165,8 @@ class CodingOrchestrator:
                 "requires_acceptance": True,
                 "source_run_id": str(run.get("run_id") or ""),
                 "reason": "implementation_not_landed",
-                "impact": "结构化报告显示 implementation 未落地到提交，默认不合入 test；如果人工确认 source branch 已有目标改动，可覆盖风险。",
-                "recovery_action": f"先让 Codex 完成实现提交，或确认 source branch/worktree 后执行 /coding merge-test {task_id} --accept-risk。",
+                "impact": "结构化验证报告显示实现尚未形成可追踪提交，默认不合入 test；如果人工确认目标改动已完成，可覆盖风险。",
+                "recovery_action": f"先让 Codex 完成实现提交，或确认目标改动后执行 /coding merge-test {task_id} --accept-risk。",
                 "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
             }
         readiness = report.get("merge_readiness") if isinstance(report.get("merge_readiness"), dict) else {}
@@ -5180,8 +5176,8 @@ class CodingOrchestrator:
                 "requires_acceptance": True,
                 "source_run_id": str(run.get("run_id") or ""),
                 "reason": "merge_readiness_missing",
-                "impact": "Codex report 缺少 merge_readiness，Hermes 不会推断能否继续。",
-                "recovery_action": f"续接 Codex 补齐 merge_readiness，或人工确认后执行 /coding merge-test {task_id} --accept-risk。",
+                "impact": "结构化验证结论缺失，系统不能自动判断是否可继续。",
+                "recovery_action": f"续接 Codex 补齐验证结论，或人工确认后执行 /coding merge-test {task_id} --accept-risk。",
                 "fallback_evidence": str((run.get("artifact") or {}).get("report") or ""),
             }
         if readiness.get("ready") is True:
@@ -5226,21 +5222,41 @@ class CodingOrchestrator:
     @staticmethod
     def _blocked_merge_test_risk_confirmation_message(task_id: str, assessment: dict[str, Any]) -> str:
         lines = [
-            f"[{task_id}] 当前是 blocked，但该阻断可由人工接受风险后继续 merge-test。",
-            f"风险原因：{assessment.get('reason') or 'unknown'}",
+            f"[{task_id}] 验证证据还不完整，但可以由你确认风险后继续 merge-test。",
             f"影响：{assessment.get('impact') or '缺少完整自动验证或结构化证据'}",
-            f"恢复动作：{assessment.get('recovery_action') or '建议补齐证据或重跑 implementation'}",
+            f"建议：{assessment.get('recovery_action') or '补齐证据或重跑 implementation'}",
         ]
         fallback = str(assessment.get("fallback_evidence") or "").strip()
         if fallback:
-            lines.append(f"替代证据：{fallback}")
+            lines.append(CodingOrchestrator._fallback_evidence_user_line())
         lines.extend(
             [
-                f"确认继续：/coding merge-test {task_id} --accept-risk",
-                "回复“确认”也会按上述命令继续；回复“取消”放弃。",
+                f"继续执行：/coding merge-test {task_id} --accept-risk",
+                "回复“确认”会继续；回复“取消”会放弃本次继续动作。",
             ]
         )
         return "\n".join(lines)
+
+    @staticmethod
+    def _blocked_merge_test_release_note(release: dict[str, Any]) -> str:
+        if release.get("accepted_risk"):
+            lines = ["说明：已按你的风险确认继续 merge-test。"]
+        else:
+            lines = ["说明：已基于 Codex 给出的验证说明继续 merge-test。"]
+        impact = str(release.get("impact") or "").strip()
+        if impact:
+            lines.append(f"影响：{impact}")
+        recovery_action = str(release.get("recovery_action") or "").strip()
+        if recovery_action:
+            lines.append(f"建议：{recovery_action}")
+        fallback = str(release.get("fallback_evidence") or "").strip()
+        if fallback:
+            lines.append(CodingOrchestrator._fallback_evidence_user_line())
+        return "\n".join(lines)
+
+    @staticmethod
+    def _fallback_evidence_user_line() -> str:
+        return "替代证据：已有运行记录可供核对。"
 
     @staticmethod
     def _merge_test_qa_risk_confirmation_message(
@@ -5250,10 +5266,10 @@ class CodingOrchestrator:
         include_reply_hint: bool = True,
     ) -> str:
         lines = [
-            f"[{task_id}] 最近 QA run 状态为 {qa_evidence.get('status')}，仍可由人工确认后继续 merge-test。",
+            f"[{task_id}] 最近一次 QA 证据不够完整，继续 merge-test 需要你确认。",
             f"影响：{qa_evidence.get('impact') or '缺少可信 QA 通过证据'}",
-            f"恢复动作：{qa_evidence.get('recovery_action') or '重新运行 QA 或人工确认风险'}",
-            f"确认继续：/coding merge-test {task_id} --confirm-qa-risk",
+            f"建议：{qa_evidence.get('recovery_action') or '重新运行 QA，或确认风险后继续'}",
+            f"继续执行：/coding merge-test {task_id} --confirm-qa-risk",
         ]
         if include_reply_hint:
             lines.append("回复“确认”继续，或回复“取消”放弃。")
@@ -5861,13 +5877,13 @@ class CodingOrchestrator:
         error = str(checkpoint.get("error") or "source worktree has uncommitted changes")
         artifacts.stderr.write_text(error, encoding="utf-8")
         if mode == RunMode.MERGE_TEST:
-            summary = "merge-test 未启动：source worktree 仍有未提交实现改动。"
+            summary = "merge-test 未启动：实现工作区仍有未提交改动。"
             risk = "merge-test 前 source branch 必须已经由 Codex 按 Git Flow/Conventional Commit 规范提交干净。"
             impact = "merge-test run 未执行，避免把未提交实现改动用流程状态信息提交。"
             recovery_action = "让 Codex 根据实际 diff 创建符合规范的实现提交后，重新触发 merge-test。"
             next_actions = ["让 Codex 提交当前 implementation 改动后重新触发 merge-test。"]
         else:
-            summary = "QA 未启动：source worktree 仍有未提交实现改动。"
+            summary = "QA 未启动：实现工作区仍有未提交改动。"
             risk = "QA 前 source branch 必须已经由 Codex 按 Git Flow/Conventional Commit 规范提交干净。"
             impact = "QA run 未执行，当前缺少自动测试证据。"
             recovery_action = "让 Codex 根据实际 diff 创建符合规范的实现提交后，重新运行 QA。"
