@@ -19,6 +19,13 @@ Hermes 负责流程和策略，Runner 负责执行，人负责关键判断。
 | Task Ledger | 记录任务事实 | 不沉淀长期知识 |
 | LLM Wiki | 沉淀可复用经验 | 不充当任务状态库 |
 
+## Codex 与 Hermes 的职责边界
+
+- Codex 负责：任务难度判断、执行策略、用户摘要、技术摘要、下一步动作、风险说明、分支候选名、实现是否落地、commit 信息、merge readiness。
+- Hermes/Python 负责：Task Ledger、状态机、manifest、report schema 校验、git clean-tree gate、diff guard、路径安全、权限/scope 检查、slash command 分发和 artifact 落盘。
+- Codex 输出不完整时，Hermes 不生成语义兜底；状态进入 `report_incomplete`，并续接 Codex 补齐结构化 report。
+- 飞书默认展示用户消息；run_id、artifact、source_status、recovery_action 等内部字段只进入调试信息。
+
 ## 2. 背景：为什么需要这套 workflow
 
 前情文档：[Codex + superpowers 开发流程](https://bestfulfill.feishu.cn/wiki/GB11wYOkzinUGBkTbp0cbHvanNh)。
