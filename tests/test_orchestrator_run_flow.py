@@ -124,6 +124,81 @@ class FakeRouter:
         return self.runner
 
 
+class MainFlowRunner(FakeRunner):
+    def run(self, *, run_id, run_dir, project_path, workspace_path, mode, timeout_seconds):
+        cwd = workspace_path if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST} else project_path
+        manifest_path = run_dir / "run-manifest.json"
+        manifest_at_start = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.exists() else {}
+        self.calls.append(
+            {
+                "run_id": run_id,
+                "run_dir": run_dir,
+                "project_path": project_path,
+                "workspace_path": workspace_path,
+                "mode": mode,
+                "timeout_seconds": timeout_seconds,
+                "manifest_at_start": manifest_at_start,
+            }
+        )
+        if mode == RunMode.IMPLEMENTATION:
+            (cwd / "src" / "app.ts").write_text("export const ok = 'implemented'\n", encoding="utf-8")
+        (run_dir / "stdout.log").write_text('{"type":"thread.started","thread_id":"019e-main-flow"}\n', encoding="utf-8")
+        (run_dir / "stderr.log").write_text("", encoding="utf-8")
+        summary_by_mode = {
+            RunMode.PLAN_ONLY: "计划已整理好。",
+            RunMode.IMPLEMENTATION: "实现已完成。",
+            RunMode.MERGE_TEST: "测试分支合入已完成。",
+        }
+        summary = summary_by_mode.get(mode, "执行完成。")
+        (run_dir / "summary.md").write_text(summary, encoding="utf-8")
+        report = {
+            "runner": self.name,
+            "status": AgentRunStatus.SUCCEEDED.value,
+            "mode": mode.value,
+            "summary_markdown": summary,
+            "modified_files": [],
+            "test_commands": ["rtk pnpm test"],
+            "test_results": [{"command": "rtk pnpm test", "status": "passed"}],
+            "risks": [],
+            "verification_limitations": [],
+            "human_required": False,
+            "next_actions": [],
+            "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
+            "tested_commit": "abc123",
+            "user_facing_summary": summary,
+            "technical_summary": f"{mode.value} completed in smoke runner.",
+            "implementation_landed": mode != RunMode.PLAN_ONLY,
+            "commit_sha": "abc123" if mode != RunMode.PLAN_ONLY else "",
+            "changed_files_summary": ["src/app.ts: 主流程 smoke 修改"] if mode == RunMode.IMPLEMENTATION else [],
+            "branch_slug_candidate": "order-status-filter",
+            "execution_policy_decision": {
+                "route": "standard_change",
+                "planning": "plan_only",
+                "verification": "standard",
+                "reasoning_summary": "标准需求先规划再实现。",
+            },
+            "merge_readiness": {
+                "ready": mode in {RunMode.IMPLEMENTATION, RunMode.MERGE_TEST},
+                "risk_level": "low",
+                "risk_note": "",
+                "required_confirmation": False,
+            },
+        }
+        (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+        artifacts = ArtifactSet(
+            run_dir=run_dir,
+            input_prompt=run_dir / "input-prompt.md",
+            manifest=run_dir / "run-manifest.json",
+            stdout=run_dir / "stdout.log",
+            stderr=run_dir / "stderr.log",
+            events=run_dir / "events.jsonl",
+            report=run_dir / "report.json",
+            summary=run_dir / "summary.md",
+            diff=run_dir / "diff.patch",
+        )
+        return RunResult(status=AgentRunStatus.SUCCEEDED.value, exit_code=0, artifacts=artifacts, report=report)
+
+
 class FakeBackgroundQueuedRunner(FakeRunner):
     def run(self, *, run_id, run_dir, project_path, workspace_path, mode, timeout_seconds):
         run_dir.mkdir(parents=True, exist_ok=True)
@@ -320,6 +395,83 @@ manual_only
 
 
 class OrchestratorRunFlowTest(unittest.TestCase):
+    def test_gateway_standard_task_flow_reaches_done(self):
+        class SyncBackgroundOrchestrator(CodingOrchestrator):
+            def _start_background_plan_only(self, task_id, gateway, event):
+                self._run_plan_only_and_notify(task_id, gateway, event, loop=None)
+
+            def _start_background_implementation(self, task_id, gateway, event):
+                self._run_implementation_and_notify(task_id, gateway, event, loop=None)
+
+            def _start_background_merge_test(self, task_id, gateway, event):
+                self._run_merge_test_and_notify(task_id, gateway, event, loop=None)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            runner = MainFlowRunner()
+            orchestrator = SyncBackgroundOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(
+                    ProjectRegistry(
+                        [
+                            {
+                                "name": "order-system",
+                                "aliases": ["订单系统"],
+                                "path": str(project),
+                                "keywords": ["订单", "状态筛选"],
+                            }
+                        ]
+                    )
+                ),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(runner),
+            )
+            gateway = FakeGateway()
+
+            created = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("/coding task 订单系统订单列表新增状态筛选"),
+                gateway=gateway,
+            )
+            task_id = _task_id_from_message(gateway.messages[0])
+            task_after_plan = ledger.get_task(task_id)
+            implemented = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(f"/coding implement {task_id}"),
+                gateway=gateway,
+            )
+            merged = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(f"/coding merge-test {task_id}"),
+                gateway=gateway,
+            )
+            completed = orchestrator.handle_gateway_event(
+                FakeGatewayEvent(f"/coding complete {task_id}"),
+                gateway=gateway,
+            )
+            task = ledger.get_task(task_id)
+            modes = [call["mode"] for call in runner.calls]
+
+            self.assertEqual(created["reason"], "handled_by_coding_orchestration")
+            self.assertEqual(implemented["reason"], "handled_by_coding_orchestration")
+            self.assertEqual(merged["reason"], "handled_by_coding_orchestration")
+            self.assertEqual(completed["reason"], "handled_by_coding_orchestration")
+            self.assertEqual(task_after_plan["status"], TaskStatus.PLANNED.value)
+            self.assertEqual(task_after_plan["phase"], TaskPhase.PLAN_READY.value)
+            self.assertEqual(task["status"], TaskStatus.DONE.value)
+            self.assertEqual(task["phase"], TaskPhase.DONE.value)
+            self.assertEqual(modes, [RunMode.PLAN_ONLY, RunMode.IMPLEMENTATION, RunMode.MERGE_TEST])
+            self.assertEqual(task["agent_runs"][-1]["mode"], RunMode.MERGE_TEST.value)
+            self.assertEqual(task["merge_records"][-1]["type"], "merge_test_run")
+            self.assertEqual(task["human_decisions"][-1]["type"], "task_completed")
+            self.assertIn("已记录新任务", gateway.messages[0])
+            self.assertTrue(any("计划已生成" in message for message in gateway.messages))
+            self.assertTrue(any("实现已完成" in message for message in gateway.messages))
+            self.assertTrue(any("/coding complete" in message for message in gateway.messages))
+
     def test_transition_task_status_updates_ledger_and_kanban_projection(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -653,8 +805,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             self.assertEqual(result["action"], "rewrite")
             self.assertEqual(result["reason"], "coding_rewrite_handoff_to_hermes")
-            self.assertIn("我会把这句话交给 Hermes 主 agent 处理", result["text"])
-            self.assertIn("用户原话：帮我看一下", result["text"])
+            self.assertIn("我还不能确定这句话要创建或操作哪个开发任务", result["text"])
+            self.assertIn("原话：帮我看一下", result["text"])
             self.assertIn("可用入口：/coding task --project", result["text"])
             self.assertNotIn("上下文 JSON", result["text"])
             self.assertNotIn("intent", result["text"])
@@ -707,7 +859,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             self.assertEqual(result["action"], "rewrite")
             self.assertEqual(result["reason"], "coding_rewrite_handoff_to_hermes")
-            self.assertIn("插件没有创建 task，也没有启动 Codex", result["text"])
+            self.assertIn("没有创建任务，也没有启动执行", result["text"])
             self.assertNotIn("上下文 JSON", result["text"])
             self.assertIn("task_active", result["text"])
             self.assertIn("优化订单列表查询", result["text"])
@@ -875,7 +1027,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(confirmed["action"], "skip")
             self.assertEqual(confirmed["reason"], "coding_rewrite_confirmed")
             self.assertIsNone(ledger.get_task("task_delete"))
-            self.assertIn("已删除 coding task", gateway.messages[-1])
+            self.assertIn("已删除开发任务", gateway.messages[-1])
 
     def test_gateway_pending_action_confirmation_preempts_rewrite(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -932,7 +1084,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(orchestrator.auto_merge_test_started[0][0], "task_1")
             task = ledger.get_task("task_1")
             self.assertEqual(task["human_decisions"][-1]["type"], "pending_action_confirmation")
-            self.assertIn("已开始 merge-test run", gateway.messages[-1])
+            self.assertIn("已开始 merge-test", gateway.messages[-1])
 
     def test_gateway_confirmation_uses_latest_merge_test_human_required_run(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1048,7 +1200,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(result["reason"], "coding_confirmation_active_run")
             self.assertEqual(rewriter.calls, [])
             self.assertEqual(orchestrator.auto_implementation_started, [])
-            self.assertIn("active_run_id：run_active", gateway.messages[-1])
+            self.assertIn("当前执行：run_active", gateway.messages[-1])
 
     def test_gateway_pending_action_confirmation_rejects_cancelled_task(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1131,7 +1283,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(result["reason"], "coding_rewrite_executed")
             self.assertEqual(orchestrator.auto_started, [])
             self.assertEqual(ledger.list_recent_tasks(limit=5), [])
-            self.assertIn("当前没有未结束 coding task", gateway.messages[-1])
+            self.assertIn("当前没有未结束开发任务", gateway.messages[-1])
 
     def test_gateway_task_list_shows_status_id_project_and_description(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1235,7 +1387,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             task = ledger.get_task("task_rewrite")
             self.assertEqual(task["human_decisions"][-1]["type"], "implementation_feedback")
             self.assertEqual(task["human_decisions"][-1]["text"], feedback)
-            self.assertIn("已收到 bugfix 反馈", gateway.messages[-1])
+            self.assertIn("已收到修复反馈", gateway.messages[-1])
 
     def test_gateway_coding_mode_natural_language_rewrite_covers_help_use_status_and_exit(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1287,7 +1439,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             self.assertEqual(use_result["reason"], "coding_rewrite_executed")
             self.assertEqual(orchestrator._active_task_id_for_event(use_event), "task_nav")
-            self.assertIn("已切换当前 coding task", gateway.messages[-1])
+            self.assertIn("已切换当前开发任务", gateway.messages[-1])
 
             orchestrator.command_rewriter = FakeCommandRewriter(
                 _rewrite_response(
@@ -1302,7 +1454,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             self.assertEqual(status_result["reason"], "coding_rewrite_executed")
             self.assertIn("[task_nav] 状态：已规划(planned)", gateway.messages[-1])
-            self.assertIn("source_branch：未创建", gateway.messages[-1])
+            self.assertIn("源分支：未创建", gateway.messages[-1])
 
             orchestrator.command_rewriter = FakeCommandRewriter(
                 _rewrite_response("/coding exit", intent="exit_task", confidence=0.98, risk_level="write")
@@ -1506,7 +1658,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(run_result["reason"], "coding_rewrite_executed")
             self.assertEqual(orchestrator.auto_plan_started[-1][0], "task_run")
             self.assertEqual(fake_runner.calls, [])
-            self.assertIn("已开始 plan-only", gateway.messages[-1])
+            self.assertIn("已开始整理计划", gateway.messages[-1])
 
             orchestrator.command_rewriter = FakeCommandRewriter(
                 _rewrite_response(
@@ -1521,7 +1673,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             self.assertEqual(implement_result["reason"], "coding_rewrite_executed")
             self.assertEqual(orchestrator.auto_implementation_started[-1][0], "task_impl")
-            self.assertIn("进入 implementation", gateway.messages[-1])
+            self.assertIn("开始实现", gateway.messages[-1])
 
             orchestrator.command_rewriter = FakeCommandRewriter(
                 _rewrite_response(
@@ -1569,7 +1721,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(merge_result["reason"], "coding_rewrite_executed")
             self.assertEqual(orchestrator.auto_merge_test_started[-1][0], "task_merge")
             self.assertEqual(task_merge["merge_records"][-1]["type"], "merge_test_requested")
-            self.assertIn("merge-test run", gateway.messages[-1])
+            self.assertIn("已开始 merge-test", gateway.messages[-1])
 
             orchestrator.command_rewriter = FakeCommandRewriter(
                 _rewrite_response(
@@ -1832,7 +1984,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIn("/coding project list", text)
             self.assertIn("/coding project clear", text)
             self.assertIn("/coding delete <task_id>", text)
-            self.assertIn("普通自然语言不会进入 plugin", text)
+            self.assertIn("普通自然语言不会自动创建开发任务", text)
 
     def test_gateway_project_commands_manage_active_project_without_creating_task(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -1874,15 +2026,15 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(clear_result["action"], "skip")
             self.assertEqual(status_after_clear["action"], "skip")
             self.assertIn("已初始化项目", gateway.messages[-5])
-            self.assertIn("active_project", gateway.messages[-5])
+            self.assertIn("当前项目", gateway.messages[-5])
             self.assertIn("bps-admin", gateway.messages[-4])
             self.assertIn(str(project.resolve()), gateway.messages[-4])
             self.assertIn("初始化质量：", gateway.messages[-4])
             self.assertIn("质量门缺口：", gateway.messages[-4])
             self.assertIn("当前已知项目", gateway.messages[-3])
             self.assertIn("当前", gateway.messages[-3])
-            self.assertIn("已清除当前 active_project", gateway.messages[-2])
-            self.assertIn("当前没有绑定 active_project", gateway.messages[-1])
+            self.assertIn("已清除当前项目", gateway.messages[-2])
+            self.assertIn("当前没有绑定项目", gateway.messages[-1])
             self.assertEqual(ledger.list_recent_tasks(limit=5), [])
 
     def test_active_project_is_used_when_rewrite_creates_task_without_project_flag(self):
@@ -2404,7 +2556,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             message = orchestrator._status_for_event(task_id, FakeGatewayEvent(""))
             task = ledger.get_task(task_id)
 
-            self.assertIn("已自动回收后台 run：run_done", message)
+            self.assertIn("已自动回收后台执行：run_done", message)
             self.assertIn("状态：受阻(blocked)", message)
             self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
             self.assertEqual(task["phase"], TaskPhase.BLOCKED.value)
@@ -2509,7 +2661,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             task = ledger.get_task(task_id)
             reconciled_report = json.loads(report_json.read_text(encoding="utf-8"))
 
-            self.assertIn("已自动回收后台 run：run_done", message)
+            self.assertIn("已自动回收后台执行：run_done", message)
             self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
             self.assertEqual(task["phase"], TaskPhase.BLOCKED.value)
             self.assertEqual(task["agent_runs"][0]["status"], AgentRunStatus.BLOCKED.value)
@@ -2889,7 +3041,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["source"]["gateway_source"]["chat_id"], "chat_1")
             self.assertEqual(task["phase"], "plan_ready")
             self.assertEqual(orchestrator.auto_implementation_started[0][0], task_id)
-            self.assertIn("进入 implementation", gateway.messages[-1])
+            self.assertIn("开始实现", gateway.messages[-1])
 
     def test_gateway_confirmation_before_plan_ready_is_captured_but_does_not_implement(self):
         class RecordingOrchestrator(CodingOrchestrator):
@@ -2951,7 +3103,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 task["human_decisions"][-1]["type"],
                 "implementation_confirmation_before_plan_ready",
             )
-            self.assertIn("必须先完成 Codex plan-only", gateway.messages[-1])
+            self.assertIn("必须先完成计划", gateway.messages[-1])
 
     def test_gateway_simple_ui_task_starts_plan_only_not_keyword_implementation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3110,7 +3262,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             task_b_loaded = ledger.get_task(task_b)
             self.assertEqual(selected["action"], "skip")
             self.assertEqual(captured["action"], "skip")
-            self.assertIn("已切换当前 coding task", gateway.messages[-2])
+            self.assertIn("已切换当前开发任务", gateway.messages[-2])
             self.assertIn("order_tags", task_a_loaded["requirement_summary"])
             self.assertNotIn("order_tags", task_b_loaded["requirement_summary"])
 
@@ -3173,7 +3325,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(wiki.find_by_source_task(task_id), [])
             self.assertFalse((root / "runs" / task_id).exists())
             self.assertFalse((root / "workspaces" / task_id).exists())
-            self.assertIn("已删除 coding task", gateway.messages[-1])
+            self.assertIn("已删除开发任务", gateway.messages[-1])
 
     def test_gateway_continue_command_for_recent_planned_task_replans(self):
         class RecordingOrchestrator(CodingOrchestrator):
@@ -3233,7 +3385,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertIn("/orderFlow", task["requirement_summary"])
             self.assertIn("bps-admin-api-docs", task["requirement_summary"])
             self.assertEqual(task["human_decisions"][-1]["type"], "plan_feedback")
-            self.assertIn("重新进入 plan-only", gateway.messages[-1])
+            self.assertIn("重新整理计划", gateway.messages[-1])
 
     def test_gateway_continue_command_accepts_plain_plan_context_note(self):
         class RecordingOrchestrator(CodingOrchestrator):
@@ -3289,7 +3441,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(orchestrator.auto_plan_started[-1][0], task_id)
             self.assertIn("order_tags", task["requirement_summary"])
             self.assertEqual(task["human_decisions"][-1]["type"], "plan_feedback")
-            self.assertIn("重新进入 plan-only", gateway.messages[-1])
+            self.assertIn("重新整理计划", gateway.messages[-1])
 
     def test_gateway_bugfix_feedback_after_review_starts_implementation(self):
         class RecordingOrchestrator(CodingOrchestrator):
@@ -3349,7 +3501,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(orchestrator.auto_implementation_started[0][0], task_id)
             self.assertIn("order_tags后端是string", task["requirement_summary"])
             self.assertEqual(task["human_decisions"][-1]["type"], "implementation_feedback")
-            self.assertIn("进入 implementation 修复", gateway.messages[-1])
+            self.assertIn("开始修复", gateway.messages[-1])
 
     def test_gateway_bugfix_after_blocked_plan_is_routed_back_to_plan_only(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3410,8 +3562,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(orchestrator.auto_plan_started[-1][0], task_id)
             self.assertEqual(task["human_decisions"][-1]["type"], "plan_feedback")
             self.assertIn("skus", task["requirement_summary"])
-            self.assertIn("上一次 plan-only 仍是 blocked", gateway.messages[-1])
-            self.assertIn("不会直接进入 implementation", gateway.messages[-1])
+            self.assertIn("上一次计划仍受阻", gateway.messages[-1])
+            self.assertIn("不会直接开始实现", gateway.messages[-1])
 
     def test_gateway_bugfix_plan_supplement_before_implementation_replans(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3465,7 +3617,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["phase"], TaskPhase.PLAN_REVISION.value)
             self.assertEqual(task["human_decisions"][-1]["type"], "plan_feedback")
             self.assertIn("order_tags", task["requirement_summary"])
-            self.assertIn("重新进入 plan-only", gateway.messages[-1])
+            self.assertIn("重新整理计划", gateway.messages[-1])
 
     def test_gateway_bugfix_feedback_reopens_merged_test_task_for_implementation(self):
         class SyncImplementationOrchestrator(CodingOrchestrator):
@@ -3512,7 +3664,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["status"], TaskStatus.READY_FOR_MERGE_TEST.value)
             self.assertEqual(task["phase"], TaskPhase.READY_TO_MERGE_TEST.value)
             self.assertEqual(task["human_decisions"][-1]["type"], "implementation_feedback")
-            self.assertIn("进入 implementation 修复", gateway.messages[-1])
+            self.assertIn("开始修复", gateway.messages[-1])
 
     def test_gateway_bugfix_with_image_adds_media_to_incremental_prompt(self):
         class SyncOrchestrator(CodingOrchestrator):
@@ -3692,7 +3844,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["human_decisions"][-1]["type"], "requirement_change")
             self.assertEqual(task["phase"], TaskPhase.PLAN_REVISION.value)
             self.assertIn("需求变更", gateway.messages[-1])
-            self.assertIn("变更影响分析", gateway.messages[-1])
+            self.assertIn("变更影响", gateway.messages[-1])
 
     def test_gateway_change_with_image_adds_media_to_plan_prompt(self):
         class SyncOrchestrator(CodingOrchestrator):
@@ -3894,8 +4046,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
         )
 
         summary = message.split("调试信息：", 1)[0]
-        self.assertIn("旧 run 已归档", message)
-        self.assertIn("任务期间已有更新 run", summary)
+        self.assertIn("旧执行已归档", message)
+        self.assertIn("任务期间已有更新执行", summary)
         self.assertNotIn("run_newer", message)
         self.assertNotIn("调试信息", message)
         self.assertNotIn("artifact=", message)
@@ -4014,7 +4166,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(captured["action"], "skip")
             self.assertEqual(orchestrator.auto_plan_started[-1][0], task_id)
             self.assertEqual(task["human_decisions"][-1]["type"], "plan_feedback")
-            self.assertIn("重新进入 plan-only", gateway.messages[-1])
+            self.assertIn("重新整理计划", gateway.messages[-1])
 
     def test_strong_implementation_confirmation_without_task_is_not_sent_to_main_agent(self):
         class RecordingOrchestrator(CodingOrchestrator):
@@ -4886,7 +5038,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                         "risks": [],
                         "verification_limitations": [],
                         "human_required": False,
-                        "next_actions": ["确认后进入 implementation。"],
+                        "next_actions": ["确认后开始实现。"],
                         "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
                         "tested_commit": "",
                     }
@@ -4978,7 +5130,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                     {
                         "status": "success",
                         "risks": [],
-                        "next_actions": ["确认后进入 implementation。"],
+                        "next_actions": ["确认后开始实现。"],
                     },
                     ensure_ascii=False,
                 ),
@@ -6528,8 +6680,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             message = orchestrator.command_prepare_merge_test("task_1")
 
-            self.assertIn("续接 Codex session", message)
-            self.assertIn("merge-to-test", message)
+            self.assertIn("上一次实现上下文", message)
+            self.assertIn("merge-test", message)
             self.assertEqual(ledger.get_task("task_1")["status"], "ready_for_merge_test")
             self.assertEqual(ledger.get_task("task_1")["phase"], "ready_to_merge_test")
 
@@ -8192,7 +8344,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             message = orchestrator.command_coding_restore("task_1")
 
-            self.assertIn("不需要 restore", message)
+            self.assertIn("不需要恢复", message)
             self.assertEqual(ledger.get_task("task_1")["status"], TaskStatus.PLANNED.value)
 
     def test_start_run_rejects_cancelled_task(self):
@@ -8819,7 +8971,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(orchestrator.auto_qa_started[0][0], "task_qa")
             self.assertEqual(task["human_decisions"][-1]["type"], "qa_requested")
             self.assertIn("已开始 QA", gateway.messages[-1])
-            self.assertIn("测试不会自动进入", gateway.messages[-1])
+            self.assertIn("本次 QA 由人工显式触发", gateway.messages[-1])
 
     def test_targeted_implementation_notification_does_not_auto_run_heavy_qa(self):
         class RecordingOrchestrator(CodingOrchestrator):
@@ -9120,7 +9272,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             result = orchestrator.handle_gateway_event(event, gateway=gateway)
 
             self.assertEqual(result["action"], "skip")
-            self.assertIn("[task_run] 已开始 plan-only。", gateway.messages[-1])
+            self.assertIn("[task_run] 已开始整理计划。", gateway.messages[-1])
             self.assertIn("完成后会自动回传结果", gateway.messages[-1])
             self.assertEqual(orchestrator.auto_plan_started, [("task_run", gateway, event)])
             self.assertEqual(fake_runner.calls, [])
@@ -9162,8 +9314,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             result = orchestrator.handle_gateway_event(FakeGatewayEvent("/coding run task_run"), gateway=gateway)
 
             self.assertEqual(result["action"], "skip")
-            self.assertIn("当前已有 run 正在执行", gateway.messages[-1])
-            self.assertIn("active_run_id：run_active", gateway.messages[-1])
+            self.assertIn("当前已有执行正在进行", gateway.messages[-1])
+            self.assertIn("当前执行：run_active", gateway.messages[-1])
             self.assertEqual(orchestrator.auto_plan_started, [])
             self.assertEqual(fake_runner.calls, [])
 
@@ -9243,7 +9395,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             orchestrator.start_run(task_id, mode=RunMode.PLAN_ONLY, timeout_seconds=5)
             message = orchestrator.command_coding_implement(task_id)
 
-            self.assertIn("必须先完成 Codex plan-only", blocked)
+            self.assertIn("必须先完成计划", blocked)
             self.assertIn("实现已完成", message)
             self.assertIn("/coding merge-test", message)
             self.assertEqual(fake_runner.calls[0]["mode"], RunMode.PLAN_ONLY)

@@ -5,6 +5,7 @@ from coding_orchestration.models import (
     RunMode,
     TaskStatus,
     agent_run_status_details,
+    apply_failure_type_to_run_details,
     normalize_agent_run_status,
     task_status_display,
     task_status_label_zh,
@@ -234,6 +235,29 @@ class TaskStateMachineTest(unittest.TestCase):
                 self.assertEqual(detail["raw_status"], raw_status)
                 for key, value in expected_fields.items():
                     self.assertEqual(detail[key], value)
+
+    def test_failure_type_only_forces_failed_for_runner_failures(self):
+        blocked = apply_failure_type_to_run_details(
+            agent_run_status_details(AgentRunStatus.BLOCKED.value),
+            "report_incomplete",
+        )
+        succeeded = apply_failure_type_to_run_details(
+            agent_run_status_details(AgentRunStatus.SUCCEEDED.value),
+            "report_incomplete",
+        )
+        timeout = apply_failure_type_to_run_details(
+            agent_run_status_details(AgentRunStatus.BLOCKED.value),
+            "timeout",
+        )
+        empty = apply_failure_type_to_run_details(
+            agent_run_status_details(AgentRunStatus.SUCCEEDED.value),
+            "",
+        )
+
+        self.assertEqual(blocked["status"], AgentRunStatus.BLOCKED.value)
+        self.assertEqual(succeeded["status"], AgentRunStatus.BLOCKED.value)
+        self.assertEqual(timeout["status"], AgentRunStatus.FAILED.value)
+        self.assertEqual(empty["status"], AgentRunStatus.SUCCEEDED.value)
 
     def test_task_status_has_chinese_display_label(self):
         self.assertEqual(task_status_label_zh(TaskStatus.BLOCKED), "受阻")

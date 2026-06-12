@@ -223,7 +223,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "execution",
         "start_runner",
         ("task_id",),
-        "人工确认 plan 后，启动 GitOps implementation run。",
+        "人工确认计划后，开始实现。",
         ("计划确认了，开始开发",),
     ),
     CodingCommand(

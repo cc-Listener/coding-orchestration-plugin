@@ -493,7 +493,7 @@ class CodingOrchestrator:
                 *command_help_lines(),
                 "",
                 "边界",
-                "- 默认普通自然语言不会进入 plugin；发送“进入coding”后，本会话自然语言会按 coding 指令处理，发送“退出coding”关闭。",
+                "- 默认普通自然语言不会自动创建开发任务；发送“进入coding”后，本会话自然语言会按 coding 指令处理，发送“退出coding”关闭。",
             ]
         )
 
@@ -509,7 +509,7 @@ class CodingOrchestrator:
         entries = [
             "**Coding Orchestration Plugin Commands**:",
             *command_listing_lines(),
-            "说明：默认普通自然语言不会进入 plugin；发送“进入coding”后，本会话自然语言会按 coding 指令处理。",
+            "说明：默认普通自然语言不会自动创建开发任务；发送“进入coding”后，本会话自然语言会按 coding 指令处理。",
         ]
         hermes_lines = self._hermes_gateway_command_lines()
         if hermes_lines:
@@ -550,33 +550,33 @@ class CodingOrchestrator:
         statuses = self._active_coding_statuses()
         tasks = self.ledger.list_recent_tasks(statuses=statuses, limit=20)
         if not tasks:
-            return "当前没有未结束 coding task。"
+            return "当前没有未结束开发任务。"
         return self._format_task_list(tasks)
 
     def command_coding_project_list(self, raw_args: str = "") -> str:
         return self._format_project_list(active_project=None)
 
     def command_coding_project_init(self, raw_args: str = "") -> str:
-        return "命令模式缺少飞书来源，无法建立 active_project；请在飞书里使用 /coding project init <project_path_or_name>。"
+        return "命令模式缺少飞书来源，无法绑定当前项目；请在飞书里使用 /coding project init <project_path_or_name>。"
 
     def command_coding_project_use(self, raw_args: str = "") -> str:
-        return "命令模式缺少飞书来源，无法建立 active_project；请在飞书里使用 /coding project use <project_name>。"
+        return "命令模式缺少飞书来源，无法绑定当前项目；请在飞书里使用 /coding project use <project_name>。"
 
     def command_coding_project_status(self, raw_args: str = "") -> str:
-        return "命令模式缺少飞书来源，无法读取当前会话 active_project；请在飞书里使用 /coding project status。"
+        return "命令模式缺少飞书来源，无法读取当前项目；请在飞书里使用 /coding project status。"
 
     def command_coding_project_clear(self, raw_args: str = "") -> str:
-        return "命令模式缺少飞书来源，无法清除当前会话 active_project；请在飞书里使用 /coding project clear。"
+        return "命令模式缺少飞书来源，无法清除当前项目；请在飞书里使用 /coding project clear。"
 
     def command_coding_use(self, raw_args: str) -> str:
         task_id = raw_args.strip()
         if not task_id:
-            return "命令模式缺少飞书来源，无法建立 active binding；请在飞书里使用 /coding use <task_id>。"
+            return "命令模式缺少飞书来源，无法绑定当前任务；请在飞书里使用 /coding use <task_id>。"
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
         return (
-            f"[{task_id}] 任务存在，但当前命令入口没有 gateway source，未建立 active binding。\n"
+            f"[{task_id}] 任务存在，但当前命令入口没有飞书来源，未绑定当前任务。\n"
             "请在飞书会话中使用 /coding use <task_id> 完成任务切换。"
         )
 
@@ -584,13 +584,13 @@ class CodingOrchestrator:
         return "命令模式缺少飞书来源，无法退出指定会话；请在飞书里使用 /coding exit。"
 
     def command_coding_continue(self, raw_args: str) -> str:
-        return "命令模式缺少 active task 上下文；请在飞书里使用 /coding continue <反馈>，或使用 /coding run <task_id>。"
+        return "当前会话没有绑定任务；请在飞书里使用 /coding continue <反馈>，或使用 /coding run <task_id>。"
 
     def command_coding_change(self, raw_args: str) -> str:
-        return "命令模式缺少 active task 上下文；请在飞书里使用 /coding change <反馈>。"
+        return "当前会话没有绑定任务；请在飞书里使用 /coding change <反馈>。"
 
     def command_coding_bugfix(self, raw_args: str) -> str:
-        return "命令模式缺少 active task 上下文；请在飞书里使用 /coding bugfix <反馈>，或使用 /coding implement <task_id>。"
+        return "当前会话没有绑定任务；请在飞书里使用 /coding bugfix <反馈>，或使用 /coding implement <task_id>。"
 
     def command_coding_status(self, raw_args: str) -> str:
         task_id = raw_args.strip()
@@ -604,7 +604,7 @@ class CodingOrchestrator:
             task = self.ledger.get_task(task_id) or task
             return "\n".join(
                 [
-                    f"[{task_id}] 已自动回收后台 run：{reconciled['run_id']}",
+                    f"[{task_id}] 已自动回收后台执行：{reconciled['run_id']}",
                     self._format_task_status_details(task, include_branch=False),
                 ]
             )
@@ -637,7 +637,7 @@ class CodingOrchestrator:
         if not task:
             return f"未找到任务：{task_id}"
         if not self._task_is_cancelled(task):
-            return f"[{task_id}] 当前状态是 {task_status_display(task.get('status'))}，不需要 restore。"
+            return f"[{task_id}] 当前状态是 {task_status_display(task.get('status'))}，不需要恢复。"
         status, phase, reason = self._restore_state_for_cancelled_task(task)
         self._transition_task_status(task_id, status, phase=phase, reason=reason)
         self.ledger.update_task_session(
@@ -662,10 +662,10 @@ class CodingOrchestrator:
             },
         )
         return (
-            f"[{task_id}] 已恢复误取消的 coding task。\n"
+            f"[{task_id}] 已恢复误取消的开发任务。\n"
             f"状态：{task_status_display(status)}\n"
             f"恢复依据：{reason}\n"
-            "说明：restore 只恢复 Task Ledger 状态，不会自动启动 Codex。"
+            "说明：本次只恢复任务状态，不会自动启动执行。"
         )
 
     def command_coding_delete(self, raw_args: str) -> str:
@@ -704,17 +704,17 @@ class CodingOrchestrator:
         if not deleted:
             return f"未找到任务：{task_id}"
         lines = [
-            f"[{task_id}] 已删除 coding task。",
-            "已清理 Task Ledger 记录和 active binding。",
+            f"[{task_id}] 已删除开发任务。",
+            "已清理任务记录和当前会话绑定。",
         ]
         if purge_wiki:
-            lines.append(f"已清理 LLM Wiki task 关联文档：{deleted_wiki_docs} 条。")
+            lines.append(f"已清理任务关联上下文：{deleted_wiki_docs} 条。")
         else:
-            lines.append("已按 --keep-wiki 保留 LLM Wiki task 关联文档。")
+            lines.append("已按 --keep-wiki 保留任务关联上下文。")
         if purge_artifacts:
-            lines.append(f"已清理本地 artifacts：{len(cleaned_paths)} 个路径。")
+            lines.append(f"已清理本地执行文件：{len(cleaned_paths)} 个路径。")
         else:
-            lines.append("已按 --keep-artifacts 保留本地 run/workspace artifacts。")
+            lines.append("已按 --keep-artifacts 保留本地执行和工作区文件。")
         return "\n".join(lines)
 
     def _purge_task_artifacts(self, task: dict[str, Any]) -> list[str]:
@@ -804,7 +804,7 @@ class CodingOrchestrator:
         if task["status"] not in {
             TaskStatus.READY_FOR_MERGE_TEST.value,
         } and status_update is None:
-            return f"[{task_id}] 当前状态是 {task['status']}，还不能准备 merge-to-test。"
+            return f"[{task_id}] 当前状态是 {task_status_display(task.get('status'))}，还不能准备 merge-test。"
         if status_update is not None:
             self._transition_task_status(
                 task_id,
@@ -828,7 +828,7 @@ class CodingOrchestrator:
         return (
             f"[{task_id}] 已切换为等待人工执行 merge test。\n"
             f"项目目录：{task.get('project_path') or '未确定'}\n"
-            f"下一步：确认后发送 /coding merge-test {task_id}，让 Hermes 续接 Codex session 执行 merge-to-test；发布测试环境仍然人工。"
+            f"下一步：确认后发送 /coding merge-test {task_id}，系统会基于上一次实现上下文执行 merge-test；发布测试环境仍然人工。"
         )
 
     def _status_update_for_prepare_merge_test(
@@ -1878,9 +1878,9 @@ class CodingOrchestrator:
             self._clear_pending_rewrite_for_event(event)
             self._clear_pending_action_for_event(event)
             message = (
-                "已退出 coding mode。本会话后续自然语言不会再进入 coding plugin。"
+                "已退出 coding mode。本会话后续自然语言不会再按开发任务指令处理。"
                 if was_enabled
-                else "当前未开启 coding mode。本会话自然语言不会进入 coding plugin。"
+                else "当前未开启 coding mode。本会话自然语言不会自动创建或推进开发任务。"
             )
             self._reply_if_possible(gateway, event, message)
             return {"action": "skip", "reason": "coding_mode_exited"}
@@ -2055,14 +2055,14 @@ class CodingOrchestrator:
         if raw_status == TaskStatus.CANCELLED.value:
             return f"只能使用 /coding restore {task_id} 恢复误取消任务。"
         if status == TaskStatus.RUNNING.value:
-            return "已有 run 正在执行；不要启动新 run，先查看当前 run 或等待完成。"
+            return "已有执行正在进行；不要启动新执行，先查看当前执行或等待完成。"
         if not task.get("project_path"):
             if self._active_project_for_event(event):
                 return (
-                    f"task 缺项目但当前会话有 active_project；可使用 /coding run {task_id} "
-                    "让插件先回填 active_project 再启动 plan-only。"
+                    f"任务缺少项目，但当前会话已有项目；可使用 /coding run {task_id} "
+                    "自动补齐项目并重新整理计划。"
                 )
-            return f"task 缺项目；先使用 /coding continue <项目或来源补充>。"
+            return f"任务缺少项目；先使用 /coding continue <项目或来源补充>。"
         if status == TaskStatus.NEEDS_HUMAN.value:
             return f"先使用 /coding continue <项目或来源补充> 补齐人工信息。"
         if status == TaskStatus.PLANNED.value and phase in {TaskPhase.PLAN_READY.value, TaskPhase.PLAN_APPROVED.value}:
@@ -2070,7 +2070,7 @@ class CodingOrchestrator:
         if status == TaskStatus.PLANNED.value:
             return f"计划仍需刷新或确认；使用 /coding run {task_id}。"
         if status == TaskStatus.FAILED.value:
-            return f"项目已确定；使用 /coding run {task_id} 重跑 plan-only，或查看 /coding status {task_id}。"
+            return f"项目已确定；使用 /coding run {task_id} 重新整理计划，或查看 /coding status {task_id}。"
         if status == TaskStatus.BLOCKED.value:
             return (
                 f"先查看 /coding status {task_id} 的影响和建议；"
@@ -2205,10 +2205,9 @@ class CodingOrchestrator:
     ) -> str:
         context = self._coding_rewrite_context(text, event)
         lines = [
-            "我会把这句话交给 Hermes 主 agent 处理；插件没有创建 task，也没有启动 Codex。",
+            "我还不能确定这句话要创建或操作哪个开发任务，所以没有创建任务，也没有启动执行。",
             "",
-            "给 Hermes 主 agent 的处理上下文（不要直接转发给用户）：",
-            f"- 用户原话：{text}",
+            f"原话：{text}",
             f"- 需要补充：{self._rewrite_rejection_user_text(rejection)}",
         ]
         active_project = context.get("active_project")
@@ -2249,8 +2248,8 @@ class CodingOrchestrator:
         lines.extend(
             [
                 "- 可用入口：/coding task --project <项目名> <完整需求>、/coding run <task_id>、/coding implement <task_id>、/coding status <task_id>。",
-                "- 处理要求：如果这不是 coding task 操作，按普通 Hermes 对话回答；如果信息不足，请要求用户补充项目、任务目标或确认标准 /coding 命令。",
-                "- 不要声称插件已创建 task、启动 Codex 或执行 /coding 命令。",
+                "- 如果这不是开发任务操作，可以直接继续普通对话；如果要进入开发流程，请补充项目、任务目标或明确命令。",
+                "- 当前没有创建任务、启动执行或执行 /coding 命令。",
             ]
         )
         return "\n".join(lines)
@@ -2273,7 +2272,7 @@ class CodingOrchestrator:
         if self._is_human_cancellation_reply(normalized):
             if from_binding:
                 self._clear_pending_action_for_event(event)
-            self._reply_if_possible(gateway, event, "已取消当前待确认的 coding 动作，未启动新的 run。")
+            self._reply_if_possible(gateway, event, "已取消当前待确认动作，未启动新的执行。")
             return {"action": "skip", "reason": "coding_pending_action_cancelled"}
         if self._is_human_confirmation_reply(normalized):
             if from_binding:
@@ -2538,9 +2537,9 @@ class CodingOrchestrator:
         if project_path is None:
             return (
                 f"未找到项目：{candidate}\n"
-                "reason：无法在给定路径、已知项目父目录或 ~/Desktop/project 下定位目录。\n"
-                "impact：未写入 LLM Wiki，也未绑定 active_project。\n"
-                "recovery_action：请发送绝对路径，例如 /coding project init /Users/xiaojing/Desktop/project/<repo>。"
+                "原因：无法在给定路径、已知项目父目录或 ~/Desktop/project 下定位目录。\n"
+                "影响：未写入项目上下文，也未绑定当前项目。\n"
+                "恢复动作：请发送绝对路径，例如 /coding project init /Users/xiaojing/Desktop/project/<repo>。"
             )
         project_name = project_path.name
         aliases = self._project_aliases_from_human_text(candidate, project_name)
@@ -2565,8 +2564,8 @@ class CodingOrchestrator:
             [
                 f"已初始化项目：{project_name}",
                 f"路径：{project_path}",
-                f"active_project：{project_name}",
-                "说明：已写入或刷新 LLM Wiki project_profile；不会创建 task，也不会启动 Codex。",
+                f"当前项目：{project_name}",
+                "说明：已写入或刷新项目上下文；不会创建任务，也不会启动执行。",
             ]
         )
 
@@ -2577,15 +2576,15 @@ class CodingOrchestrator:
         profile = self._find_project_profile(project_name)
         if profile is None:
             return (
-                f"未找到项目画像：{project_name}\n"
-                "recovery_action：先使用 /coding project list 查看已有项目，或使用 /coding project init <project_path_or_name> 初始化。"
+                f"未找到项目：{project_name}\n"
+                "恢复动作：先使用 /coding project list 查看已有项目，或使用 /coding project init <project_path_or_name> 初始化。"
             )
         self._bind_active_project_for_event(profile, event)
         return "\n".join(
             [
-                f"已切换 active_project：{profile['name']}",
+                f"已切换当前项目：{profile['name']}",
                 f"路径：{profile.get('path') or '未记录'}",
-                "说明：project use 只切换会话项目上下文，不重新扫描、不创建 task。",
+                "说明：本次只切换会话项目上下文，不重新扫描、不创建任务。",
             ]
         )
 
@@ -2593,7 +2592,7 @@ class CodingOrchestrator:
         active_project = self._active_project_for_event(event)
         if not active_project:
             return (
-                "当前没有绑定 active_project。\n"
+                "当前没有绑定项目。\n"
                 "可用命令：/coding project list、/coding project use <project_name>、/coding project init <project_path_or_name>。"
             )
         return self._format_project_status(active_project)
@@ -2638,7 +2637,7 @@ class CodingOrchestrator:
         missing = "无" if not quality.missing else "、".join(missing_labels.get(item, item) for item in quality.missing)
         return "\n".join(
             [
-                f"当前 active_project：{project.get('name') or 'unknown'}",
+                f"当前项目：{project.get('name') or 'unknown'}",
                 f"路径：{project.get('path') or '未记录'}",
                 f"初始化状态：{project.get('status') or 'unknown'}",
                 f"初始化质量：{quality.status}",
@@ -2757,9 +2756,9 @@ class CodingOrchestrator:
     def _clear_active_project_for_event(self, event: Any | None) -> str:
         binding_key = self._active_project_binding_key_for_event(event)
         if not binding_key:
-            return "当前来源无法识别，无 active_project 可清除。"
+            return "当前来源无法识别，没有可清除的当前项目。"
         cleared = self.ledger.clear_active_binding(binding_key)
-        return "已清除当前 active_project，不会删除 LLM Wiki。" if cleared else "当前没有绑定 active_project。"
+        return "已清除当前项目，不会删除项目上下文。" if cleared else "当前没有绑定项目。"
 
     def _active_project_binding_key_for_event(self, event: Any | None) -> str | None:
         binding_key = self._binding_key_for_event(event)
@@ -2770,7 +2769,7 @@ class CodingOrchestrator:
         active_id = self._active_task_id_for_event(event)
         tasks = self.ledger.list_recent_tasks(statuses=self._active_coding_statuses(), limit=10)
         if not tasks:
-            return "当前没有未结束 coding task。"
+            return "当前没有未结束开发任务。"
         lines = self._format_task_list(tasks, active_id=active_id).splitlines()
         if binding_key:
             lines.append(f"tip: 当前会话绑定：{active_id or '无'};使用 /coding use <task_id> 切换当前任务。")
@@ -2779,7 +2778,7 @@ class CodingOrchestrator:
         return "\n".join(lines)
 
     def _format_task_list(self, tasks: list[dict[str, Any]], active_id: str | None = None) -> str:
-        lines = ["当前未结束 coding task："]
+        lines = ["当前未结束开发任务："]
         for index, task in enumerate(tasks):
             if index > 0:
                 lines.append("")
@@ -2840,17 +2839,17 @@ class CodingOrchestrator:
         if not task:
             return f"未找到任务：{task_id}"
         if not self._bind_active_task_for_event(task_id, event):
-            return f"[{task_id}] 当前来源无法建立 active binding。"
+            return f"[{task_id}] 当前来源无法绑定任务。"
         return (
-            f"[{task_id}] 已切换当前 coding task。\n"
+            f"[{task_id}] 已切换当前开发任务。\n"
             f"状态：{task_status_display(task.get('status'))}\n"
-            "后续可继续使用 /coding 前缀；若已发送“进入coding”，本会话自然语言也会进入 plugin。"
+            "后续可继续使用 /coding 前缀；若已发送“进入coding”，本会话自然语言也会按当前开发任务处理。"
         )
 
     def _clear_active_task_for_event(self, event: Any) -> str:
         binding_key = self._binding_key_for_event(event)
         if not binding_key:
-            return "当前来源无法识别，无 active task 可退出。"
+            return "当前来源无法识别，没有可退出的当前任务。"
         cleared = self.ledger.clear_active_binding(binding_key)
         mode_cleared = self._disable_coding_mode_for_event(event)
         pending_cleared = self._clear_pending_rewrite_for_event(event)
@@ -2858,7 +2857,7 @@ class CodingOrchestrator:
         return (
             "已退出当前飞书会话的 coding 模式。"
             if cleared or mode_cleared or pending_cleared or action_cleared
-            else "当前飞书会话没有绑定 coding task。"
+            else "当前飞书会话没有绑定开发任务。"
         )
 
     def _status_for_event(self, raw_args: str, event: Any) -> str:
@@ -2873,7 +2872,7 @@ class CodingOrchestrator:
             task = self.ledger.get_task(task_id) or task
             return "\n".join(
                 [
-                    f"[{task_id}] 已自动回收后台 run：{reconciled['run_id']}",
+                    f"[{task_id}] 已自动回收后台执行：{reconciled['run_id']}",
                     self._format_task_status_details(task, include_branch=True),
                 ]
             )
@@ -2994,8 +2993,8 @@ class CodingOrchestrator:
         if include_branch:
             lines.extend(
                 [
-                    f"source_branch：{session.get('source_branch') or '未创建'}",
-                    f"worktree：{session.get('worktree_path') or '未创建'}",
+                    f"源分支：{session.get('source_branch') or '未创建'}",
+                    f"工作区：{session.get('worktree_path') or '未创建'}",
                 ]
             )
         qa_run = CodingOrchestrator._latest_qa_run(task)
@@ -3051,7 +3050,7 @@ class CodingOrchestrator:
         reason = str(notification.get("reason") or "").strip()
         parts = [label]
         if run_id:
-            parts.append(f"run={run_id}")
+            parts.append(f"执行={run_id}")
         if reason and status in {"failed", "skipped"}:
             parts.append(reason)
         return " - ".join(parts)
@@ -3090,7 +3089,7 @@ class CodingOrchestrator:
     def _continue_active_task(self, raw_args: str, event: Any, gateway: Any) -> str:
         task = self._active_task_for_event(event)
         if task is None:
-            return "未找到当前 active coding task，请先使用 /coding use <task_id>。"
+            return "未找到当前开发任务，请先使用 /coding use <task_id>。"
         if self._task_is_cancelled(task):
             return self._cancelled_task_message(task)
         if not raw_args.strip():
@@ -3122,7 +3121,7 @@ class CodingOrchestrator:
     def _change_active_task(self, raw_args: str, event: Any, gateway: Any) -> str:
         task = self._active_task_for_event(event)
         if task is None:
-            return "未找到当前 active coding task，请先使用 /coding use <task_id>。"
+            return "未找到当前开发任务，请先使用 /coding use <task_id>。"
         if self._task_is_cancelled(task):
             return self._cancelled_task_message(task)
         if not raw_args.strip():
@@ -3139,7 +3138,7 @@ class CodingOrchestrator:
     def _bugfix_active_task(self, raw_args: str, event: Any, gateway: Any) -> str:
         task = self._active_task_for_event(event)
         if task is None:
-            return "未找到当前 active coding task，请先使用 /coding use <task_id>。"
+            return "未找到当前开发任务，请先使用 /coding use <task_id>。"
         if self._task_is_cancelled(task):
             return self._cancelled_task_message(task)
         if not raw_args.strip():
@@ -3364,7 +3363,8 @@ class CodingOrchestrator:
         task_id = task if isinstance(task, str) else str(task.get("task_id") or "unknown")
         return (
             f"[{task_id}] 已取消，不能继续操作。\n"
-            "说明：cancelled 是人工终态保护；不会再启动 plan、implementation、QA 或 merge-test。"
+            f"状态：{task_status_display(TaskStatus.CANCELLED)}\n"
+            "说明：已取消是人工终态保护；不会再启动计划、实现、QA 或 merge-test。"
         )
 
     def _restore_state_for_cancelled_task(self, task: dict[str, Any]) -> tuple[TaskStatus, TaskPhase, str]:
@@ -3919,10 +3919,9 @@ class CodingOrchestrator:
     @staticmethod
     def _implementation_started_message(task: dict[str, Any]) -> str:
         return (
-            f"[{task['task_id']}] 已收到人工确认，进入 implementation。\n"
+            f"[{task['task_id']}] 已收到确认，开始实现。\n"
             f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：将由 coding_orchestration plugin 把已确认 plan 交给 Codex，并要求 Codex 使用 "
-            "superpowers/worktree 流程在隔离 workspace 中执行；不会自动进入测试、合并或发布。"
+            "说明：会把已确认计划交给 Codex，并在隔离工作区执行；不会自动进入测试、合并或发布。"
         )
 
     @staticmethod
@@ -3930,21 +3929,21 @@ class CodingOrchestrator:
         return (
             f"[{task['task_id']}] 已开始 QA。\n"
             f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：测试不会自动进入；本次 QA 是由人工显式触发。完成后会自动回传结果，但不会自动 merge-test 或发布。"
+            "说明：本次 QA 由人工显式触发。完成后会自动回传结果，但不会自动 merge-test 或发布。"
         )
 
     @staticmethod
     def _implementation_blocked_before_plan_ready_message(task: dict[str, Any]) -> str:
         return (
-            f"[{task['task_id']}] 已拦截 implementation 确认，但当前任务还不能开始开发。\n"
+            f"[{task['task_id']}] 已拦截实现确认，但当前任务还不能开始开发。\n"
             f"状态：{task_status_display(task.get('status'))}\n"
-            "必须先完成 Codex plan-only，并由你确认计划完整度和正确性后，才能进入 GitOps implementation。"
+            "必须先完成计划，并由你确认计划完整度和正确性后，才能开始实现。"
         )
 
     @staticmethod
     def _plan_only_started_message(task: dict[str, Any]) -> str:
         return (
-            f"[{task['task_id']}] 已开始 plan-only。\n"
+            f"[{task['task_id']}] 已开始整理计划。\n"
             f"项目：{task.get('project_path') or '未确定'}\n"
             "说明：Codex 正在后台生成计划；完成后会自动回传结果。"
         )
@@ -3978,7 +3977,7 @@ class CodingOrchestrator:
         if self._merge_test_workspace(task) is None:
             return (
                 f"[{task_id}] 未找到实现工作区，无法执行 QA。\n"
-                "建议：请先完成 implementation，或恢复实现工作区后再发送 /coding qa。"
+                "建议：请先完成实现，或恢复实现工作区后再发送 /coding qa。"
             )
         return ""
 
@@ -3986,9 +3985,9 @@ class CodingOrchestrator:
     def _cannot_start_run_message(task: dict[str, Any], *, mode: RunMode, reason: str) -> str:
         task_id = str(task.get("task_id") or "unknown")
         return (
-            f"[{task_id}] 当前状态为 {task_status_display(task.get('status'))}，不能启动 {mode.value} run。\n"
+            f"[{task_id}] 当前状态为 {task_status_display(task.get('status'))}，不能启动{CodingOrchestrator._run_mode_user_label(mode)}执行。\n"
             f"原因：{reason}\n"
-            "恢复动作：如需重新处理，请重新规划到 planned 状态或创建新的 coding task 后再启动。"
+            "恢复动作：如需重新处理，请先重新整理计划或创建新的开发任务后再启动。"
         )
 
     def _clear_active_run_if_matches(self, task_id: str, run_id: str) -> None:
@@ -4189,60 +4188,77 @@ class CodingOrchestrator:
         return [str(item) for item in candidates if str(item).strip()]
 
     @staticmethod
+    def _run_mode_user_label(mode: RunMode | str | None) -> str:
+        value = mode.value if isinstance(mode, RunMode) else str(mode or "").strip()
+        labels = {
+            RunMode.PLAN_ONLY.value: "整理计划",
+            RunMode.IMPLEMENTATION.value: "实现",
+            RunMode.QA.value: "QA 验证",
+            RunMode.MERGE_TEST.value: "merge-test",
+        }
+        return labels.get(value, value or "未记录")
+
+    @staticmethod
     def _active_run_already_running_message(task: dict[str, Any], *, requested_mode: str | None = None) -> str:
         session = task.get("task_session") or {}
         runner = session.get("runner") or {}
         active_run_id = runner.get("active_run_id") or "未记录"
-        active_mode = runner.get("active_mode") or runner.get("last_requested_mode") or "未记录"
+        active_mode = CodingOrchestrator._run_mode_user_label(
+            runner.get("active_mode") or runner.get("last_requested_mode")
+        )
         task_id = task["task_id"]
-        action_text = f"未重复启动 {requested_mode}。" if requested_mode else "确认词已被识别为当前 run 续接，但 run 仍在执行，未启动新动作。"
+        requested_label = CodingOrchestrator._run_mode_user_label(requested_mode)
+        action_text = (
+            f"未重复启动{requested_label}。"
+            if requested_mode
+            else "确认词已识别为当前执行的续接，但执行仍在进行，未启动新动作。"
+        )
         return (
-            f"[{task_id}] 当前已有 run 正在执行，{action_text}\n"
+            f"[{task_id}] 当前已有执行正在进行，{action_text}\n"
             f"状态：{task_status_display(task.get('status'))}\n"
-            f"active_run_id：{active_run_id}\n"
-            f"mode：{active_mode}\n"
+            f"当前执行：{active_run_id}\n"
+            f"执行模式：{active_mode}\n"
             f"恢复动作：等待完成回传；如果确认卡住，先发送 /coding status {task_id} 查看详情，必要时再 /coding cancel {task_id} 后重试。"
         )
 
     @staticmethod
     def _plan_feedback_received_message(task: dict[str, Any]) -> str:
         return (
-            f"[{task['task_id']}] 已收到计划反馈，重新进入 plan-only。\n"
+            f"[{task['task_id']}] 已收到计划反馈，重新整理计划。\n"
             f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：反馈已写入 Task Ledger 和 LLM Wiki draft，并会注入新的计划 run；不会交给 Hermes 主 agent。"
+            "说明：反馈已记录，并会带入下一轮计划；不会直接改代码。"
         )
 
     @staticmethod
     def _blocked_plan_feedback_received_message(task: dict[str, Any]) -> str:
         return (
-            f"[{task['task_id']}] 已收到 blocked plan 的补充信息，重新进入 plan-only。\n"
+            f"[{task['task_id']}] 已收到受阻计划的补充信息，重新整理计划。\n"
             f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：上一次 plan-only 仍是 blocked，本次反馈会作为计划补充重新规划；不会直接进入 implementation。"
+            "说明：上一次计划仍受阻，本次反馈会作为计划补充重新分析；不会直接开始实现。"
         )
 
     @staticmethod
     def _requirement_change_received_message(task: dict[str, Any]) -> str:
         return (
-            f"[{task['task_id']}] 已收到需求变更，重新进入 plan-only 做变更影响分析。\n"
+            f"[{task['task_id']}] 已收到需求变更，重新分析变更影响。\n"
             f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：需求变更已写入 Task Ledger 和 LLM Wiki draft；本轮只做影响分析和短计划，不直接进入 bugfix implementation。"
+            "说明：需求变更已记录；本轮只做影响分析和计划更新，不直接开始修复。"
         )
 
     @staticmethod
     def _requirement_change_queued_message(task: dict[str, Any]) -> str:
         return (
-            f"[{task['task_id']}] 已记录需求变更，但当前 run 仍在运行。\n"
+            f"[{task['task_id']}] 已记录需求变更，但当前任务仍在执行。\n"
             f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：为避免并发修改，暂不启动新的 plan-only；请等待当前 run 结束后再次发送 /coding change，或先取消当前 run。"
+            "说明：为避免并发修改，暂不启动新的计划；请等待当前执行结束后再次发送 /coding change，或先取消当前执行。"
         )
 
     @staticmethod
     def _implementation_feedback_received_message(task: dict[str, Any]) -> str:
         return (
-            f"[{task['task_id']}] 已收到 bugfix 反馈，进入 implementation 修复。\n"
+            f"[{task['task_id']}] 已收到修复反馈，开始修复。\n"
             f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：反馈已写入 Task Ledger 和 LLM Wiki draft；将复用该任务最近一次 implementation workspace，"
-            "不会交给 Hermes 主 agent。"
+            "说明：反馈已记录；会复用该任务最近一次实现工作区继续处理。"
         )
 
     @staticmethod
@@ -4250,23 +4266,23 @@ class CodingOrchestrator:
         return (
             f"[{task['task_id']}] 任务正在运行，已记录本次反馈。\n"
             f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：反馈已写入 Task Ledger 和 LLM Wiki draft；当前 run 不会并发重启，后续重新 plan 或修复时会注入上下文。"
+            "说明：反馈已记录；当前执行不会并发重启，后续重新整理计划或修复时会带入这次补充。"
         )
 
     @staticmethod
     def _human_clarification_received_message(task: dict[str, Any]) -> str:
         return (
-            f"[{task['task_id']}] 已收到补充信息，仍处于 needs_human。\n"
+            f"[{task['task_id']}] 已收到补充信息，仍需要继续确认。\n"
             f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：补充已写入 Task Ledger 和 LLM Wiki draft；请在项目或来源信息明确后重新触发 plan-only。"
+            "说明：补充已记录；请在项目或来源信息明确后重新整理计划。"
         )
 
     @staticmethod
     def _human_clarification_project_resolved_message(task: dict[str, Any]) -> str:
         return (
-            f"[{task['task_id']}] 已补充项目上下文，开始进入 plan-only。\n"
+            f"[{task['task_id']}] 已补充项目上下文，开始整理计划。\n"
             f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：项目已写入 Task Ledger 和 LLM Wiki project_profile；本轮补充会注入 Codex 计划上下文。"
+            "说明：项目上下文已记录；本轮补充会带入计划。"
         )
 
     def start_run(
@@ -5048,13 +5064,13 @@ class CodingOrchestrator:
             if task.get("status") == TaskStatus.BLOCKED.value:
                 assessment = self._blocked_task_merge_test_assessment(task)
                 return (
-                    f"[{task_id}] 当前验证证据不足，暂不能 merge-to-test。\n"
-                    f"影响：{assessment.get('impact') or 'Hermes 不能证明该 blocked task 已安全完成实现。'}\n"
-                    f"建议：{assessment.get('recovery_action') or '先恢复 implementation，或补齐结构化报告/工作区/session 后重试。'}"
+                    f"[{task_id}] 当前验证证据不足，暂不能 merge-test。\n"
+                    f"影响：{assessment.get('impact') or '暂不能证明该受阻任务已安全完成实现。'}\n"
+                    f"建议：{assessment.get('recovery_action') or '先恢复实现，或补齐结构化报告、工作区和执行上下文后重试。'}"
                 )
-            return f"[{task_id}] 当前状态是 {task_status_display(task.get('status'))}，还不能 merge-to-test。"
+            return f"[{task_id}] 当前状态是 {task_status_display(task.get('status'))}，还不能 merge-test。"
         if self._merge_test_workspace(task) is None:
-            return f"[{task_id}] 未找到实现工作区，无法续接 Codex 会话执行 merge-to-test。"
+            return f"[{task_id}] 未找到实现工作区，无法基于上一次实现上下文执行 merge-test。"
         return ""
 
     def _release_blocked_task_for_merge_test_if_allowed(
@@ -5339,7 +5355,7 @@ class CodingOrchestrator:
             "status": status,
             "run_id": str(qa_run.get("run_id") or ""),
             "report": report_path,
-            "message": f"最近 QA run={qa_run.get('run_id') or 'unknown'}，状态={status}"
+            "message": f"最近 QA 执行={qa_run.get('run_id') or 'unknown'}，状态={status}"
             + (f"，report={report_path}" if report_path else ""),
         }
         if tested_commit and current_head and tested_commit != current_head:
@@ -6344,7 +6360,7 @@ class CodingOrchestrator:
             message = self._format_run_completion_message(task_id, result)
         except Exception as exc:
             self._mark_background_run_failed(task_id, exc, mode=RunMode.PLAN_ONLY)
-            message = f"[{task_id}] plan-only run 启动或执行失败：{exc}\n请人工检查 Hermes 日志和 task ledger。"
+            message = f"[{task_id}] 计划执行失败：{exc}\n请查看任务详情和执行日志后重试。"
         reply = self._reply_if_possible(gateway, event, message, loop=loop)
         self._record_completion_notification(task_id, mode=RunMode.PLAN_ONLY, result=result, reply=reply)
 
@@ -6372,7 +6388,7 @@ class CodingOrchestrator:
                 message = self._format_implementation_completion_message(task_id, result)
         except Exception as exc:
             self._mark_background_run_failed(task_id, exc, mode=RunMode.IMPLEMENTATION)
-            message = f"[{task_id}] implementation run 启动或执行失败：{exc}\n请人工检查 Hermes 日志和 task ledger。"
+            message = f"[{task_id}] 实现执行失败：{exc}\n请查看任务详情和执行日志后重试。"
         reply = self._reply_if_possible(gateway, event, message, loop=loop)
         self._record_completion_notification(task_id, mode=RunMode.IMPLEMENTATION, result=result, reply=reply)
 
@@ -6421,7 +6437,7 @@ class CodingOrchestrator:
             message = self._format_qa_completion_message(task_id, result)
         except Exception as exc:
             self._mark_background_run_failed(task_id, exc, mode=RunMode.QA)
-            message = f"[{task_id}] QA run 启动或执行失败：{exc}\n请人工检查 Hermes 日志和 task ledger。"
+            message = f"[{task_id}] QA 执行失败：{exc}\n请查看任务详情和执行日志后重试。"
         reply = self._reply_if_possible(gateway, event, message, loop=loop)
         self._record_completion_notification(task_id, mode=RunMode.QA, result=result, reply=reply)
 
@@ -6447,7 +6463,7 @@ class CodingOrchestrator:
             message = self._format_merge_test_completion_message(task_id, result)
         except Exception as exc:
             self._mark_background_run_failed(task_id, exc, mode=RunMode.MERGE_TEST)
-            message = f"[{task_id}] merge-test run 启动或执行失败：{exc}\n请人工检查 Hermes 日志和 task ledger。"
+            message = f"[{task_id}] merge-test 执行失败：{exc}\n请查看任务详情和执行日志后重试。"
         reply = self._reply_if_possible(gateway, event, message, loop=loop)
         self._record_completion_notification(task_id, mode=RunMode.MERGE_TEST, result=result, reply=reply)
 
@@ -6562,7 +6578,7 @@ class CodingOrchestrator:
         artifacts = result.get("artifacts") or {}
         report = CodingOrchestrator._load_report_from_artifacts(artifacts)
         next_actions = CodingOrchestrator._completion_next_actions(report)
-        next_actions.append("请人工确认计划完整度和正确性；确认后再进入 implementation。")
+        next_actions.append("请人工确认计划完整度和正确性；确认后再开始实现。")
         risk_note = CodingOrchestrator._completion_risk_note(report)
         summary = CodingOrchestrator._completion_user_summary(report, artifacts, summary_limit=1800)
 
@@ -6603,7 +6619,7 @@ class CodingOrchestrator:
                     f"如人工接受已知缺口，再发送 /coding merge-test {task_id}。",
                 )
             )
-        next_actions.append("插件不会自动进入测试、合并或发布测试环境；QA 和 merge-test 都需要人工触发。")
+        next_actions.append("任务不会自动进入测试、合并或发布测试环境；QA 和 merge-test 都需要人工触发。")
         return render_user_update(
             title="实现已完成",
             task_id=task_id,
@@ -6648,12 +6664,12 @@ class CodingOrchestrator:
     def _format_stale_run_completion_message(task_id: str, result: dict[str, Any]) -> str:
         artifacts = result.get("artifacts") or {}
         summary = (
-            f"旧 {result.get('mode') or 'agent'} run 已完成，但任务期间已有更新 run。"
+            f"旧{CodingOrchestrator._run_mode_user_label(result.get('mode') or 'agent')}执行已完成，但任务期间已有更新执行。"
             f"\n当前任务状态：{task_status_display(result.get('current_task_status'))}"
-            "\n本次结果仅保留用于审计，不会回退 Task Ledger 状态。"
+            "\n本次结果仅保留用于审计，不会回退当前任务状态。"
         )
         return render_user_update(
-            title="旧 run 已归档",
+            title="旧执行已归档",
             task_id=task_id,
             user_facing_summary=summary,
             next_actions=[f"查看当前最新任务状态：/coding status {task_id}"],
@@ -6751,10 +6767,10 @@ class CodingOrchestrator:
         task_id = task["task_id"]
         session = task.get("task_session") or {}
         return (
-            f"[{task_id}] 已开始 merge-test run。\n"
-            f"source_branch：{session.get('source_branch') or '未记录'}\n"
-            f"target_branch：test\n"
-            "说明：Hermes 将续接上一次 Codex session 执行 merge-to-test skill；发布仍然人工。"
+            f"[{task_id}] 已开始 merge-test。\n"
+            f"源分支：{session.get('source_branch') or '未记录'}\n"
+            f"目标分支：test\n"
+            "说明：会基于上一次实现上下文执行合入测试；发布仍然人工。"
         )
 
     @staticmethod
