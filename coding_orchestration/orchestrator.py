@@ -3392,13 +3392,13 @@ class CodingOrchestrator:
                     f"最近 merge-test 未完成（{status or 'unknown'}），恢复为可重新 merge-test",
                 )
             if mode in {RunMode.IMPLEMENTATION.value, RunMode.QA.value}:
-                if canonical_status == AgentRunStatus.SUCCEEDED.value:
+                if canonical_status == AgentRunStatus.SUCCEEDED.value and details.get("structured") is not False:
                     return TaskStatus.READY_FOR_MERGE_TEST, TaskPhase.READY_TO_MERGE_TEST, f"最近 {mode} 已准备 merge-test"
                 if canonical_status == AgentRunStatus.BLOCKED.value or details.get("structured") is False:
                     return (
-                        TaskStatus.READY_FOR_MERGE_TEST,
-                        TaskPhase.READY_TO_MERGE_TEST,
-                        f"最近 {mode} 有实现证据但存在缺口（{status or 'unknown'}）",
+                        TaskStatus.BLOCKED,
+                        TaskPhase.BLOCKED,
+                        f"最近 {mode} 未提供完整结构化完成证据（{status or 'unknown'}）",
                     )
                 if self._run_details_are_runner_failed(details):
                     return TaskStatus.FAILED, TaskPhase.RUNNER_FAILED, f"最近 {mode} runner_failed"
@@ -4046,7 +4046,7 @@ class CodingOrchestrator:
         if summary:
             artifacts.summary.write_text(summary, encoding="utf-8")
 
-        task_status = self._task_status_for_run_result(mode, status)
+        task_status = self._task_status_for_run_result(mode, status, details=details)
         task_phase = self._task_phase_for_run_result(mode, status, details=details)
         report["run_status"] = status
         report["status"] = status
@@ -4638,7 +4638,7 @@ class CodingOrchestrator:
         report = self._ensure_verification_limitations(report, status, result.artifacts)
         result.artifacts.report.write_text(self._json(report), encoding="utf-8")
 
-        task_status = self._task_status_for_run_result(mode, status)
+        task_status = self._task_status_for_run_result(mode, status, details=details)
         task_phase = self._task_phase_for_run_result(mode, status, details=details)
         run_still_active = status == AgentRunStatus.RUNNING.value
         if run_still_active:
@@ -6182,6 +6182,12 @@ class CodingOrchestrator:
     @staticmethod
     def _normalize_implementation_run_status(report: dict[str, Any], mode: RunMode) -> dict[str, Any]:
         details = CodingOrchestrator._run_status_details_from_report(report, mode)
+        if details.get("structured") is False and mode != RunMode.MERGE_TEST:
+            blocked_details = agent_run_status_details("blocked", mode)
+            blocked_details["raw_status"] = str(details.get("raw_status") or "")
+            blocked_details["status_detail"] = str(details.get("status_detail") or "completed_unstructured")
+            blocked_details["structured"] = False
+            return blocked_details
         if mode == RunMode.IMPLEMENTATION:
             if CodingOrchestrator._report_has_implementation_not_landed_detail(report):
                 details = agent_run_status_details("blocked", mode)
@@ -6254,7 +6260,14 @@ class CodingOrchestrator:
         return report
 
     @staticmethod
-    def _task_status_for_run_result(mode: RunMode, status: str) -> TaskStatus:
+    def _task_status_for_run_result(
+        mode: RunMode,
+        status: str,
+        *,
+        details: dict[str, Any] | None = None,
+    ) -> TaskStatus:
+        if details and details.get("structured") is False:
+            return TaskStatus.BLOCKED
         status = normalize_agent_run_status(status, mode)
         if mode == RunMode.PLAN_ONLY and status == AgentRunStatus.SUCCESS.value:
             return TaskStatus.PLANNED
@@ -6280,6 +6293,8 @@ class CodingOrchestrator:
     ) -> TaskPhase:
         status = normalize_agent_run_status(status, mode)
         details = details or agent_run_status_details(status, mode)
+        if details.get("structured") is False:
+            return TaskPhase.BLOCKED
         if CodingOrchestrator._run_details_are_runner_failed(details):
             return TaskPhase.RUNNER_FAILED
         if mode == RunMode.PLAN_ONLY:

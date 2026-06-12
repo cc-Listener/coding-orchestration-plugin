@@ -61,6 +61,7 @@ class TaskStateMachine:
             TaskStatus.NEEDS_HUMAN,
             TaskStatus.PLANNED,
             TaskStatus.RUNNING,
+            TaskStatus.BLOCKED,
             TaskStatus.FAILED,
             TaskStatus.READY_FOR_MERGE_TEST,
             TaskStatus.MERGED_TEST,

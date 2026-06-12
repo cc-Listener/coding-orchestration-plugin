@@ -86,6 +86,15 @@ class TaskStateMachineTest(unittest.TestCase):
 
         self.assertEqual(next_status, TaskStatus.READY_FOR_MERGE_TEST)
 
+    def test_allows_restore_cancelled_task_to_blocked_state(self):
+        next_status = TaskStateMachine.transition(
+            TaskStatus.CANCELLED,
+            TaskStatus.BLOCKED,
+            reason="restore incomplete implementation evidence",
+        )
+
+        self.assertEqual(next_status, TaskStatus.BLOCKED)
+
     def test_allows_blocked_task_to_be_released_with_known_gaps(self):
         next_status = TaskStateMachine.transition(
             TaskStatus.BLOCKED,

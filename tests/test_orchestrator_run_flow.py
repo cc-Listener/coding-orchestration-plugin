@@ -5262,6 +5262,96 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 self.assertNotEqual(details["failure_type"], "implementation_not_landed")
                 self.assertEqual(details["status_detail"] or details["failure_type"], expected_detail)
 
+    def test_implementation_unstructured_status_stays_blocked_on_real_run_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_unstructured_impl",
+                source={"type": "manual", "project_name": "order-system"},
+                requirement_summary="Orderflows filter actions",
+                project_path=str(project),
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+            )
+            fake_runner = FakeRunner(
+                status="completed_unstructured",
+                report_updates={
+                    "implementation_landed": True,
+                    "commit_sha": "abc123",
+                    "changed_files_summary": ["src/app.ts: implementation landed"],
+                },
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+
+            result = orchestrator.start_run("task_unstructured_impl", mode=RunMode.IMPLEMENTATION, timeout_seconds=5)
+            task = ledger.get_task("task_unstructured_impl")
+            report = json.loads(Path(result["artifacts"]["report"]).read_text(encoding="utf-8"))
+
+            self.assertEqual(result["status"], AgentRunStatus.BLOCKED.value)
+            self.assertEqual(result["task_status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(task["phase"], TaskPhase.BLOCKED.value)
+            self.assertEqual(report["status"], AgentRunStatus.BLOCKED.value)
+            self.assertFalse(report["structured"])
+            self.assertEqual(report["status_detail"], "completed_unstructured")
+            self.assertEqual(report["task_status"], TaskStatus.BLOCKED.value)
+
+    def test_implementation_unknown_status_stays_blocked_on_real_run_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_unknown_impl",
+                source={"type": "manual", "project_name": "order-system"},
+                requirement_summary="Orderflows filter actions",
+                project_path=str(project),
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+            )
+            fake_runner = FakeRunner(
+                status="ready_for_implementation",
+                report_updates={
+                    "implementation_landed": True,
+                    "commit_sha": "abc123",
+                    "changed_files_summary": ["src/app.ts: implementation landed"],
+                },
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(fake_runner),
+            )
+
+            result = orchestrator.start_run("task_unknown_impl", mode=RunMode.IMPLEMENTATION, timeout_seconds=5)
+            task = ledger.get_task("task_unknown_impl")
+            report = json.loads(Path(result["artifacts"]["report"]).read_text(encoding="utf-8"))
+
+            self.assertEqual(result["task_status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(report["status"], AgentRunStatus.BLOCKED.value)
+            self.assertFalse(report["structured"])
+            self.assertEqual(report["raw_status"], "ready_for_implementation")
+            self.assertEqual(report["status_detail"], "completed_unstructured")
+
     def test_blocked_implementation_respects_explicit_not_landed_report(self):
         details = CodingOrchestrator._normalize_implementation_run_status(
             {
@@ -8343,6 +8433,52 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(task["phase"], TaskPhase.READY_TO_MERGE_TEST.value)
             self.assertIsNone((task["task_session"]["runner"]).get("active_run_id"))
             self.assertEqual(task["human_decisions"][-1]["type"], "task_restored")
+
+    def test_restore_cancelled_task_keeps_unstructured_implementation_blocked(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "order"
+            project.mkdir()
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_1",
+                source={"project_name": "order"},
+                requirement_summary="cancelled",
+                project_path=str(project),
+                status=TaskStatus.CANCELLED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.CANCELLED.value,
+                task_session={"runner": {"active_run_id": "run_stale", "active_mode": "implementation"}},
+            )
+            ledger.append_agent_run(
+                "task_1",
+                {
+                    "run_id": "run_impl",
+                    "runner": "codex_cli",
+                    "mode": RunMode.IMPLEMENTATION.value,
+                    "status": "completed_unstructured",
+                    "structured": False,
+                    "artifact": {},
+                },
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            message = orchestrator.command_coding_restore("task_1")
+            task = ledger.get_task("task_1")
+
+            self.assertIn("已恢复误取消", message)
+            self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(task["phase"], TaskPhase.BLOCKED.value)
+            self.assertIn("未提供完整结构化完成证据", message)
+            self.assertIsNone((task["task_session"]["runner"]).get("active_run_id"))
 
     def test_restore_rejects_task_that_is_not_cancelled(self):
         with tempfile.TemporaryDirectory() as tmp:
