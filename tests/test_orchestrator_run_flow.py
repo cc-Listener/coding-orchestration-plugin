@@ -412,6 +412,30 @@ class OrchestratorRunFlowTest(unittest.TestCase):
         self.assertIn("intent=unknown", prompt)
         self.assertIn("Hermes 主 agent", prompt)
 
+    def test_low_confidence_rewrite_needs_human_message_uses_user_language(self):
+        message = CodingOrchestrator._rewrite_needs_human_confirmation_message(
+            "帮我处理一下",
+            {"canonical_command": None, "confidence": 0.12, "reason": "缺少项目和任务目标。"},
+            "缺少项目",
+        )
+
+        self.assertIn("我还不能确定要执行哪个 coding 动作", message)
+        self.assertIn("请补充项目或直接发送 /coding task", message)
+        self.assertNotIn("置信度", message)
+        self.assertNotIn("LLM 理由", message)
+
+    def test_low_confidence_rewrite_needs_human_message_sanitizes_internal_rejection(self):
+        message = CodingOrchestrator._rewrite_needs_human_confirmation_message(
+            "帮我处理一下",
+            {"canonical_command": None, "confidence": 0.12, "reason": "缺少项目和任务目标。"},
+            "置信度 0.12 低于阈值 0.85。",
+        )
+
+        self.assertIn("我还不能确定要执行哪个 coding 动作", message)
+        self.assertIn("需要补充：请补充项目、任务目标或要执行的动作。", message)
+        self.assertNotIn("置信度", message)
+        self.assertNotIn("阈值", message)
+
     def test_plan_only_resume_command_uses_read_only_sandbox(self):
         command = CodingOrchestrator._codex_resume_command("019e-plan-thread", mode=RunMode.PLAN_ONLY)
 
@@ -629,10 +653,13 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             self.assertEqual(result["action"], "rewrite")
             self.assertEqual(result["reason"], "coding_rewrite_handoff_to_hermes")
-            self.assertIn("Hermes 主 agent 接管", result["text"])
-            self.assertIn("帮我看一下", result["text"])
-            self.assertIn("intent", result["text"])
-            self.assertIn("allowed_commands", result["text"])
+            self.assertIn("我会把这句话交给 Hermes 主 agent 处理", result["text"])
+            self.assertIn("用户原话：帮我看一下", result["text"])
+            self.assertIn("可用入口：/coding task --project", result["text"])
+            self.assertNotIn("上下文 JSON", result["text"])
+            self.assertNotIn("intent", result["text"])
+            self.assertNotIn("allowed_commands", result["text"])
+            self.assertNotIn("置信度", result["text"])
             self.assertEqual(orchestrator.auto_started, [])
             tasks = ledger.list_recent_tasks(limit=5)
             self.assertEqual(tasks, [])
@@ -680,7 +707,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             self.assertEqual(result["action"], "rewrite")
             self.assertEqual(result["reason"], "coding_rewrite_handoff_to_hermes")
-            self.assertIn("未执行任何 coding 操作", result["text"])
+            self.assertIn("插件没有创建 task，也没有启动 Codex", result["text"])
+            self.assertNotIn("上下文 JSON", result["text"])
             self.assertIn("task_active", result["text"])
             self.assertIn("优化订单列表查询", result["text"])
             self.assertEqual(ledger.get_task("task_active")["status"], TaskStatus.PLANNED.value)
@@ -736,12 +764,12 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             result = orchestrator.handle_gateway_event(FakeGatewayEvent("这个怎么处理"), gateway=gateway)
 
             self.assertEqual(result["action"], "rewrite")
-            self.assertIn('skill_view(name="coding_orchestration:hermes-coding-operator")', result["text"])
-            self.assertIn("recommended_skill", result["text"])
-            self.assertIn("active_project", result["text"])
-            self.assertIn("known_projects", result["text"])
+            self.assertNotIn("上下文 JSON", result["text"])
+            self.assertNotIn("recommended_skill", result["text"])
+            self.assertNotIn("active_project", result["text"])
+            self.assertNotIn("known_projects", result["text"])
+            self.assertIn("当前项目：bps-admin", result["text"])
             self.assertIn("bps-admin", result["text"])
-            self.assertIn("不要默认使用插件仓库", result["text"])
 
     def test_low_confidence_handoff_includes_actionable_next_step_for_failed_task(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -792,8 +820,9 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             result = orchestrator.handle_gateway_event(FakeGatewayEvent("开始启动任务，匹配到这个项目"), gateway=gateway)
 
             self.assertEqual(result["action"], "rewrite")
-            self.assertIn('"phase": "plan_revision"', result["text"])
-            self.assertIn("next_step", result["text"])
+            self.assertNotIn("上下文 JSON", result["text"])
+            self.assertNotIn('"phase": "plan_revision"', result["text"])
+            self.assertIn("当前任务建议下一步", result["text"])
             self.assertIn(f"/coding run {task_id}", result["text"])
 
     def test_gateway_coding_mode_high_confidence_rewrite_with_confirmation_flag_waits_for_confirmation(self):

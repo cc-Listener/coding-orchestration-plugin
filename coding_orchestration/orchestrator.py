@@ -2172,24 +2172,28 @@ class CodingOrchestrator:
 
     @staticmethod
     def _rewrite_needs_human_confirmation_message(text: str, rewrite: dict[str, Any], rejection: str) -> str:
-        confidence = rewrite.get("confidence")
-        try:
-            confidence_text = f"{float(confidence):.2f}"
-        except (TypeError, ValueError):
-            confidence_text = "unknown"
-        candidate = rewrite.get("canonical_command") or "无"
-        reason = normalize_project_text(str(rewrite.get("reason") or "无"))
+        del rewrite
+        rejection_text = CodingOrchestrator._rewrite_rejection_user_text(rejection)
         return "\n".join(
             [
-                "需要人工二次确认，未执行任何 coding 操作。",
+                "我还不能确定要执行哪个 coding 动作，所以没有创建任务，也没有启动 Codex。",
                 f"原话：{text}",
-                f"候选命令：{candidate}",
-                f"置信度：{confidence_text}",
-                f"原因：{rejection}",
-                f"LLM 理由：{reason}",
-                "请重新描述，或直接发送明确的 /coding <action> 命令。",
+                f"需要补充：{rejection_text}",
+                "请补充项目或直接发送 /coding task --project <项目名> <完整需求>。",
             ]
         )
+
+    @staticmethod
+    def _rewrite_rejection_user_text(rejection: str) -> str:
+        normalized = normalize_project_text(str(rejection or ""))
+        if not normalized:
+            return "请补充项目、任务目标或要执行的动作。"
+        internal_markers = ("置信度", "LLM", "canonical_command", "command_rewriter", "JSON", "阈值")
+        if any(marker in normalized for marker in internal_markers):
+            return "请补充项目、任务目标或要执行的动作。"
+        if "缺少必要信息" in normalized:
+            return "请补充项目、任务目标或要执行的动作。"
+        return normalized
 
     def _rewrite_handoff_to_hermes_message(
         self,
@@ -2199,29 +2203,56 @@ class CodingOrchestrator:
         event: Any,
     ) -> str:
         context = self._coding_rewrite_context(text, event)
-        payload = {
-            "original_user_text": text,
-            "rewrite_rejection": rejection,
-            "rewrite_candidate": rewrite,
-            "recommended_skill": _RECOMMENDED_OPERATOR_SKILL,
-            "coding_context": context,
-        }
-        return "\n".join(
+        lines = [
+            "我会把这句话交给 Hermes 主 agent 处理；插件没有创建 task，也没有启动 Codex。",
+            "",
+            "给 Hermes 主 agent 的处理上下文（不要直接转发给用户）：",
+            f"- 用户原话：{text}",
+            f"- 需要补充：{self._rewrite_rejection_user_text(rejection)}",
+        ]
+        active_project = context.get("active_project")
+        if isinstance(active_project, dict) and active_project:
+            project_name = str(active_project.get("name") or active_project.get("project") or "").strip()
+            if project_name:
+                lines.append(f"- 当前项目：{project_name}")
+        active_task = context.get("active_task")
+        if isinstance(active_task, dict) and active_task:
+            task_summary = normalize_project_text(str(active_task.get("summary") or ""))
+            task_line = f"- 当前任务：{active_task.get('task_id') or '未知'}，状态 {active_task.get('status_label') or active_task.get('status') or '未知'}"
+            project = str(active_task.get("project") or "").strip()
+            if project:
+                task_line += f"，项目 {project}"
+            if task_summary:
+                task_line += f"，摘要：{task_summary}"
+            lines.append(task_line)
+            next_step = normalize_project_text(str(active_task.get("next_step") or ""))
+            if next_step:
+                lines.append(f"- 当前任务建议下一步：{next_step}")
+        known_tasks = context.get("known_tasks")
+        if isinstance(known_tasks, list) and known_tasks:
+            task_lines = []
+            for task in known_tasks[:3]:
+                if not isinstance(task, dict):
+                    continue
+                task_id = str(task.get("task_id") or "").strip()
+                if not task_id:
+                    continue
+                summary = normalize_project_text(str(task.get("summary") or ""))
+                status = task_status_display(task.get("status"))
+                item = f"{task_id}（{status}）"
+                if summary:
+                    item += f"：{summary}"
+                task_lines.append(item)
+            if task_lines:
+                lines.append(f"- 最近相关任务：{'；'.join(task_lines)}")
+        lines.extend(
             [
-                "Hermes 主 agent 接管：用户已进入 coding mode，但 coding plugin 未能高置信度改写成安全可执行的 `/coding <action>` 命令。",
-                "插件未执行任何 coding 操作，也未创建 task、未启动 runner、未写 LLM Wiki。",
-                f'请优先调用 skill_view(name="{_RECOMMENDED_OPERATOR_SKILL}") 读取插件内置操作指南。',
-                "",
-                "请基于下面插件上下文处理用户原话：",
-                "- 如果这不是 coding task 操作，按普通 Hermes 对话正常回答。",
-                "- 如果能判断为 coding task 操作但信息不足或风险不清，请给出低置信度原因，并要求用户确认标准 `/coding <action>` 或补充信息。",
-                "- 低置信度不创建 task、不启动 runner、不写 LLM Wiki；不要声称已经执行 `/coding` 命令。",
-                "- 除非用户指定项目、active task 或明确 Wiki 目标，否则不要默认使用插件仓库、Hermes 当前工作目录或当前会话所在目录。",
-                "",
-                "上下文 JSON：",
-                json.dumps(payload, ensure_ascii=False, indent=2),
+                "- 可用入口：/coding task --project <项目名> <完整需求>、/coding run <task_id>、/coding implement <task_id>、/coding status <task_id>。",
+                "- 处理要求：如果这不是 coding task 操作，按普通 Hermes 对话回答；如果信息不足，请要求用户补充项目、任务目标或确认标准 /coding 命令。",
+                "- 不要声称插件已创建 task、启动 Codex 或执行 /coding 命令。",
             ]
         )
+        return "\n".join(lines)
 
     def _handle_pending_action_gateway_message(
         self,
