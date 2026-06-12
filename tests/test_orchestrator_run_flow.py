@@ -1319,11 +1319,11 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             self.assertEqual(result["action"], "skip")
             self.assertEqual(list_result["reason"], "coding_rewrite_executed")
-            self.assertIn("id: task_43141b20c03e", gateway.messages[-1])
-            self.assertIn("状态: 受阻(blocked)", gateway.messages[-1])
-            self.assertIn("项目: bps-admin", gateway.messages[-1])
-            self.assertIn("任务描述: 订单流列表增加筛选操作按钮", gateway.messages[-1])
-            self.assertIn("tip: 当前会话绑定：无;使用 /coding use <task_id> 切换当前任务。", gateway.messages[-1])
+            self.assertIn("任务：task_43141b20c03e", gateway.messages[-1])
+            self.assertIn("状态：受阻(blocked)", gateway.messages[-1])
+            self.assertIn("项目：bps-admin", gateway.messages[-1])
+            self.assertIn("任务描述：订单流列表增加筛选操作按钮", gateway.messages[-1])
+            self.assertIn("提示：当前会话绑定：无；使用 /coding use <task_id> 切换当前任务。", gateway.messages[-1])
             self.assertNotIn("/Users/xiaojing/Desktop/project/bps-admin", gateway.messages[-1])
 
     def test_gateway_coding_mode_natural_language_bugfix_rewrite_uses_active_task_and_executes_directly(self):
@@ -1952,13 +1952,23 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             gateway = FakeGateway()
 
             blank = orchestrator.handle_gateway_event(FakeGatewayEvent("/coding task   "), gateway=gateway)
+            blank_message = gateway.messages[-1]
             flag_only_message = orchestrator.command_coding_task("  --project 订单系统   ")
             missing_flag_value_message = orchestrator.command_coding_task("  --project   ")
+            missing_delete_message = orchestrator.command_coding_delete("")
+            missing_use = orchestrator.handle_gateway_event(FakeGatewayEvent("/coding use   "), gateway=gateway)
+            missing_use_message = gateway.messages[-1]
 
             self.assertEqual(blank["reason"], "handled_by_coding_orchestration")
-            self.assertIn("请提供任务需求", gateway.messages[-1])
+            self.assertEqual(missing_use["reason"], "handled_by_coding_orchestration")
+            self.assertIn("请提供任务需求", blank_message)
             self.assertIn("请提供任务需求", flag_only_message)
             self.assertIn("--project 缺少参数值", missing_flag_value_message)
+            self.assertIn("请提供任务 ID", missing_delete_message)
+            self.assertIn("/coding delete <task_id>", missing_delete_message)
+            self.assertIn("请提供任务 ID", missing_use_message)
+            self.assertIn("/coding use <task_id>", missing_use_message)
+            self.assertNotIn("task_xxx", f"{missing_delete_message}\n{missing_use_message}")
             self.assertEqual(ledger.list_recent_tasks(limit=5), [])
 
     def test_commands_listing_includes_coding_plugin_commands(self):
@@ -3146,9 +3156,9 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(orchestrator.auto_implementation_started, [])
             self.assertEqual(task["status"], TaskStatus.PLANNED.value)
             self.assertEqual(task["phase"], TaskPhase.PLANNING.value)
-            self.assertIn("plan-only 已自动启动", gateway.messages[0])
+            self.assertIn("已自动开始整理计划", gateway.messages[0])
             self.assertNotIn("implementation 已自动启动", gateway.messages[0])
-            self.assertNotIn("已跳过 plan-only", gateway.messages[0])
+            self.assertNotIn("plan-only", gateway.messages[0])
 
     def test_gateway_multi_part_api_skill_task_starts_plan_only_not_implementation(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -3198,7 +3208,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(orchestrator.auto_implementation_started, [])
             self.assertEqual(task["status"], TaskStatus.PLANNED.value)
             self.assertEqual(task["phase"], TaskPhase.PLANNING.value)
-            self.assertIn("plan-only 已自动启动", gateway.messages[0])
+            self.assertIn("已自动开始整理计划", gateway.messages[0])
 
     def test_gateway_use_command_selects_active_task_when_multiple_tasks_share_chat(self):
         class RecordingOrchestrator(CodingOrchestrator):
@@ -8136,10 +8146,10 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             message = orchestrator.command_coding_list("")
 
-            self.assertIn("id: task_merged", message)
-            self.assertIn("状态: 已合并 test，待人工完成(merged_test)", message)
-            self.assertIn("项目: bps-admin", message)
-            self.assertIn("任务描述: 订单列表筛选操作", message)
+            self.assertIn("任务：task_merged", message)
+            self.assertIn("状态：已合并 test，待人工完成(merged_test)", message)
+            self.assertIn("项目：bps-admin", message)
+            self.assertIn("任务描述：订单列表筛选操作", message)
 
     def test_coding_list_summarizes_long_task_description_in_one_line(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -8170,7 +8180,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             message = orchestrator.command_coding_list("")
 
-            self.assertIn("任务描述: BPS运营后台订单列表批量绑定商品弹窗支持变体ID/商品名称搜索", message)
+            self.assertIn("任务描述：BPS运营后台订单列表批量绑定商品弹窗支持变体ID/商品名称搜索", message)
             self.assertNotIn("以下功能", message)
             self.assertNotIn("1、", message)
             self.assertNotIn("2、", message)

@@ -327,18 +327,18 @@ class CodingOrchestrator:
         codex_backend = getattr(codex_decision, "backend", "unknown")
         hermes_provider = getattr(codex_decision, "hermes_provider", "")
         lines = [
-            "Hermes Coding Doctor",
-            f"Lark: {lark.get('status') or 'unknown'}",
-            f"Lark recovery: {lark.get('recovery_action') or 'ok'}",
-            f"Meegle: {meegle.get('status') or 'unknown'}",
-            f"Meegle recovery: {meegle.get('recovery_action') or 'ok'}",
-            f"Kanban: {'available' if kanban_available else 'unavailable'}",
-            f"Hermes runtime: {'available' if runtime_available else 'unavailable'}",
-            f"Runner default: {default_runner}",
-            f"Codex CLI backend: {codex_backend}",
+            "编码流程健康检查",
+            f"飞书：{lark.get('status') or 'unknown'}",
+            f"飞书恢复动作：{lark.get('recovery_action') or 'ok'}",
+            f"项目管理：{meegle.get('status') or 'unknown'}",
+            f"项目管理恢复动作：{meegle.get('recovery_action') or 'ok'}",
+            f"看板：{'可用' if kanban_available else '不可用'}",
+            f"Hermes 执行入口：{'可用' if runtime_available else '不可用'}",
+            f"默认执行器：{default_runner}",
+            f"Codex 后端：{codex_backend}",
             f"Hermes openai-codex provider: {hermes_provider or 'not detected'}",
-            f"Ledger: {self.ledger.db_path}",
-            "cron-ready: rtk hermes cron create \"every 30m\" \"Run hermes coding lark-preflight and report only if unhealthy\" --workdir /Users/xiaojing/Desktop/tools/hermes-codex-tools",
+            f"任务账本：{self.ledger.db_path}",
+            "定时检查建议：rtk hermes cron create \"every 30m\" \"Run hermes coding lark-preflight and report only if unhealthy\" --workdir /Users/xiaojing/Desktop/tools/hermes-codex-tools",
         ]
         return "\n".join(lines)
 
@@ -392,17 +392,17 @@ class CodingOrchestrator:
     def _format_lark_preflight(self, result: dict[str, Any]) -> str:
         missing = result.get("missing_scopes") or []
         lines = [
-            "Lark preflight",
-            f"status: {result.get('status') or 'unknown'}",
-            f"ok: {bool(result.get('ok'))}",
+            "飞书权限检查",
+            f"状态：{result.get('status') or 'unknown'}",
+            f"可用：{'是' if bool(result.get('ok')) else '否'}",
         ]
         if missing:
-            lines.append(f"missing_scopes: {', '.join(str(item) for item in missing)}")
+            lines.append(f"缺少权限：{', '.join(str(item) for item in missing)}")
         if result.get("error"):
-            lines.append(f"error: {result.get('error')}")
+            lines.append(f"错误：{result.get('error')}")
         recovery = result.get("recovery_action") or ""
         if recovery:
-            lines.append(f"recovery_action: {recovery}")
+            lines.append(f"恢复动作：{recovery}")
         return "\n".join(lines)
 
     def _format_source_resolve(self, text: str) -> str:
@@ -410,16 +410,16 @@ class CodingOrchestrator:
             return "Usage: hermes coding source-resolve <feishu_or_meegle_url>"
         result = self.tool_source_resolve({"text": text})
         lines = [
-            "Source resolve",
-            f"source_status: {result.get('source_status') or 'unknown'}",
-            f"task_status: {result.get('task_status') or ''}",
-            f"source_type: {result.get('source_type') or ''}",
-            f"url: {result.get('url') or ''}",
+            "来源解析",
+            f"来源状态：{result.get('source_status') or 'unknown'}",
+            f"任务状态：{result.get('task_status') or ''}",
+            f"来源类型：{result.get('source_type') or ''}",
+            f"链接：{result.get('url') or ''}",
         ]
         if result.get("error"):
-            lines.append(f"error: {result.get('error')}")
+            lines.append(f"错误：{result.get('error')}")
         if result.get("recovery_action"):
-            lines.append(f"recovery_action: {result.get('recovery_action')}")
+            lines.append(f"恢复动作：{result.get('recovery_action')}")
         return "\n".join(lines)
 
     def _hermes_runtime_available(self) -> bool:
@@ -595,7 +595,7 @@ class CodingOrchestrator:
     def command_coding_status(self, raw_args: str) -> str:
         task_id = raw_args.strip()
         if not task_id:
-            return "请提供 task_id。"
+            return "请提供任务 ID。"
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
@@ -613,7 +613,7 @@ class CodingOrchestrator:
     def command_coding_cancel(self, raw_args: str) -> str:
         target = raw_args.strip()
         if not target:
-            return "请提供 task_id 或 run_id。"
+            return "请提供任务 ID 或执行 ID。"
         task = self.ledger.get_task(target)
         if task:
             try:
@@ -632,7 +632,7 @@ class CodingOrchestrator:
     def command_coding_restore(self, raw_args: str) -> str:
         task_id = raw_args.strip()
         if not task_id:
-            return "请提供 task_id。"
+            return "请提供任务 ID。"
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
@@ -674,7 +674,7 @@ class CodingOrchestrator:
     def command_coding_run(self, raw_args: str) -> str:
         task_id = raw_args.strip()
         if not task_id:
-            return "请提供 task_id。"
+            return "请提供任务 ID。"
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
@@ -691,7 +691,7 @@ class CodingOrchestrator:
         force = "--force" in args
         task_ids = [arg for arg in args if not arg.startswith("--")]
         if not task_ids:
-            return "请提供 task_id，例如 /coding delete task_xxx。"
+            return "请提供任务 ID，例如 /coding delete <task_id>。"
         task_id = task_ids[0]
         task = self.ledger.get_task(task_id)
         if not task:
@@ -752,7 +752,7 @@ class CodingOrchestrator:
     def command_coding_implement(self, raw_args: str) -> str:
         task_id = raw_args.strip()
         if not task_id:
-            return "请提供 task_id。"
+            return "请提供任务 ID。"
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
@@ -775,7 +775,7 @@ class CodingOrchestrator:
     def command_coding_qa(self, raw_args: str) -> str:
         task_id = raw_args.strip()
         if not task_id:
-            return "请提供 task_id。"
+            return "请提供任务 ID。"
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
@@ -789,7 +789,7 @@ class CodingOrchestrator:
     def command_prepare_merge_test(self, raw_args: str) -> str:
         task_id = raw_args.strip()
         if not task_id:
-            return "请提供 task_id。"
+            return "请提供任务 ID。"
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
@@ -849,7 +849,7 @@ class CodingOrchestrator:
         confirm_qa_risk = "--confirm-qa-risk" in args or accept_risk
         task_id = next((part for part in args if not part.startswith("--")), "")
         if not task_id:
-            return "请提供 task_id。"
+            return "请提供任务 ID。"
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
@@ -888,7 +888,7 @@ class CodingOrchestrator:
     def command_coding_complete(self, raw_args: str) -> str:
         task_id = raw_args.strip()
         if not task_id:
-            return "请提供 task_id。"
+            return "请提供任务 ID。"
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
@@ -1713,7 +1713,7 @@ class CodingOrchestrator:
                 message = (
                     f"未找到任务：{task_id}"
                     if task_id
-                    else "请提供 task_id，或先使用 /coding use <task_id> 切换当前任务。"
+                    else "请提供任务 ID，或先使用 /coding use <task_id> 切换当前任务。"
                 )
                 self._reply_if_possible(gateway, event, message)
                 return {"action": "skip", "reason": "handled_by_coding_orchestration"}
@@ -1731,7 +1731,7 @@ class CodingOrchestrator:
             task_id = raw_args or self._active_task_id_for_event(event) or ""
             task = self.ledger.get_task(task_id) if task_id else None
             if task is None:
-                self._reply_if_possible(gateway, event, "请提供 task_id，或先使用 /coding use <task_id> 切换当前任务。")
+                self._reply_if_possible(gateway, event, "请提供任务 ID，或先使用 /coding use <task_id> 切换当前任务。")
                 return {"action": "skip", "reason": "handled_by_coding_orchestration"}
             if self._task_is_cancelled(task):
                 self._reply_if_possible(gateway, event, self._cancelled_task_message(task))
@@ -1749,7 +1749,7 @@ class CodingOrchestrator:
             task_id = raw_args or self._active_task_id_for_event(event) or ""
             task = self.ledger.get_task(task_id) if task_id else None
             if task is None:
-                self._reply_if_possible(gateway, event, "请提供 task_id，或先使用 /coding use <task_id> 切换当前任务。")
+                self._reply_if_possible(gateway, event, "请提供任务 ID，或先使用 /coding use <task_id> 切换当前任务。")
                 return {"action": "skip", "reason": "handled_by_coding_orchestration"}
             task = self._apply_active_project_to_task_if_missing(task, event)
             blocked = self._qa_start_blocker(task)
@@ -1787,7 +1787,7 @@ class CodingOrchestrator:
             task_id = next((part for part in args if not part.startswith("--")), "") or self._active_task_id_for_event(event) or ""
             task = self.ledger.get_task(task_id) if task_id else None
             if task is None:
-                self._reply_if_possible(gateway, event, "请提供 task_id，或先使用 /coding use <task_id> 切换当前任务。")
+                self._reply_if_possible(gateway, event, "请提供任务 ID，或先使用 /coding use <task_id> 切换当前任务。")
                 return {"action": "skip", "reason": "handled_by_coding_orchestration"}
             assessment = self._blocked_task_merge_test_assessment(task)
             if assessment.get("requires_acceptance") and not accept_risk:
@@ -2610,7 +2610,7 @@ class CodingOrchestrator:
             name = str(project.get("name") or "unknown")
             current = "（当前）" if active_name and name == active_name else ""
             lines.append(f"- {name}{current}")
-            lines.append(f"  状态: {project.get('status') or 'unknown'}")
+            lines.append(f"  状态：{project.get('status') or 'unknown'}")
             lines.append(f"  路径: {project.get('path') or '未记录'}")
             aliases = project.get("aliases") or []
             if aliases:
@@ -2772,9 +2772,9 @@ class CodingOrchestrator:
             return "当前没有未结束开发任务。"
         lines = self._format_task_list(tasks, active_id=active_id).splitlines()
         if binding_key:
-            lines.append(f"tip: 当前会话绑定：{active_id or '无'};使用 /coding use <task_id> 切换当前任务。")
+            lines.append(f"提示：当前会话绑定：{active_id or '无'}；使用 /coding use <task_id> 切换当前任务。")
         else:
-            lines.append("tip: 使用 /coding use <task_id> 切换当前任务。")
+            lines.append("提示：使用 /coding use <task_id> 切换当前任务。")
         return "\n".join(lines)
 
     def _format_task_list(self, tasks: list[dict[str, Any]], active_id: str | None = None) -> str:
@@ -2785,10 +2785,10 @@ class CodingOrchestrator:
             marker = "*" if active_id and task["task_id"] == active_id else ""
             task_id = f"{marker}{task['task_id']}" if marker else str(task["task_id"])
             lines.append(
-                f"id: {task_id}\n"
-                f"状态: {task_status_display(task.get('status'))}\n"
-                f"项目: {self._task_project_label(task)}\n"
-                f"任务描述: {self._task_description_label(task)}"
+                f"任务：{task_id}\n"
+                f"状态：{task_status_display(task.get('status'))}\n"
+                f"项目：{self._task_project_label(task)}\n"
+                f"任务描述：{self._task_description_label(task)}"
             )
         return "\n".join(lines)
 
@@ -2834,7 +2834,7 @@ class CodingOrchestrator:
     def _select_active_task_for_event(self, task_id: str, event: Any) -> str:
         task_id = task_id.strip()
         if not task_id:
-            return "请提供 task_id，例如 /coding use task_xxx。"
+            return "请提供任务 ID，例如 /coding use <task_id>。"
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
@@ -2863,7 +2863,7 @@ class CodingOrchestrator:
     def _status_for_event(self, raw_args: str, event: Any) -> str:
         task_id = raw_args.strip() or self._active_task_id_for_event(event) or ""
         if not task_id:
-            return "请提供 task_id，或先使用 /coding use <task_id> 切换当前任务。"
+            return "请提供任务 ID，或先使用 /coding use <task_id> 切换当前任务。"
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"

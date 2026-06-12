@@ -68,7 +68,7 @@ class HermesAutonomousCodexRunner(CodexCliRunner):
                 "Codex CLI workspace edits should run through Hermes terminal/process with pty=true and background process polling when available.",
                 "Hermes openai-codex provider/OAuth is model capability backed by ~/.hermes/auth.json, not standalone Codex CLI auth.",
                 "Standalone Codex CLI may use ~/.codex/auth.json; do not copy or auto-import it into ~/.hermes/auth.json.",
-                "This runner preserves Task Ledger, manifest, report fallback, checkpoint commits, and diff guard.",
+                "This runner preserves Task Ledger, manifest, report fallback, clean-tree gates, and diff guard.",
                 "Fallback to direct Codex subprocess remains only for old Hermes environments without terminal/process dispatch.",
             ],
         }

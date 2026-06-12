@@ -47,7 +47,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "planning",
         "write",
         ("需求",),
-        "创建编码任务，自动识别项目并进入 plan-only。",
+        "创建开发任务，自动识别项目并开始整理计划。",
         ("新增订单筛选", "做一个商品搜索优化"),
         (
             "--project <项目名|路径>",
@@ -63,8 +63,8 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "query",
         "read",
         (),
-        "列出当前未结束的 coding task。",
-        ("现在有多少 task", "列一下任务"),
+        "列出当前未结束的开发任务。",
+        ("现在有多少任务", "列一下任务"),
     ),
     CodingCommand(
         "doctor",
@@ -73,7 +73,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "diagnostics",
         "read",
         (),
-        "检查 Lark、Meegle、Kanban、Hermes runtime 和 Codex runner 依赖。",
+        "检查飞书、项目管理、看板和执行环境依赖。",
         ("检查 coding 依赖", "doctor"),
     ),
     CodingCommand(
@@ -83,7 +83,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "diagnostics",
         "read",
         (),
-        "检查 lark-cli 授权、scope 和 token 状态。",
+        "检查飞书文档读取授权和权限状态。",
         ("检查飞书权限", "lark 权限"),
     ),
     CodingCommand(
@@ -103,7 +103,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "project",
         "read",
         (),
-        "列出已有项目画像，并标记当前会话 active_project。",
+        "列出已有项目，并标记当前会话正在使用的项目。",
         ("有哪些项目", "当前有哪些项目"),
     ),
     CodingCommand(
@@ -113,7 +113,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "project",
         "write",
         ("project_path_or_name",),
-        "扫描项目并写入或刷新 LLM Wiki，绑定 active_project，不创建 task。",
+        "扫描项目并刷新项目上下文，绑定当前项目，不创建任务。",
         ("先初始化 bps-admin", "项目路径是 /path/to/repo"),
     ),
     CodingCommand(
@@ -123,7 +123,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "project",
         "write_binding",
         ("project_name",),
-        "从已有项目中选择并绑定 active_project，不重新扫描。",
+        "从已有项目中选择并绑定当前项目，不重新扫描。",
         ("我接下来用 bps-admin", "切到 oms"),
     ),
     CodingCommand(
@@ -133,7 +133,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "project",
         "read",
         (),
-        "展示当前 active_project、初始化状态、动态来源索引和最近更新时间。",
+        "展示当前项目、初始化状态、动态来源索引和最近更新时间。",
         ("当前项目是什么", "项目状态"),
     ),
     CodingCommand(
@@ -143,7 +143,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "project",
         "write_binding",
         (),
-        "清除当前会话 active_project，不删除 LLM Wiki。",
+        "清除当前会话项目绑定，不删除项目上下文。",
         ("清掉当前项目", "取消当前项目"),
     ),
     CodingCommand(
@@ -153,8 +153,8 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "lifecycle",
         "write_binding",
         ("task_id",),
-        "切换当前飞书会话绑定的 active task。",
-        ("切到 task_xxx",),
+        "切换当前飞书会话绑定的开发任务。",
+        ("切到这个任务",),
     ),
     CodingCommand(
         "exit",
@@ -163,7 +163,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "lifecycle",
         "write_binding",
         (),
-        "退出当前飞书会话的 coding 任务绑定。",
+        "退出当前飞书会话的开发任务绑定。",
         ("退出当前任务",),
     ),
     CodingCommand(
@@ -173,8 +173,8 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "query",
         "read",
         ("task_id",),
-        "查看任务状态、项目、source branch、worktree。",
-        ("task_xxx 现在怎么样",),
+        "查看任务状态、项目、源分支和工作区。",
+        ("这个任务现在怎么样",),
     ),
     CodingCommand(
         "continue",
@@ -183,7 +183,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "feedback",
         "write",
         ("反馈",),
-        "给当前 active task 补充 plan 反馈，并重新进入 plan-only。",
+        "给当前任务补充计划反馈，并重新整理计划。",
         ("计划里补一下",),
     ),
     CodingCommand(
@@ -193,7 +193,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "feedback",
         "write",
         ("反馈",),
-        "记录需求变更，重新进入 plan-only 做变更影响分析。",
+        "记录需求变更，重新分析影响并更新计划。",
         ("需求改成",),
     ),
     CodingCommand(
@@ -203,7 +203,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "feedback",
         "write",
         ("反馈",),
-        "给当前 active task 补充实现/QA 修复反馈，并在源 workspace 继续 implementation。",
+        "给当前任务补充实现或 QA 修复反馈，并在原工作区继续处理。",
         ("这个实现不对", "按截图修一下"),
     ),
     CodingCommand(
@@ -213,7 +213,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "execution",
         "start_runner",
         ("task_id",),
-        "对已有任务启动 plan-only run。",
+        "对已有任务开始整理计划。",
         ("重新跑计划",),
     ),
     CodingCommand(
@@ -233,7 +233,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "execution",
         "start_runner",
         ("task_id",),
-        "人工选择进入 QA run；implementation 完成后不会自动进入测试。",
+        "人工选择进入 QA；实现完成后不会自动进入测试。",
         ("开始测试", "跑一下 QA"),
     ),
     CodingCommand(
@@ -253,7 +253,7 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "merge",
         "start_runner",
         ("task_id",),
-        "人工触发 merge-to-test run。",
+        "人工触发 merge-test。",
         ("合并到 test",),
         ("--accept-risk", "--confirm-qa-risk"),
     ),
@@ -274,8 +274,8 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "lifecycle",
         "destructive",
         ("task_id_or_run_id",),
-        "取消任务或 run。",
-        ("取消 task_xxx",),
+        "取消任务或正在进行的执行。",
+        ("取消这个任务",),
     ),
     CodingCommand(
         "restore",
@@ -284,8 +284,8 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "lifecycle",
         "write",
         ("task_id",),
-        "恢复误取消的 task，只恢复状态，不自动启动 Codex。",
-        ("恢复 task_xxx",),
+        "恢复误取消的任务，只恢复状态，不自动启动执行。",
+        ("恢复刚才取消的任务",),
     ),
     CodingCommand(
         "delete",
@@ -294,8 +294,8 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         "lifecycle",
         "destructive",
         ("task_id",),
-        "删除 task，并按参数清理 artifacts / LLM Wiki 记录。",
-        ("删除 task_xxx",),
+        "删除任务，并按参数清理本地执行文件或任务上下文。",
+        ("删除这个任务",),
         ("--keep-artifacts", "--keep-wiki", "--force"),
     ),
 )
