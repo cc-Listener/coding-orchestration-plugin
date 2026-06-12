@@ -106,6 +106,15 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         self.assertNotIn("FEISHU_DOC" + "_LARK_CLI", readme)
         self.assertIn("rtk git pull --ff-only", readme)
 
+    def test_requirement_delivery_flow_doc_exists_and_mentions_admission_gate(self):
+        doc = Path("docs/coding-requirement-delivery-flow-20260613.md")
+
+        self.assertTrue(doc.exists())
+        text = doc.read_text(encoding="utf-8")
+        self.assertIn("Report Admission Gate", text)
+        self.assertIn("/coding breakdown", text)
+        self.assertIn("上下文是证据包", text)
+
     def test_operator_skill_next_steps_match_current_statuses(self):
         repo_root = Path(__file__).resolve().parents[1]
         skill = (

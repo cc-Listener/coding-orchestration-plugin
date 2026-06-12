@@ -751,6 +751,13 @@ class CodingOrchestrator:
         if str(report.get("status") or "") != AgentRunStatus.SUCCEEDED.value:
             return self._format_decomposition_blocked_message(task_id, result)
         self.ledger.update_task_session(task_id, {"decomposition": self._decomposition_for_session(report)})
+        self.ledger.update_task_hierarchy(
+            task_id,
+            task_kind=TaskKind.REQUIREMENT.value,
+            root_task_id=task_id,
+            parent_task_id=None,
+            dependency_task_ids=[],
+        )
         return render_delivery_breakdown(task_id=task_id, report=report)
 
     def command_coding_approve_breakdown(self, raw_args: str) -> str:
@@ -5075,6 +5082,7 @@ class CodingOrchestrator:
             "current_task_status": current_task.get("status") if stale_completion else task_status.value,
             "observed_active_run_id": observed_active_run_id if stale_completion else "",
             "artifacts": artifact_record,
+            "report": report,
         }
 
     @staticmethod

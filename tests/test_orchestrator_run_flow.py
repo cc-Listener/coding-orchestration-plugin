@@ -145,6 +145,7 @@ class MainFlowRunner(FakeRunner):
         (run_dir / "stdout.log").write_text('{"type":"thread.started","thread_id":"019e-main-flow"}\n', encoding="utf-8")
         (run_dir / "stderr.log").write_text("", encoding="utf-8")
         summary_by_mode = {
+            RunMode.DECOMPOSITION: "交付拆解已生成。",
             RunMode.PLAN_ONLY: "计划已整理好。",
             RunMode.IMPLEMENTATION: "实现已完成。",
             RunMode.MERGE_TEST: "测试分支合入已完成。",
@@ -167,8 +168,8 @@ class MainFlowRunner(FakeRunner):
             "tested_commit": "abc123",
             "user_facing_summary": summary,
             "technical_summary": f"{mode.value} completed in smoke runner.",
-            "implementation_landed": mode != RunMode.PLAN_ONLY,
-            "commit_sha": "abc123" if mode != RunMode.PLAN_ONLY else "",
+            "implementation_landed": mode not in {RunMode.DECOMPOSITION, RunMode.PLAN_ONLY},
+            "commit_sha": "abc123" if mode not in {RunMode.DECOMPOSITION, RunMode.PLAN_ONLY} else "",
             "changed_files_summary": ["src/app.ts: 主流程 smoke 修改"] if mode == RunMode.IMPLEMENTATION else [],
             "branch_slug_candidate": "order-status-filter",
             "execution_policy_decision": {
@@ -184,6 +185,13 @@ class MainFlowRunner(FakeRunner):
                 "required_confirmation": False,
             },
         }
+        report_updates_by_mode = self.report_updates.get("by_mode") if isinstance(self.report_updates, dict) else None
+        if isinstance(report_updates_by_mode, dict):
+            mode_updates = report_updates_by_mode.get(mode.value, {})
+            if isinstance(mode_updates, dict):
+                report.update(mode_updates)
+        else:
+            report.update(self.report_updates)
         (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
         artifacts = ArtifactSet(
             run_dir=run_dir,
@@ -461,6 +469,104 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             )
             self.assertEqual(children[1]["dependency_task_ids"], [children[0]["task_id"]])
             self.assertEqual(children[0]["task_session"]["delivery"]["unit_id"], "unit_backend")
+
+    def test_requirement_delivery_main_flow_breaks_down_materializes_and_runs_next_child(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            backend = root / "backend"
+            web = root / "web"
+            backend.mkdir()
+            web.mkdir()
+            _write_workflow(backend)
+            _write_workflow(web)
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="req_1",
+                source={"type": "manual"},
+                requirement_summary="订单筛选能力升级",
+                project_path=None,
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+            )
+            runner = MainFlowRunner(
+                report_updates={
+                    "by_mode": {
+                        RunMode.DECOMPOSITION.value: {
+                            "user_facing_summary": "已拆成后端能力和后台入口两个交付单元。",
+                            "technical_summary": "后端先提供筛选能力，后台随后接入入口。",
+                            "next_actions": ["确认拆解方案"],
+                            "classification": "multi_project",
+                            "reason": "需求跨后端服务和管理后台两个交付边界。",
+                            "delivery_units": [
+                                {
+                                    "unit_id": "unit_backend",
+                                    "title": "后端订单查询能力",
+                                    "project_key": "backend-api",
+                                    "project_path": str(backend),
+                                    "summary": "支持订单状态筛选查询。",
+                                    "acceptance_criteria": ["接口支持按状态筛选订单"],
+                                    "dependencies": [],
+                                    "risk_level": "medium",
+                                },
+                                {
+                                    "unit_id": "unit_web",
+                                    "title": "管理后台筛选入口",
+                                    "project_key": "web-admin",
+                                    "project_path": str(web),
+                                    "summary": "管理后台接入订单状态筛选入口。",
+                                    "acceptance_criteria": ["页面可以按状态筛选订单"],
+                                    "dependencies": ["unit_backend"],
+                                    "risk_level": "medium",
+                                },
+                            ],
+                            "execution_tasks": [],
+                            "dependencies": [{"from": "unit_backend", "to": "unit_web"}],
+                            "risks": ["前后端发布时间需要协调"],
+                            "acceptance_plan": ["后端和后台联调后验收筛选结果一致"],
+                            "open_questions": [],
+                            "materialization_allowed": True,
+                        }
+                    }
+                }
+            )
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(runner),
+            )
+
+            breakdown = orchestrator.command_coding_breakdown("req_1")
+            approved = orchestrator.command_coding_approve_breakdown("req_1")
+            materialized = orchestrator.command_coding_materialize("req_1")
+            children = ledger.list_child_tasks("req_1")
+            next_run = orchestrator.command_coding_run("req_1 --next")
+            delivery_status = orchestrator.command_coding_status("req_1 --delivery")
+            tree_status = orchestrator.command_coding_status("req_1 --tree")
+            refreshed_children = ledger.list_child_tasks("req_1")
+            parent = ledger.get_task("req_1")
+            modes = [call["mode"] for call in runner.calls]
+
+            self.assertIn("已生成交付拆解方案", breakdown)
+            self.assertIn("/coding approve-breakdown req_1", breakdown)
+            self.assertIn("已确认拆解方案", approved)
+            self.assertIn("已生成 2 个执行任务", materialized)
+            self.assertEqual(len(children), 2)
+            self.assertEqual(children[1]["dependency_task_ids"], [children[0]["task_id"]])
+            self.assertIn(f"已选择下一个可执行任务：{children[0]['task_id']}", next_run)
+            self.assertIn("实现已完成", next_run)
+            self.assertEqual(parent["task_kind"], TaskKind.REQUIREMENT.value)
+            self.assertEqual(parent["root_task_id"], "req_1")
+            self.assertEqual(refreshed_children[0]["status"], TaskStatus.READY_FOR_MERGE_TEST.value)
+            self.assertEqual(refreshed_children[1]["status"], TaskStatus.PLANNED.value)
+            self.assertIn("整体进度：1/2", delivery_status)
+            self.assertIn(f"下一步：{children[1]['task_id']}", delivery_status)
+            self.assertIn(children[0]["task_id"], tree_status)
+            self.assertIn(children[1]["task_id"], tree_status)
+            self.assertEqual(modes, [RunMode.DECOMPOSITION, RunMode.IMPLEMENTATION])
 
     def test_run_parent_next_starts_first_unblocked_child(self):
         with tempfile.TemporaryDirectory() as tmp:

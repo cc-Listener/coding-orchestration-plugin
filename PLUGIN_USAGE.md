@@ -204,6 +204,12 @@ implementation 和 QA run 使用受控高权限 Codex CLI session。这样 Codex
 - `/coding continue <反馈>`：给当前 active task 补充计划反馈，并重新进入 plan-only。
 - `/coding change <反馈>`：记录需求变更，重新进入 plan-only 做变更影响分析和短计划。
 - `/coding bugfix <反馈>`：给当前 active task 补充实现或 QA 修复反馈，并复用原 workspace 继续 implementation。
+- `/coding analyze <task_id>` / `/coding breakdown <task_id>`：对父级需求生成交付拆解报告，不创建执行任务。
+- `/coding approve-breakdown <task_id>`：人工确认拆解方案，允许后续物化执行任务。
+- `/coding materialize <task_id>`：把已确认拆解方案生成 execution 子任务。
+- `/coding run <task_id> --next`：从父级需求中选择下一个依赖满足的子任务并执行。
+- `/coding status <task_id> --delivery`：查看父级需求整体进度、阻塞点和下一步。
+- `/coding status <task_id> --tree`：查看父子任务树和依赖关系。
 - `/coding implement <task_id>`：人工确认 plan 后进入 GitOps implementation。
 - `/coding prepare-merge-test <task_id>`：人工标记任务等待执行 merge test。
 - `/coding merge-test <task_id>`：续接 Codex session 执行 merge-to-test。
@@ -213,6 +219,14 @@ implementation 和 QA run 使用受控高权限 Codex CLI session。这样 Codex
 active task binding 用于 `/coding continue`、`/coding change`、`/coding bugfix`、`/coding implement`、`/coding merge-test` 等命令在缺省 `task_id` 时找到当前任务。active_project binding 用于“先选项目再提需求”：用户先 `/coding project init` 或 `/coding project use`，后续 Coding Mode 中的新需求如果没有显式项目，Hermes 会把 active_project 注入新 task。active task 优先级高于 active_project；如果两者项目冲突，必须追问，不自动切换。同一个飞书会话里有多个任务时，用 `/coding list` 查看，用 `/coding use <task_id>` 切换当前任务。需要释放当前绑定或关闭 Coding Mode 时，使用 `/coding exit` 或“退出coding”；只清除项目上下文时，使用 `/coding project clear`。
 
 implementation 有硬门禁：Codex 必须先完成 plan-only，Hermes 把 task phase 标为 `plan_ready` 后，人工通过 `/coding implement <task_id>` 才会启动 GitOps implementation。Coding Mode 中的“确认”“新建分支去干活”等自然语言必须先被 LLM rewrite 成标准命令；高置信度且信息完整时直接执行，低置信度或缺信息时交给 Hermes 主 agent 基于插件上下文继续判断。
+
+### 需求交付拆解
+
+复杂需求先使用 `/coding breakdown <task_id>` 生成交付拆解方案。拆解方案只做审查，不创建执行任务。确认后发送 `/coding approve-breakdown <task_id>`，再发送 `/coding materialize <task_id>` 生成执行任务。
+
+父级需求不直接跑 implementation。对父级需求发送 `/coding run <task_id> --next` 时，Hermes 会选择下一个依赖满足的执行任务。发送 `/coding status <task_id> --delivery` 可以查看整体进度、阻塞点和下一步。
+
+多项目需求先按交付责任拆，再把每个 execution task 收敛到单项目、单 repo、单 worktree。Codex 在 decomposition report 中给出拆解、依赖、风险和验收建议；Hermes 只做 Report Admission Gate、状态记录、依赖调度和展示，不根据关键词硬编码业务拆分。
 
 ## Coding Mode 自然语言 rewrite
 
@@ -367,6 +381,12 @@ LLM 必须输出的 JSON schema：
 /coding continue 这里补充计划上下文
 /coding change 需求改了，需要同时支持订单标签和商品标签
 /coding bugfix 这里有问题要在源分支修复
+/coding breakdown task_xxx
+/coding approve-breakdown task_xxx
+/coding materialize task_xxx
+/coding status task_xxx --delivery
+/coding status task_xxx --tree
+/coding run task_xxx --next
 /coding run task_xxx
 /coding implement task_xxx
 /coding prepare-merge-test task_xxx

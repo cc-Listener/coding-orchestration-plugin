@@ -229,6 +229,46 @@ class TaskLedger:
                 (requirement_summary, task_id),
             )
 
+    def update_task_hierarchy(
+        self,
+        task_id: str,
+        *,
+        task_kind: str | None = None,
+        root_task_id: str | None = None,
+        parent_task_id: str | None = None,
+        dependency_task_ids: list[str] | None = None,
+    ) -> None:
+        task = self.get_task(task_id)
+        if task is None:
+            raise KeyError(task_id)
+        next_task_kind = task_kind if task_kind is not None else task.get("task_kind")
+        next_root_task_id = root_task_id if root_task_id is not None else task.get("root_task_id")
+        next_parent_task_id = parent_task_id if parent_task_id is not None else task.get("parent_task_id")
+        next_dependency_task_ids = (
+            dependency_task_ids
+            if dependency_task_ids is not None
+            else list(task.get("dependency_task_ids") or [])
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                update tasks
+                set task_kind = ?,
+                    root_task_id = ?,
+                    parent_task_id = ?,
+                    dependency_task_ids_json = ?,
+                    updated_at = current_timestamp
+                where task_id = ?
+                """,
+                (
+                    str(next_task_kind or "execution"),
+                    str(next_root_task_id or task_id),
+                    next_parent_task_id,
+                    json.dumps(next_dependency_task_ids, ensure_ascii=False),
+                    task_id,
+                ),
+            )
+
     def update_source_context(self, task_id: str, source_context: dict[str, Any]) -> None:
         task = self.get_task(task_id)
         if task is None:

@@ -123,6 +123,30 @@ Run status 只表示“这一次 RunMode 怎么结束”，task status 才表示
 
 旧状态例如 `success`、`queued`、`timeout`、`runner_failed`、`ready_for_merge_test_with_known_gaps` 会被归一到这 5 个主 run status；细节保存在 `raw_status`、`status_detail`、`failure_type`、`known_gaps` 和 `structured` 中，避免主状态膨胀。非结构化输出不会再被当作成功证据，`completed_unstructured` 和未知 runner 状态会进入 blocked/failed 恢复路径。
 
+### 4.2 需求交付拆解：从父需求到执行任务
+
+最新插件支持把需求先作为父级 requirement 管理，再按复杂度拆成可执行任务。父级需求保存原始诉求、拆解报告、整体进度和验收口径；execution 子任务才进入单项目、单 repo、单 worktree 的实现链路。
+
+主命令链路是：
+
+```text
+/coding task <需求>
+/coding breakdown <task_id>
+/coding approve-breakdown <task_id>
+/coding materialize <task_id>
+/coding run <task_id> --next
+```
+
+`/coding breakdown` 使用 decomposition RunMode，让 Codex 输出交付单元、执行任务、依赖、风险、验收计划和开放问题。Hermes 通过 Report Admission Gate 做确定性校验：schema 不完整、依赖引用不存在、依赖成环或 `materialization_allowed=false` 时，不创建子任务，也不推进状态。
+
+人确认拆解后，`/coding materialize` 才会生成 execution 子任务。父级需求收到 `/coding run <task_id> --next` 时，Hermes 只选择依赖已满足的下一个 execution task；如果剩余子任务都被阻塞或依赖未完成，则停在父级需求上展示原因。
+
+### 飞书中的交付视图
+
+父级需求优先展示交付视图：整体进度、交付单元、关键风险、阻塞点和下一步。子任务继续使用现有执行链路和状态同步。Report Admission Gate 拒绝的结果只展示为需要修复结构化 report 或补充信息，不会被当作成功结果同步。
+
+用户可以用 `/coding status <task_id> --delivery` 看总体交付进度，用 `/coding status <task_id> --tree` 看父子任务和依赖关系。Kanban 只投影 task status，并附带 `task_kind`、`root_task_id`、`parent_task_id` 等层级元数据；Task Ledger 仍是唯一事实源。
+
 ## 5. Task 流程：状态、证据和人工闸门
 
 Task 流程回答三个问题：当前走到哪一步，有什么证据，下一步能不能自动继续。
