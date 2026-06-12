@@ -17,7 +17,12 @@ from typing import Any
 from .diff_guard import DiffGuard
 from .execution_policy import control_policy_for_mode
 from .feishu_copy import render_user_update
-from .feishu_messages import render_task_created, render_task_needs_human, render_task_needs_source_context
+from .feishu_messages import (
+    render_delivery_breakdown,
+    render_task_created,
+    render_task_needs_human,
+    render_task_needs_source_context,
+)
 from .feishu_project_reader import FeishuProjectReader
 from .hermes_runtime import HermesRuntime
 from .kanban_bridge import KanbanBridge
@@ -41,6 +46,7 @@ from .models import (
     RunMode,
     RunnerName,
     TaskPhase,
+    TaskKind,
     TaskStatus,
     agent_run_status_details,
     apply_failure_type_to_run_details,
@@ -265,6 +271,8 @@ class CodingOrchestrator:
             message = self.command_coding_qa(task_id)
         elif mode in {RunMode.MERGE_TEST.value, "merge_test", "merge-test"}:
             message = self.command_coding_merge_test(task_id)
+        elif mode in {RunMode.DECOMPOSITION.value, "breakdown", "analyze"}:
+            message = self.command_coding_breakdown(task_id)
         else:
             message = self.command_coding_run(task_id)
         return {
@@ -469,6 +477,14 @@ class CodingOrchestrator:
             return self.command_coding_bugfix(rest)
         if command == "coding-run":
             return self.command_coding_run(rest)
+        if command == "coding-analyze":
+            return self.command_coding_analyze(rest)
+        if command == "coding-breakdown":
+            return self.command_coding_breakdown(rest)
+        if command == "coding-approve-breakdown":
+            return self.command_coding_approve_breakdown(rest)
+        if command == "coding-materialize":
+            return self.command_coding_materialize(rest)
         if command == "coding-implement":
             return self.command_coding_implement(rest)
         if command == "coding-qa":
@@ -685,6 +701,158 @@ class CodingOrchestrator:
         except ValueError as exc:
             return str(exc)
         return self._format_run_completion_message(task_id, result)
+
+    def command_coding_analyze(self, raw_args: str) -> str:
+        return self.command_coding_breakdown(raw_args)
+
+    def command_coding_breakdown(self, raw_args: str) -> str:
+        task_id = raw_args.strip()
+        if not task_id:
+            return "请提供要拆解的任务 ID。用法：/coding breakdown <task_id>"
+        task = self.ledger.get_task(task_id)
+        if not task:
+            return f"未找到任务：{task_id}"
+        try:
+            result = self.start_run(task_id, mode=RunMode.DECOMPOSITION)
+        except ValueError as exc:
+            return str(exc)
+        report = result.get("report") or {}
+        if str(report.get("status") or "") != AgentRunStatus.SUCCEEDED.value:
+            return self._format_decomposition_blocked_message(task_id, result)
+        self.ledger.update_task_session(task_id, {"decomposition": self._decomposition_for_session(report)})
+        return render_delivery_breakdown(task_id=task_id, report=report)
+
+    def command_coding_approve_breakdown(self, raw_args: str) -> str:
+        task_id = raw_args.strip()
+        if not task_id:
+            return "请提供要确认拆解的任务 ID。用法：/coding approve-breakdown <task_id>"
+        task = self.ledger.get_task(task_id)
+        if not task:
+            return f"未找到任务：{task_id}"
+        decomposition = (task.get("task_session") or {}).get("decomposition") or {}
+        if not decomposition:
+            return f"[{task_id}] 还没有拆解方案。请先发送 /coding breakdown {task_id}。"
+        if not bool(decomposition.get("materialization_allowed")):
+            questions = "\n".join(f"- {item}" for item in decomposition.get("open_questions") or [])
+            detail = f"\n{questions}" if questions else ""
+            return f"[{task_id}] 拆解方案仍有待澄清问题，暂不能确认。{detail}"
+        self.ledger.append_human_decision(
+            task_id,
+            {
+                "type": "breakdown_approved",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        return f"[{task_id}] 已确认拆解方案。下一步发送 /coding materialize {task_id} 生成执行任务。"
+
+    def command_coding_materialize(self, raw_args: str) -> str:
+        task_id = raw_args.strip()
+        if not task_id:
+            return "请提供要生成执行任务的需求 ID。用法：/coding materialize <task_id>"
+        task = self.ledger.get_task(task_id)
+        if not task:
+            return f"未找到任务：{task_id}"
+        if not self._breakdown_is_approved(task):
+            return f"[{task_id}] 拆解方案还未确认。请先发送 /coding approve-breakdown {task_id}。"
+        decomposition = (task.get("task_session") or {}).get("decomposition") or {}
+        if not bool(decomposition.get("materialization_allowed")):
+            return f"[{task_id}] 拆解方案尚未允许生成执行任务，请先补充缺失信息并重新拆解。"
+        children = self._materialize_execution_tasks(task)
+        if not children:
+            return f"[{task_id}] 拆解方案里没有可生成的执行任务，请重新拆解。"
+        return f"[{task_id}] 已生成 {len(children)} 个执行任务。\n" + "\n".join(
+            f"- {child['task_id']}：{child['requirement_summary']}" for child in children
+        )
+
+    @staticmethod
+    def _format_decomposition_blocked_message(task_id: str, result: dict[str, Any]) -> str:
+        artifacts = result.get("artifacts") or {}
+        report = CodingOrchestrator._load_report_from_artifacts(artifacts)
+        summary = CodingOrchestrator._completion_user_summary(report, artifacts, summary_limit=1200)
+        next_actions = CodingOrchestrator._completion_next_actions(report)
+        if not next_actions:
+            next_actions = ["补充缺失信息后，重新发送 /coding breakdown。"]
+        return render_user_update(
+            title="拆解未完成",
+            task_id=task_id,
+            user_facing_summary=summary or "本轮没有产出可确认的交付拆解方案。",
+            next_actions=CodingOrchestrator._dedupe_texts(next_actions),
+            risk_note=CodingOrchestrator._completion_risk_note(report),
+        )
+
+    @staticmethod
+    def _decomposition_for_session(report: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "classification": report.get("classification") or "",
+            "reason": report.get("reason") or "",
+            "delivery_units": report.get("delivery_units") or [],
+            "execution_tasks": report.get("execution_tasks") or [],
+            "dependencies": report.get("dependencies") or [],
+            "risks": report.get("risks") or [],
+            "acceptance_plan": report.get("acceptance_plan") or [],
+            "open_questions": report.get("open_questions") or [],
+            "materialization_allowed": bool(report.get("materialization_allowed")),
+        }
+
+    @staticmethod
+    def _breakdown_is_approved(task: dict[str, Any]) -> bool:
+        return any(decision.get("type") == "breakdown_approved" for decision in task.get("human_decisions") or [])
+
+    def _materialize_execution_tasks(self, task: dict[str, Any]) -> list[dict[str, Any]]:
+        existing_children = self.ledger.list_child_tasks(str(task["task_id"]))
+        if existing_children:
+            return existing_children
+        decomposition = (task.get("task_session") or {}).get("decomposition") or {}
+        delivery_units = decomposition.get("delivery_units") or []
+        unit_to_task_id: dict[str, str] = {}
+        for index, unit in enumerate(delivery_units, start=1):
+            unit_id = str(unit.get("unit_id") or "")
+            if unit_id:
+                unit_to_task_id[unit_id] = f"task_{index:02d}_{uuid.uuid4().hex[:10]}"
+        created: list[dict[str, Any]] = []
+        root_task_id = str(task.get("root_task_id") or task["task_id"])
+        for index, unit in enumerate(delivery_units, start=1):
+            unit_id = str(unit.get("unit_id") or "")
+            child_id = unit_to_task_id.get(unit_id) or f"task_{index:02d}_{uuid.uuid4().hex[:10]}"
+            dependency_unit_ids = [str(item) for item in unit.get("dependencies") or []]
+            dependency_task_ids = [
+                unit_to_task_id[dependency_unit_id]
+                for dependency_unit_id in dependency_unit_ids
+                if dependency_unit_id in unit_to_task_id
+            ]
+            self.ledger.create_task(
+                task_id=child_id,
+                source={
+                    "type": "decomposition",
+                    "root_task_id": root_task_id,
+                    "delivery_unit_id": unit_id,
+                    "project_name": unit.get("project_key") or "",
+                },
+                requirement_summary=str(unit.get("summary") or unit.get("title") or ""),
+                project_path=str(unit.get("project_path") or "") or None,
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.PLAN_READY.value,
+                task_kind=TaskKind.EXECUTION.value,
+                root_task_id=root_task_id,
+                parent_task_id=str(task["task_id"]),
+                dependency_task_ids=dependency_task_ids,
+                task_session={
+                    "project_name": unit.get("project_key") or "",
+                    "delivery": {
+                        "unit_id": unit_id,
+                        "title": unit.get("title") or "",
+                        "acceptance_criteria": unit.get("acceptance_criteria") or [],
+                        "risk_level": unit.get("risk_level") or "",
+                    },
+                    "runner": {"provider": RunnerName.CODEX_CLI.value},
+                },
+            )
+            child = self.ledger.get_task(child_id)
+            if child:
+                created.append(child)
+        return created
 
     def _delete_task_from_args(self, raw_args: str) -> str:
         args = raw_args.split()
@@ -1729,6 +1897,18 @@ class CodingOrchestrator:
             self._reply_if_possible(gateway, event, self._plan_only_started_message(task))
             self._start_background_plan_only(task_id, gateway, event)
             return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        if command in {"coding-analyze", "coding-breakdown"}:
+            task_id = raw_args or self._active_task_id_for_event(event) or ""
+            self._reply_if_possible(gateway, event, self.command_coding_breakdown(task_id))
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        if command == "coding-approve-breakdown":
+            task_id = raw_args or self._active_task_id_for_event(event) or ""
+            self._reply_if_possible(gateway, event, self.command_coding_approve_breakdown(task_id))
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+        if command == "coding-materialize":
+            task_id = raw_args or self._active_task_id_for_event(event) or ""
+            self._reply_if_possible(gateway, event, self.command_coding_materialize(task_id))
+            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
         if command == "coding-implement":
             task_id = raw_args or self._active_task_id_for_event(event) or ""
             task = self.ledger.get_task(task_id) if task_id else None
@@ -2515,6 +2695,10 @@ class CodingOrchestrator:
             "revise": "coding-change",
             "bugfix": "coding-bugfix",
             "run": "coding-run",
+            "analyze": "coding-analyze",
+            "breakdown": "coding-breakdown",
+            "approve-breakdown": "coding-approve-breakdown",
+            "materialize": "coding-materialize",
             "implement": "coding-implement",
             "qa": "coding-qa",
             "test": "coding-qa",
@@ -4193,6 +4377,7 @@ class CodingOrchestrator:
     def _run_mode_user_label(mode: RunMode | str | None) -> str:
         value = mode.value if isinstance(mode, RunMode) else str(mode or "").strip()
         labels = {
+            RunMode.DECOMPOSITION.value: "需求拆解",
             RunMode.PLAN_ONLY.value: "整理计划",
             RunMode.IMPLEMENTATION.value: "实现",
             RunMode.QA.value: "QA 验证",
@@ -4305,7 +4490,7 @@ class CodingOrchestrator:
         blocked = self._start_run_blocker(task, mode=mode)
         if blocked:
             raise ValueError(blocked)
-        if not task.get("project_path"):
+        if not task.get("project_path") and mode != RunMode.DECOMPOSITION:
             self._transition_task_status(
                 task_id,
                 TaskStatus.NEEDS_HUMAN,
@@ -4316,7 +4501,11 @@ class CodingOrchestrator:
         run_id = f"run_{uuid.uuid4().hex[:12]}"
         run_dir = self.run_root / task_id / run_id
         run_dir.mkdir(parents=True, exist_ok=True)
-        project_path = Path(task["project_path"]).expanduser().resolve()
+        project_path = (
+            Path(task["project_path"]).expanduser().resolve()
+            if task.get("project_path")
+            else self.workspace_root.expanduser().resolve()
+        )
         source = task["source"]
         execution_policy = control_policy_for_mode(
             mode=mode,
@@ -4488,7 +4677,7 @@ class CodingOrchestrator:
         before = self.diff_guard.snapshot(execution_root)
         running_phase = (
             TaskPhase.PLANNING
-            if mode == RunMode.PLAN_ONLY
+            if mode in {RunMode.DECOMPOSITION, RunMode.PLAN_ONLY}
             else TaskPhase.QA_VERIFYING
             if mode == RunMode.QA
             else TaskPhase.READY_TO_MERGE_TEST
@@ -6085,6 +6274,8 @@ class CodingOrchestrator:
 
     @staticmethod
     def _permission_profile(mode: RunMode, *, source_elevated: bool = False) -> str:
+        if mode == RunMode.DECOMPOSITION:
+            return "decomposition_read_only"
         if mode == RunMode.PLAN_ONLY:
             if source_elevated:
                 return "plan_source_read_elevated"
@@ -6329,6 +6520,8 @@ class CodingOrchestrator:
         if details and details.get("structured") is False:
             return TaskStatus.BLOCKED
         status = normalize_agent_run_status(status, mode)
+        if mode == RunMode.DECOMPOSITION and status == AgentRunStatus.SUCCEEDED.value:
+            return TaskStatus.PLANNED
         if mode == RunMode.PLAN_ONLY and status == AgentRunStatus.SUCCESS.value:
             return TaskStatus.PLANNED
         if mode in {RunMode.IMPLEMENTATION, RunMode.QA} and status in {
@@ -6357,6 +6550,14 @@ class CodingOrchestrator:
             return TaskPhase.BLOCKED
         if CodingOrchestrator._run_details_are_runner_failed(details):
             return TaskPhase.RUNNER_FAILED
+        if mode == RunMode.DECOMPOSITION:
+            if status == AgentRunStatus.SUCCEEDED.value:
+                return TaskPhase.PLAN_READY
+            if status == AgentRunStatus.BLOCKED.value:
+                return TaskPhase.BLOCKED
+            if status == AgentRunStatus.CANCELLED.value:
+                return TaskPhase.CANCELLED
+            return TaskPhase.FAILED
         if mode == RunMode.PLAN_ONLY:
             if status == AgentRunStatus.SUCCEEDED.value:
                 return TaskPhase.PLAN_READY

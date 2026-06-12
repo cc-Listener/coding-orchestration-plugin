@@ -88,5 +88,36 @@ def render_task_needs_source_context(task_id: str, summary: str, source_url: str
     )
 
 
+def render_delivery_breakdown(*, task_id: str, report: dict[str, Any]) -> str:
+    lines = [
+        f"[{task_id}] 已生成交付拆解方案。",
+        "",
+        str(report.get("user_facing_summary") or "请确认拆解方案。"),
+        "",
+        "交付单元：",
+    ]
+    for idx, unit in enumerate(report.get("delivery_units") or [], start=1):
+        title = str(unit.get("title") or unit.get("summary") or f"交付单元 {idx}")
+        project = str(unit.get("project_key") or unit.get("project_path") or "未指定项目")
+        criteria = unit.get("acceptance_criteria") or []
+        lines.append(f"{idx}. {title}")
+        lines.append(f"   - 项目：{project}")
+        if criteria:
+            rendered_criteria = "；".join(str(item) for item in criteria if str(item).strip())
+            if rendered_criteria:
+                lines.append(f"   - 验收：{rendered_criteria}")
+    risks = [str(item) for item in report.get("risks") or [] if str(item).strip()]
+    if risks:
+        lines.extend(["", "主要风险："])
+        lines.extend(f"- {item}" for item in risks)
+    questions = [str(item) for item in report.get("open_questions") or [] if str(item).strip()]
+    if questions:
+        lines.extend(["", "需要补充："])
+        lines.extend(f"- {item}" for item in questions)
+    elif report.get("materialization_allowed"):
+        lines.extend(["", f"下一步：发送 /coding approve-breakdown {task_id} 确认拆解方案。"])
+    return "\n".join(lines)
+
+
 def render_error(task_id: str, status: str, reason: str) -> str:
     return f"[{task_id}] 异常：{reason}\n当前状态：{task_status_display(status)}\n请人工确认下一步。"

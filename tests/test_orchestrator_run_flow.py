@@ -7,7 +7,7 @@ from pathlib import Path
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.command_rewriter import HermesCommandRewriter
-from coding_orchestration.models import AgentRunStatus, ArtifactSet, RunMode, RunnerCapabilities, TaskPhase, TaskStatus
+from coding_orchestration.models import AgentRunStatus, ArtifactSet, RunMode, RunnerCapabilities, TaskKind, TaskPhase, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_knowledge_resolver import ProjectKnowledgeResolver
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
@@ -395,6 +395,73 @@ manual_only
 
 
 class OrchestratorRunFlowTest(unittest.TestCase):
+    def test_materialize_confirmed_breakdown_creates_execution_children(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="req_1",
+                source={"type": "manual"},
+                requirement_summary="订单筛选能力升级",
+                project_path=None,
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[
+                    {
+                        "type": "breakdown_approved",
+                        "created_at": "2026-06-13T00:00:00+00:00",
+                    }
+                ],
+                task_kind=TaskKind.REQUIREMENT.value,
+                task_session={
+                    "decomposition": {
+                        "classification": "multi_project",
+                        "materialization_allowed": True,
+                        "delivery_units": [
+                            {
+                                "unit_id": "unit_backend",
+                                "title": "后端订单查询能力",
+                                "project_key": "backend-api",
+                                "project_path": str(root / "backend"),
+                                "summary": "支持新增筛选条件",
+                                "acceptance_criteria": ["接口支持新增筛选条件"],
+                                "dependencies": [],
+                            },
+                            {
+                                "unit_id": "unit_web",
+                                "title": "管理后台筛选入口",
+                                "project_key": "web-admin",
+                                "project_path": str(root / "web"),
+                                "summary": "后台页面接入筛选入口",
+                                "acceptance_criteria": ["后台可按新增条件筛选"],
+                                "dependencies": ["unit_backend"],
+                            },
+                        ],
+                    }
+                },
+            )
+            (root / "backend").mkdir()
+            (root / "web").mkdir()
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            message = orchestrator.command_coding_materialize("req_1")
+            children = ledger.list_child_tasks("req_1")
+
+            self.assertIn("已生成 2 个执行任务", message)
+            self.assertEqual(
+                [child["task_kind"] for child in children],
+                [TaskKind.EXECUTION.value, TaskKind.EXECUTION.value],
+            )
+            self.assertEqual(children[1]["dependency_task_ids"], [children[0]["task_id"]])
+            self.assertEqual(children[0]["task_session"]["delivery"]["unit_id"], "unit_backend")
+
     def test_gateway_standard_task_flow_reaches_done(self):
         class SyncBackgroundOrchestrator(CodingOrchestrator):
             def _start_background_plan_only(self, task_id, gateway, event):

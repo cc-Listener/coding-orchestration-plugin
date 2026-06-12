@@ -37,6 +37,14 @@ class CommandCatalogTest(unittest.TestCase):
         self.assertIn("/coding qa <task_id>", listing_text)
         self.assertIn("/coding qa <task_id>", allowed_commands)
 
+    def test_delivery_orchestration_commands_are_in_catalog(self):
+        commands = {item.command for item in COMMAND_CATALOG}
+
+        self.assertIn("/coding analyze <task_id>", commands)
+        self.assertIn("/coding breakdown <task_id>", commands)
+        self.assertIn("/coding approve-breakdown <task_id>", commands)
+        self.assertIn("/coding materialize <task_id>", commands)
+
     def test_catalog_items_have_required_rewrite_fields(self):
         for item in COMMAND_CATALOG:
             with self.subTest(action=item.action):

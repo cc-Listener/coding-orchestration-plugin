@@ -1,6 +1,7 @@
 import unittest
 
 from coding_orchestration.feishu_messages import (
+    render_delivery_breakdown,
     render_task_created,
     render_task_needs_human,
     render_task_needs_source_context,
@@ -9,6 +10,36 @@ from coding_orchestration.models import ProjectCandidate
 
 
 class FeishuMessagesTest(unittest.TestCase):
+    def test_delivery_breakdown_message_summarizes_units_and_next_step(self):
+        message = render_delivery_breakdown(
+            task_id="req_1",
+            report={
+                "user_facing_summary": "需要拆成后端和管理后台两部分交付。",
+                "delivery_units": [
+                    {
+                        "title": "后端订单查询能力",
+                        "project_key": "backend-api",
+                        "acceptance_criteria": ["接口支持新增筛选条件"],
+                    },
+                    {
+                        "title": "管理后台筛选入口",
+                        "project_key": "web-admin",
+                        "acceptance_criteria": ["后台可按新增条件筛选"],
+                    },
+                ],
+                "risks": ["需要确认筛选字段口径"],
+                "open_questions": [],
+                "materialization_allowed": True,
+            },
+        )
+
+        self.assertIn("已生成交付拆解方案", message)
+        self.assertIn("后端订单查询能力", message)
+        self.assertIn("管理后台筛选入口", message)
+        self.assertIn("/coding approve-breakdown req_1", message)
+        self.assertNotIn("runner", message)
+        self.assertNotIn("raw_status", message)
+
     def test_task_created_uses_user_copy_without_internal_debug_fields(self):
         message = render_task_created(
             "task_1",
