@@ -3,10 +3,12 @@ import unittest
 from coding_orchestration.models import (
     AgentRunStatus,
     RunMode,
+    TaskKind,
     TaskStatus,
     agent_run_status_details,
     apply_failure_type_to_run_details,
     normalize_agent_run_status,
+    task_kind_label_zh,
     task_status_display,
     task_status_label_zh,
     task_status_view,
@@ -15,6 +17,12 @@ from coding_orchestration.state_machine import InvalidTransition, TaskStateMachi
 
 
 class TaskStateMachineTest(unittest.TestCase):
+    def test_task_kind_labels_are_stable(self):
+        self.assertEqual(task_kind_label_zh(TaskKind.REQUIREMENT), "需求")
+        self.assertEqual(task_kind_label_zh(TaskKind.DELIVERY_UNIT), "交付单元")
+        self.assertEqual(task_kind_label_zh(TaskKind.EXECUTION), "执行任务")
+        self.assertEqual(task_kind_label_zh(TaskKind.INTEGRATION), "集成验收")
+
     def test_allows_review_rejection_to_return_to_planned(self):
         next_status = TaskStateMachine.transition(
             TaskStatus.READY_FOR_MERGE_TEST,

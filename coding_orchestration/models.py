@@ -72,6 +72,32 @@ def task_status_view(status: TaskStatus | str | None) -> dict[str, str]:
     }
 
 
+class TaskKind(str, Enum):
+    REQUIREMENT = "requirement"
+    DELIVERY_UNIT = "delivery_unit"
+    EXECUTION = "execution"
+    INTEGRATION = "integration"
+
+
+TASK_KIND_LABELS_ZH: dict[TaskKind, str] = {
+    TaskKind.REQUIREMENT: "需求",
+    TaskKind.DELIVERY_UNIT: "交付单元",
+    TaskKind.EXECUTION: "执行任务",
+    TaskKind.INTEGRATION: "集成验收",
+}
+
+
+def canonical_task_kind(kind: TaskKind | str | None) -> TaskKind:
+    try:
+        return TaskKind(kind or TaskKind.EXECUTION.value)
+    except ValueError:
+        return TaskKind.EXECUTION
+
+
+def task_kind_label_zh(kind: TaskKind | str | None) -> str:
+    return TASK_KIND_LABELS_ZH[canonical_task_kind(kind)]
+
+
 class TaskPhase(str, Enum):
     DRAFT = "draft"
     PLANNING = "planning"

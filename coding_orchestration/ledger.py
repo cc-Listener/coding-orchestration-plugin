@@ -48,6 +48,12 @@ class TaskLedger:
             self._ensure_column(conn, "tasks", "phase", "text not null default 'draft'")
             self._ensure_column(conn, "tasks", "task_session_json", "text not null default '{}'")
             self._ensure_column(conn, "tasks", "merge_records_json", "text not null default '[]'")
+            self._ensure_column(conn, "tasks", "task_kind", "text not null default 'execution'")
+            self._ensure_column(conn, "tasks", "root_task_id", "text")
+            self._ensure_column(conn, "tasks", "parent_task_id", "text")
+            self._ensure_column(conn, "tasks", "dependency_task_ids_json", "text not null default '[]'")
+            conn.execute("create index if not exists idx_tasks_root_task_id on tasks(root_task_id)")
+            conn.execute("create index if not exists idx_tasks_parent_task_id on tasks(parent_task_id)")
             conn.execute(
                 """
                 create table if not exists active_task_bindings (
@@ -80,6 +86,10 @@ class TaskLedger:
         phase: str = "draft",
         task_session: dict[str, Any] | None = None,
         merge_records: list[dict[str, Any]] | None = None,
+        task_kind: str = "execution",
+        root_task_id: str | None = None,
+        parent_task_id: str | None = None,
+        dependency_task_ids: list[str] | None = None,
     ) -> None:
         with self._connect() as conn:
             conn.execute(
@@ -87,8 +97,9 @@ class TaskLedger:
                 insert into tasks (
                     task_id, source_json, requirement_summary, project_path, status,
                     llm_wiki_refs_json, agent_runs_json, artifacts_json, human_decisions_json,
-                    phase, task_session_json, merge_records_json
-                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    phase, task_session_json, merge_records_json,
+                    task_kind, root_task_id, parent_task_id, dependency_task_ids_json
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
@@ -103,6 +114,10 @@ class TaskLedger:
                     phase,
                     json.dumps(task_session or {}, ensure_ascii=False),
                     json.dumps(merge_records or [], ensure_ascii=False),
+                    task_kind,
+                    root_task_id or task_id,
+                    parent_task_id,
+                    json.dumps(dependency_task_ids or [], ensure_ascii=False),
                 ),
             )
 
@@ -130,6 +145,30 @@ class TaskLedger:
                 limit ?
                 """,
                 params,
+            ).fetchall()
+        return [self._row_to_task(row) for row in rows]
+
+    def list_child_tasks(self, parent_task_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                select * from tasks
+                where parent_task_id = ?
+                order by created_at asc, task_id asc
+                """,
+                (parent_task_id,),
+            ).fetchall()
+        return [self._row_to_task(row) for row in rows]
+
+    def list_root_tasks(self, root_task_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                select * from tasks
+                where root_task_id = ?
+                order by created_at asc, task_id asc
+                """,
+                (root_task_id,),
             ).fetchall()
         return [self._row_to_task(row) for row in rows]
 
@@ -441,6 +480,10 @@ class TaskLedger:
             "phase": row["phase"],
             "task_session": json.loads(row["task_session_json"]),
             "merge_records": json.loads(row["merge_records_json"]),
+            "task_kind": row["task_kind"],
+            "root_task_id": row["root_task_id"] or row["task_id"],
+            "parent_task_id": row["parent_task_id"],
+            "dependency_task_ids": json.loads(row["dependency_task_ids_json"]),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }

@@ -4,6 +4,7 @@ from pathlib import Path
 
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
+from coding_orchestration.models import TaskKind, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
 
@@ -30,6 +31,72 @@ class LedgerWikiOrchestratorTest(unittest.TestCase):
             self.assertEqual(loaded["phase"], "draft")
             self.assertEqual(loaded["task_session"], {})
             self.assertEqual(loaded["merge_records"], [])
+
+    def test_ledger_defaults_existing_task_to_execution_kind(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = TaskLedger(Path(tmp) / "ledger.db")
+            ledger.create_task(
+                task_id="task_1",
+                source={"type": "manual"},
+                requirement_summary="修复订单筛选",
+                project_path="/repo/order",
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+            )
+
+            task = ledger.get_task("task_1")
+
+            self.assertEqual(task["task_kind"], TaskKind.EXECUTION.value)
+            self.assertEqual(task["root_task_id"], "task_1")
+            self.assertIsNone(task["parent_task_id"])
+            self.assertEqual(task["dependency_task_ids"], [])
+
+    def test_ledger_persists_requirement_children_and_dependencies(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ledger = TaskLedger(Path(tmp) / "ledger.db")
+            ledger.create_task(
+                task_id="req_1",
+                source={"type": "manual"},
+                requirement_summary="订单筛选能力升级",
+                project_path=None,
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                task_kind=TaskKind.REQUIREMENT.value,
+            )
+            ledger.create_task(
+                task_id="task_backend",
+                source={"type": "decomposition"},
+                requirement_summary="后端订单查询能力",
+                project_path="/repo/backend",
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                task_kind=TaskKind.EXECUTION.value,
+                root_task_id="req_1",
+                parent_task_id="req_1",
+            )
+            ledger.create_task(
+                task_id="task_web",
+                source={"type": "decomposition"},
+                requirement_summary="管理后台筛选入口",
+                project_path="/repo/web",
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                task_kind=TaskKind.EXECUTION.value,
+                root_task_id="req_1",
+                parent_task_id="req_1",
+                dependency_task_ids=["task_backend"],
+            )
+
+            children = ledger.list_child_tasks("req_1")
+            dependent = ledger.get_task("task_web")
+
+            self.assertEqual([task["task_id"] for task in children], ["task_backend", "task_web"])
+            self.assertEqual(dependent["dependency_task_ids"], ["task_backend"])
+            self.assertEqual(dependent["root_task_id"], "req_1")
 
     def test_ledger_persists_task_session_and_active_binding(self):
         with tempfile.TemporaryDirectory() as tmp:
