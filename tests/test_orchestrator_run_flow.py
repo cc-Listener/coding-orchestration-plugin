@@ -5100,6 +5100,28 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 self.assertNotEqual(details["failure_type"], "implementation_not_landed")
                 self.assertEqual(details["status_detail"] or details["failure_type"], expected_detail)
 
+    def test_report_incomplete_stays_blocked_when_report_has_failure_type(self):
+        details = CodingOrchestrator._normalize_implementation_run_status(
+            {
+                "status": AgentRunStatus.BLOCKED.value,
+                "mode": RunMode.IMPLEMENTATION.value,
+                "modified_files": [],
+                "failure_type": "report_incomplete",
+                "verification_limitations": [
+                    {
+                        "reason": "codex_report_incomplete",
+                        "impact": "Codex report missing required semantic fields.",
+                        "recovery_action": "Resume Codex to complete the structured report.",
+                        "fallback_evidence": "report.json",
+                    }
+                ],
+            },
+            RunMode.IMPLEMENTATION,
+        )
+
+        self.assertEqual(details["status"], AgentRunStatus.BLOCKED.value)
+        self.assertEqual(details["failure_type"], "report_incomplete")
+
     def test_non_implementation_status_does_not_require_landed_commit_fields(self):
         details = CodingOrchestrator._normalize_implementation_run_status(
             {

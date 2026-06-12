@@ -42,6 +42,7 @@ from .models import (
     TaskPhase,
     TaskStatus,
     agent_run_status_details,
+    apply_failure_type_to_run_details,
     canonical_task_status,
     normalize_agent_run_status,
     task_status_display,
@@ -6136,8 +6137,7 @@ class CodingOrchestrator:
         if status_detail:
             details["status_detail"] = status_detail
         if failure_type:
-            details["failure_type"] = failure_type
-            details["status"] = AgentRunStatus.FAILED.value
+            details = apply_failure_type_to_run_details(details, failure_type)
         if "known_gaps" in report:
             details["known_gaps"] = bool(report.get("known_gaps"))
         if "structured" in report:

@@ -17,6 +17,7 @@ from ..models import (
     RunMode,
     RunnerCapabilities,
     agent_run_status_details,
+    apply_failure_type_to_run_details,
     normalize_agent_run_status,
 )
 from ..report_contract import validate_codex_semantic_report
@@ -778,8 +779,7 @@ class CodexCliRunner(CodingAgentRunner):
         if status_detail:
             details["status_detail"] = status_detail
         if failure_type:
-            details["failure_type"] = failure_type
-            details["status"] = AgentRunStatus.FAILED.value
+            details = apply_failure_type_to_run_details(details, failure_type)
         if "known_gaps" in report:
             details["known_gaps"] = bool(report.get("known_gaps"))
         if "structured" in report:

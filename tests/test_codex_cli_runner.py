@@ -629,6 +629,19 @@ class CodexCliRunnerTest(unittest.TestCase):
             self.assertIn("implementation_landed", report["technical_summary"])
             self.assertEqual(report["next_actions"], ["续接 Codex，让它补齐完整结构化 report。"])
 
+    def test_report_status_details_keeps_report_incomplete_blocked(self):
+        details = CodexCliRunner._report_status_details(
+            {
+                "status": AgentRunStatus.BLOCKED.value,
+                "mode": RunMode.IMPLEMENTATION.value,
+                "failure_type": "report_incomplete",
+            },
+            RunMode.IMPLEMENTATION,
+        )
+
+        self.assertEqual(details["status"], AgentRunStatus.BLOCKED.value)
+        self.assertEqual(details["failure_type"], "report_incomplete")
+
     def test_valid_report_generates_compact_run_log(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
