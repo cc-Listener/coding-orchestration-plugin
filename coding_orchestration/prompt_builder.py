@@ -200,6 +200,8 @@ class PromptBuilder:
     def _visible_mode_instruction(mode: RunMode, execution_policy: dict[str, Any] | None = None) -> str:
         execution_policy = execution_policy or {}
         targeted = str(execution_policy.get("verification") or "") == "targeted"
+        if mode == RunMode.DECOMPOSITION:
+            return "- 只做需求审查和交付拆解，不修改文件、不创建子任务、不执行代码。"
         if mode == RunMode.PLAN_ONLY:
             return "- 只做计划，不修改文件；信息不足时直接说明需要补充什么。"
         if mode == RunMode.IMPLEMENTATION:
@@ -224,6 +226,16 @@ class PromptBuilder:
 
     @staticmethod
     def _execution_contract(mode: RunMode, execution_policy: dict[str, Any]) -> str:
+        if mode == RunMode.DECOMPOSITION:
+            return """## 执行要求
+- 只做需求审查和交付拆解，不修改文件。
+- 判断需求属于 `single_execution`、`multi_task`、`multi_project` 或 `needs_clarification`。
+- 先按业务交付责任边界拆 `delivery_units`，再映射到可执行任务建议。
+- 每个可执行任务建议必须能落到单项目、单 repo、目标清楚、边界清楚、依赖清楚、验收清楚。
+- 多项目需求必须显式输出项目间依赖；不要让一个 execution task 横跨多个 repo。
+- 如果缺少目标、范围、验收人、项目边界或关键依赖信息，返回 `classification=needs_clarification`，`materialization_allowed=false`，并填写 `open_questions`。
+- 不要创建子任务；Hermes 会在用户确认后 materialize。
+- 输出必须包含 `classification`、`reason`、`delivery_units`、`execution_tasks`、`dependencies`、`risks`、`acceptance_plan`、`open_questions` 和 `materialization_allowed`。"""
         if mode == RunMode.PLAN_ONLY:
             return """## 执行要求
 - 只输出计划，不修改文件。
@@ -304,6 +316,7 @@ class PromptBuilder:
             "- 必须填写 `technical_summary`：写给工程审计，说明改动、验证和剩余风险。",
             "- 必须填写 `next_actions`：给出用户下一步能执行的动作；Python 不会替你补默认摘要或下一步。",
             "- plan-only 必须填写 `execution_policy_decision` 和 `branch_slug_candidate`。",
+            "- decomposition 必须填写 `classification`、`reason`、`delivery_units`、`execution_tasks`、`dependencies`、`risks`、`acceptance_plan`、`open_questions` 和 `materialization_allowed`。",
             "- implementation 必须填写 `implementation_landed`、`commit_sha`、`changed_files_summary`、`branch_slug_candidate` 和 `execution_policy_decision`。",
             "- QA 和 merge-test 必须填写 `merge_readiness`，说明是否可继续、风险等级、是否需要人工确认。",
         ]
@@ -330,6 +343,15 @@ class PromptBuilder:
                     "- merge-test 完成后返回 `status=succeeded`。",
                     "- 如果存在无法安全解决的冲突或无关改动，返回 `status=blocked`。",
                     "- 如果需要人工确认，设置 `human_required=true`，不要只在自然语言摘要里提问。",
+                ]
+            )
+        elif mode == RunMode.DECOMPOSITION:
+            lines.extend(
+                [
+                    "- `classification` 只能是 `single_execution`、`multi_task`、`multi_project` 或 `needs_clarification`。",
+                    "- `delivery_units` 必须按交付责任边界组织，不要按文件名或随意模块拆。",
+                    "- `materialization_allowed=false` 时必须填写 `open_questions`。",
+                    "- 本轮只输出拆解方案，不创建任务、不修改文件、不执行代码。",
                 ]
             )
         else:

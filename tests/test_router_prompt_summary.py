@@ -151,6 +151,14 @@ class RouterPromptSummaryTest(unittest.TestCase):
         self.assertIn("优先使用来源上下文中的 `lark_cli_command`", instructions)
         self.assertIn("Plan-only 不允许修改项目文件", instructions)
 
+    def test_decomposition_prompt_forbids_code_changes_and_requires_delivery_breakdown(self):
+        prompt = PromptBuilder().build_run_instructions(mode=RunMode.DECOMPOSITION)
+
+        self.assertIn("只做需求审查和交付拆解，不修改文件", prompt)
+        self.assertIn("classification", prompt)
+        self.assertIn("delivery_units", prompt)
+        self.assertIn("open_questions", prompt)
+
     def test_prompt_source_block_exposes_codex_resolvable_document_context(self):
         prompt = PromptBuilder().build(
             requirement_summary="按飞书文档实现嵌入式界面",

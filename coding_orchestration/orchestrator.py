@@ -5764,6 +5764,14 @@ class CodingOrchestrator:
                 "branch_slug_candidate",
                 "execution_policy_decision",
                 "merge_readiness",
+                "classification",
+                "reason",
+                "delivery_units",
+                "execution_tasks",
+                "dependencies",
+                "acceptance_plan",
+                "open_questions",
+                "materialization_allowed",
             ],
             "properties": {
                 "runner": {"type": "string"},
@@ -5776,7 +5784,7 @@ class CodingOrchestrator:
                 "failure_type": {"type": "string"},
                 "known_gaps": {"type": "boolean"},
                 "structured": {"type": "boolean"},
-                "mode": {"type": "string", "enum": ["plan-only", "implementation", "qa", "merge-test"]},
+                "mode": {"type": "string", "enum": ["decomposition", "plan-only", "implementation", "qa", "merge-test"]},
                 "summary_markdown": {
                     "type": "string",
                     "description": "Human-readable Markdown summary or plan to show in Feishu.",
@@ -5835,6 +5843,17 @@ class CodingOrchestrator:
                 "branch_slug_candidate": {"type": "string"},
                 "execution_policy_decision": {"type": "object", "additionalProperties": True},
                 "merge_readiness": {"type": "object", "additionalProperties": True},
+                "classification": {
+                    "type": "string",
+                    "enum": ["", "single_execution", "multi_task", "multi_project", "needs_clarification"],
+                },
+                "reason": {"type": "string"},
+                "delivery_units": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                "execution_tasks": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                "dependencies": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                "acceptance_plan": {"type": "array", "items": {"type": "string"}},
+                "open_questions": {"type": "array", "items": {"type": "string"}},
+                "materialization_allowed": {"type": "boolean"},
             },
         }
         path.write_text(CodingOrchestrator._json(schema), encoding="utf-8")

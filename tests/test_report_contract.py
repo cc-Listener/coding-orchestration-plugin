@@ -101,6 +101,57 @@ class ReportContractTest(unittest.TestCase):
 
         self.assertTrue(result.ok)
 
+    def test_decomposition_report_requires_delivery_fields(self):
+        report = {
+            "user_facing_summary": "已识别为跨项目需求。",
+            "technical_summary": "需要拆成后端、后台和集成验证。",
+            "next_actions": ["确认拆解方案"],
+            "classification": "multi_project",
+            "reason": "涉及多个项目交付边界",
+            "delivery_units": [
+                {
+                    "unit_id": "unit_backend",
+                    "title": "后端订单查询能力",
+                    "project_key": "backend-api",
+                    "project_path": "/repo/backend",
+                    "summary": "支持新增筛选条件。",
+                    "acceptance_criteria": ["接口支持新增筛选条件"],
+                    "dependencies": [],
+                    "risk_level": "medium",
+                }
+            ],
+            "execution_tasks": [],
+            "dependencies": [],
+            "risks": ["多端发布时间需要协调"],
+            "acceptance_plan": ["后端、后台和移动端结果一致"],
+            "open_questions": [],
+            "materialization_allowed": True,
+        }
+
+        result = validate_codex_semantic_report(report, RunMode.DECOMPOSITION)
+
+        self.assertTrue(result.ok)
+
+    def test_decomposition_report_rejects_missing_acceptance_plan(self):
+        report = {
+            "user_facing_summary": "已识别为多任务需求。",
+            "technical_summary": "需要拆解。",
+            "next_actions": ["补齐验收计划"],
+            "classification": "multi_task",
+            "reason": "范围较大",
+            "delivery_units": [],
+            "execution_tasks": [],
+            "dependencies": [],
+            "risks": [],
+            "open_questions": [],
+            "materialization_allowed": False,
+        }
+
+        result = validate_codex_semantic_report(report, RunMode.DECOMPOSITION)
+
+        self.assertFalse(result.ok)
+        self.assertIn("acceptance_plan", result.missing)
+
     def test_false_boolean_is_not_empty(self):
         report = {
             "user_facing_summary": "实现尝试完成，但没有落地提交。",

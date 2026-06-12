@@ -50,6 +50,14 @@ REPORT_CONTRACT_FIELDS = (
     "branch_slug_candidate",
     "execution_policy_decision",
     "merge_readiness",
+    "classification",
+    "reason",
+    "delivery_units",
+    "execution_tasks",
+    "dependencies",
+    "acceptance_plan",
+    "open_questions",
+    "materialization_allowed",
 )
 
 
@@ -572,6 +580,24 @@ class CodexCliRunner(CodingAgentRunner):
             "merge_readiness": report.get("merge_readiness")
             if isinstance(report.get("merge_readiness"), dict)
             else {},
+            "classification": str(report.get("classification") or ""),
+            "reason": str(report.get("reason") or ""),
+            "delivery_units": report.get("delivery_units")
+            if isinstance(report.get("delivery_units"), list)
+            else [],
+            "execution_tasks": report.get("execution_tasks")
+            if isinstance(report.get("execution_tasks"), list)
+            else [],
+            "dependencies": report.get("dependencies")
+            if isinstance(report.get("dependencies"), list)
+            else [],
+            "acceptance_plan": report.get("acceptance_plan")
+            if isinstance(report.get("acceptance_plan"), list)
+            else [],
+            "open_questions": report.get("open_questions")
+            if isinstance(report.get("open_questions"), list)
+            else [],
+            "materialization_allowed": bool(report.get("materialization_allowed")),
         }
 
     def ensure_report_contract(self, run_dir: Path, mode: RunMode, report: dict[str, Any]) -> dict[str, Any]:

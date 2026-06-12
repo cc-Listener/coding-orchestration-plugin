@@ -136,6 +136,7 @@ class AgentRunStatus(str, Enum):
 
 
 class RunMode(str, Enum):
+    DECOMPOSITION = "decomposition"
     PLAN_ONLY = "plan-only"
     IMPLEMENTATION = "implementation"
     QA = "qa"
