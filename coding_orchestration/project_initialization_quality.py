@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
@@ -64,7 +65,7 @@ def evaluate_project_initialization_quality(
         path,
         COMPONENT_CONTRACT_HINTS,
     )
-    has_verification_commands = bool(test_commands)
+    has_verification_commands = bool(test_commands) or _project_has_package_test_script(path)
     source_count = dynamic_source_count if dynamic_source_count is not None else len(external_sources)
 
     missing = []
@@ -114,6 +115,26 @@ def _project_has_any(path: Path | None, hints: tuple[str, ...]) -> bool:
             if _exists_case_insensitive(candidate):
                 return True
     return False
+
+
+def _project_has_package_test_script(path: Path | None) -> bool:
+    if path is None or not path.exists() or not path.is_dir():
+        return False
+    package_json = path / "package.json"
+    if not package_json.exists() or not package_json.is_file():
+        return False
+    try:
+        data = json.loads(package_json.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    scripts = data.get("scripts")
+    if not isinstance(scripts, dict):
+        return False
+    return any(_is_test_script_name(str(name)) for name in scripts)
+
+
+def _is_test_script_name(name: str) -> bool:
+    return name == "test" or name.startswith("test:")
 
 
 def _candidate_paths_for_hint(root: Path, hint: str) -> list[Path]:

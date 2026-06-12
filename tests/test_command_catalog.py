@@ -57,6 +57,28 @@ class CommandCatalogTest(unittest.TestCase):
             self.assertIn(item.command, listing_text)
             self.assertIn(item.command, HermesCommandRewriter._system_prompt())
 
+    def test_help_copy_uses_user_language(self):
+        help_text = "\n".join(command_help_lines())
+        listing_text = "\n".join(command_listing_lines())
+        user_visible_text = f"{help_text}\n{listing_text}"
+
+        self.assertIn("开发任务", user_visible_text)
+        self.assertIn("当前项目", user_visible_text)
+        self.assertIn("整理计划", user_visible_text)
+        for internal_word in (
+            "active_project",
+            "active task",
+            "plan-only",
+            "implementation",
+            "LLM Wiki",
+            "source branch",
+            "worktree",
+            "merge-to-test",
+            "多少 task",
+            "task_xxx",
+        ):
+            self.assertNotIn(internal_word, user_visible_text)
+
     def test_help_shows_required_and_optional_parameters(self):
         help_text = "\n".join(command_help_lines())
         listing_text = "\n".join(command_listing_lines())
@@ -95,9 +117,12 @@ class CommandCatalogTest(unittest.TestCase):
     def test_operator_skill_treats_feishu_source_as_deferred_for_clear_project_tasks(self):
         skill = Path("coding_orchestration/skills/hermes-coding-operator/SKILL.md").read_text(encoding="utf-8")
 
-        self.assertIn("飞书 Wiki/Docx/Meegle 来源读不到也不应阻止 task 创建", skill)
+        self.assertIn("飞书 Wiki/Docx/Meegle 来源读不到也不应阻止任务创建", skill)
         self.assertIn("/coding task <原需求> --project <项目名或文件夹>", skill)
         self.assertIn("不要先要求授权或粘贴正文", skill)
+        self.assertIn("对用户回复时用", skill)
+        self.assertIn("当前项目", skill)
+        self.assertIn("当前任务", skill)
 
 
 if __name__ == "__main__":

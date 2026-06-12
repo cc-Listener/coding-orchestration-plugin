@@ -23,6 +23,7 @@ class ProjectKnowledgeInventory:
     ai_tooling_docs: list[Path] = field(default_factory=list)
     tooling_docs: list[Path] = field(default_factory=list)
     external_source_docs: list[Path] = field(default_factory=list)
+    inventory_files: list[str] = field(default_factory=list)
     sensitive_paths: list[str] = field(default_factory=list)
     tech_stack: list[str] = field(default_factory=list)
     package_manager: str | None = None
@@ -128,7 +129,8 @@ class ProjectKnowledgeInitializer:
             inventory.test_commands = self._unique(project.default_test_commands)
             return inventory
 
-        files = list(self._iter_project_files(root))
+        files = self._sort_paths(self._iter_project_files(root))
+        inventory.inventory_files = self._inventory_file_entries(root, files)
         for path in files:
             rel = self._rel(root, path)
             lower_rel = rel.lower()
@@ -191,13 +193,13 @@ class ProjectKnowledgeInitializer:
             f"项目 `{project.name}` 的初始化画像。",
             "",
             "该页面只作为项目总入口；具体文档、API、历史计划和 agent 配置按需召回。",
+            "Codex must classify technology stack, verification commands, and document priority from inventory_files before implementation.",
         ]
-        if inventory.tech_stack:
-            body_lines.extend(["", "技术栈：", *[f"- {item}" for item in inventory.tech_stack]])
         if inventory.guarded_paths:
             body_lines.extend(["", "高风险路径：", *[f"- {item}" for item in inventory.guarded_paths]])
-        if inventory.test_commands:
-            body_lines.extend(["", "验证入口：", *[f"- {item}" for item in inventory.test_commands]])
+        default_test_commands = list(project.default_test_commands)
+        if default_test_commands:
+            body_lines.extend(["", "验证入口：", *[f"- {item}" for item in default_test_commands]])
         return {
             "id": f"project:{project.name}",
             "kind": "project_profile",
@@ -212,9 +214,10 @@ class ProjectKnowledgeInitializer:
             "allowed_paths": list(project.allowed_paths),
             "forbidden_paths": list(project.forbidden_paths),
             "guarded_paths": inventory.guarded_paths,
-            "test_commands": inventory.test_commands,
+            "test_commands": default_test_commands,
             "default_runner": project.default_runner,
-            "tech_stack": inventory.tech_stack,
+            "tech_stack": [],
+            "inventory_files": inventory.inventory_files,
             "package_manager": inventory.package_manager,
             "documentation_index": [self._rel(inventory.root, path) for path in inventory.markdown_docs],
             "codex_skills": inventory.codex_skills,
@@ -442,6 +445,16 @@ class ProjectKnowledgeInitializer:
             if path.is_file():
                 files.append(path)
         return files
+
+    def _inventory_file_entries(self, root: Path, files: list[Path]) -> list[str]:
+        entries: list[str] = []
+        for path in files:
+            rel = self._rel(root, path)
+            if self._is_sensitive_path(rel):
+                entries.append(".env*")
+                continue
+            entries.append(rel)
+        return self._unique(entries)
 
     def _profile_source_paths(self, inventory: ProjectKnowledgeInventory) -> list[Path]:
         return self._sort_paths(

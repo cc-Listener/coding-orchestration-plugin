@@ -141,14 +141,16 @@ class ProjectKnowledgeResolverTest(unittest.TestCase):
 
             profile = wiki.read(wiki.find_by_kind("project_profile")[0]["id"])
             self.assertEqual(profile["project_id"], "admin-app")
-            self.assertIn("React", profile["tech_stack"])
+            self.assertIn("package.json", profile["inventory_files"])
+            self.assertEqual(profile["tech_stack"], [])
+            self.assertEqual(profile["test_commands"], [])
+            self.assertIn("Codex must classify technology stack", profile["body"])
             self.assertIn("AGENTS.md", profile["documentation_index"])
             self.assertIn(".codex/skills/admin-api-docs/SKILL.md", profile["codex_skills"])
             self.assertIn(".codex/agents/implementer.toml", profile["codex_agents"])
             self.assertIn(".api-spec.json", profile["external_sources"])
             self.assertIn(".env*", profile["guarded_paths"])
             self.assertIn("src/config/routes.tsx", profile["guarded_paths"])
-            self.assertIn("rtk npm run test:unit", profile["test_commands"])
             self.assertEqual(profile["source_refs"][0]["path"], "project-registry.json")
             self.assertTrue(any(ref.get("sha256") for ref in profile["source_refs"]))
 

@@ -133,6 +133,8 @@ MERGE_TEST_SUCCESS_STATUS_ALIASES = frozenset(
     }
 )
 
+FAILED_FAILURE_TYPES = frozenset({"timeout", "runner_failed", "orphaned"})
+
 
 def _raw_status_value(status: Any) -> str:
     value = status.value if isinstance(status, Enum) else str(status or "")
@@ -215,6 +217,18 @@ def agent_run_status_details(status: Any, mode: RunMode | str | None = None) -> 
 def normalize_agent_run_status(status: Any, mode: RunMode | str | None = None) -> str:
     """Normalize external runner status into the public AgentRunStatus contract."""
     return str(agent_run_status_details(status, mode)["status"])
+
+
+def apply_failure_type_to_run_details(details: dict[str, Any], failure_type: str) -> dict[str, Any]:
+    failure_type = str(failure_type or "").strip()
+    if not failure_type:
+        return details
+    details["failure_type"] = failure_type
+    if failure_type in FAILED_FAILURE_TYPES:
+        details["status"] = AgentRunStatus.FAILED.value
+    elif details.get("status") == AgentRunStatus.SUCCEEDED.value:
+        details["status"] = AgentRunStatus.BLOCKED.value
+    return details
 
 
 class RunnerName(str, Enum):

@@ -124,6 +124,21 @@ class PromptBuilder:
             command = str(source_context.get("lark_cli_command") or "").strip()
             if command:
                 context_lines.append(f"  - lark_cli_command: `{command}`")
+            raw_fields = source_context.get("raw_fields")
+            if isinstance(raw_fields, list):
+                context_lines.append("  - raw_fields:")
+                rendered_fields = False
+                if raw_fields:
+                    for field in raw_fields[:50]:
+                        if isinstance(field, dict):
+                            name = str(field.get("name") or "").strip()
+                            value = PromptBuilder._truncate_source_context_value(str(field.get("value") or ""))
+                            if not name and not value:
+                                continue
+                            context_lines.append(f"    - {name}: {value}")
+                            rendered_fields = True
+                if not rendered_fields:
+                    context_lines.append("    - 未返回可用字段。")
             if source_context.get("codex_resolvable"):
                 context_lines.append("  - note: 来源正文未注入；请优先在本 Codex session 中使用 lark_cli_command 读取。读取失败时按 recovery_action 报告恢复方案。")
             elif source_context.get("deferred_source_resolution"):
@@ -132,6 +147,13 @@ class PromptBuilder:
                 lines.append("- 外部来源上下文：")
                 lines.extend(context_lines)
         return "\n".join(lines) or "- 未记录"
+
+    @staticmethod
+    def _truncate_source_context_value(value: str, limit: int = 2000) -> str:
+        text = value.strip()
+        if len(text) <= limit:
+            return text
+        return text[:limit].rstrip() + "\n      ...（已截断）"
 
     @staticmethod
     def _context_block(wiki_refs: list[dict[str, Any]], context_artifacts: dict[str, str]) -> str:
@@ -217,7 +239,8 @@ class PromptBuilder:
         if mode == RunMode.MERGE_TEST:
             return """## 本轮要求
 - 人工已明确要求执行 merge-test。
-- Hermes 会在启动本 run 前把当前 source worktree 的实现改动创建 checkpoint commit；如果工作树已 clean，直接继续，不要再要求用户确认未跟踪文件。
+- Hermes 会在启动本 run 前检查 source worktree 是否 clean；实现改动应已由 Codex 在 implementation 阶段按 Git Flow/Conventional Commit 规范提交。
+- 如果工作树已 clean，直接继续；不要再要求用户确认未跟踪文件。
 - 使用 `merge-to-test` skill。
 - 只允许处理 source branch 到 `test` 的 merge/push。
 - 不发布、不部署。
@@ -259,6 +282,9 @@ class PromptBuilder:
 - 缺少依赖时先安装依赖并继续验证；所有 shell 命令使用 `rtk` 前缀。
 - 源码修改只限当前 task workspace。
 - 项目外写入只允许依赖缓存、git metadata、dev server/browser 临时文件和 `.gstack` QA 产物。
+- 实现和验证完成后，由 Codex 在当前 task workspace 内创建 git commit；commit subject 必须描述本次实际代码改动，使用 Git Flow/Conventional Commit 风格，例如 `fix(order): 修复发货失败`。
+- commit 信息不要使用 task/run/status/checkpoint/after/before/QA/merge-test 这类流程状态词；如果无法提交，返回 `status=blocked` 并写清恢复动作。
+- 提交成功且工作树 clean 后，才能返回 `status=succeeded` 或带 known gaps 的 `status=succeeded`。
 - 不发布、不部署、不操作飞书。
 - 开发完成且验证通过后返回 `status=succeeded`。
 - 开发完成但验证受限时返回 `status=succeeded`，同时设置 `known_gaps=true`、`status_detail=ready_for_merge_test_with_known_gaps`，并写清 `verification_limitations`。
@@ -270,10 +296,16 @@ class PromptBuilder:
             "## 输出要求",
             "- 返回符合 report schema 的 JSON。",
             "- `status` 只能是 `running`、`succeeded`、`blocked`、`failed`、`cancelled`；不要把 Task 状态写进 runner `status`。",
-            "- 兼容旧状态时，把原始语义写入 `raw_status` 或 `status_detail`，例如 `ready_for_merge_test_with_known_gaps`、`completed_unstructured`、`runner_failed`。",
+            "- 兼容旧状态时，把原始语义写入 `raw_status` 或 `status_detail`，例如 `ready_for_merge_test_with_known_gaps`、`runner_failed`；不要输出 `completed_unstructured`。",
             "- 把给人看的计划、实现或 merge-test 摘要写入 `summary_markdown`。",
             '- `test_results` 使用 `{"command":"...","status":"passed|failed|not_run|blocked","output_summary":"..."}` 结构。',
             '- 必须包含 `qa_artifacts` 和 `tested_commit`；没有 QA 产物时使用 `{"report":"","baseline":"","screenshots_dir":""}` 和空字符串。',
+            "- 必须填写 `user_facing_summary`：这是飞书用户直接看到的简短结果，不要写内部字段名。",
+            "- 必须填写 `technical_summary`：写给工程审计，说明改动、验证和剩余风险。",
+            "- 必须填写 `next_actions`：给出用户下一步能执行的动作；Python 不会替你补默认摘要或下一步。",
+            "- plan-only 必须填写 `execution_policy_decision` 和 `branch_slug_candidate`。",
+            "- implementation 必须填写 `implementation_landed`、`commit_sha`、`changed_files_summary`、`branch_slug_candidate` 和 `execution_policy_decision`。",
+            "- QA 和 merge-test 必须填写 `merge_readiness`，说明是否可继续、风险等级、是否需要人工确认。",
         ]
         if mode == RunMode.IMPLEMENTATION:
             lines.extend(

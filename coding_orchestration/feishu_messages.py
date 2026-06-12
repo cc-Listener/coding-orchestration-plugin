@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from .feishu_copy import render_user_update
 from .models import ProjectCandidate, task_status_display
 
 
@@ -17,35 +18,30 @@ def render_task_created(
     auto_implementation_started: bool = False,
     execution_policy: dict[str, Any] | None = None,
 ) -> str:
-    lines = [
-        "已创建编码任务",
-        f"任务ID： {task_id}",
-        f"需求小结：{summary}",
-        f"当前状态：{task_status_display(status)}",
-        f"项目：{project_name} ({project_path})",
-    ]
     if auto_implementation_started:
-        next_step = "implementation 已自动启动，完成后会回写结果。"
-        lines.append(f"下一步：{next_step}")
-        lines.extend(_inline_implementation_notice(task_id, execution_policy))
+        next_step = "已自动开始实现，完成后会回写结果。"
+        next_actions = [next_step, *_inline_implementation_notice(task_id, execution_policy)]
     elif auto_plan_started:
-        next_step = "plan-only 已自动启动，完成后会回写结果。"
-        lines.append(f"下一步：{next_step}")
+        next_step = "已自动开始整理计划，完成后会回写结果。"
+        next_actions = [next_step]
     else:
-        next_step = "进入 plan-only。"
-        lines.append(f"下一步：{next_step}")
-    return "\n".join(lines)
+        next_step = f"发送 /coding run {task_id} 开始整理计划。"
+        next_actions = [next_step]
+    return render_user_update(
+        title="已记录新任务",
+        task_id=task_id,
+        user_facing_summary=f"需求小结：{summary}\n项目：{project_name} ({project_path})",
+        next_actions=next_actions,
+    )
 
 
 def _inline_implementation_notice(task_id: str, execution_policy: dict[str, Any] | None) -> list[str]:
     policy = execution_policy or {}
-    route = str(policy.get("route") or "inline_implementation")
-    planning = str(policy.get("planning") or "inline")
     reasons = _execution_policy_reason_labels(policy.get("reasons") or [])
     return [
-        f"计划阶段：已跳过 plan-only，执行策略：{route} / {planning}",
+        "计划阶段：此任务被判断为轻量改动，已直接进入实现。",
         f"跳过原因：{reasons or '命中 inline 自动实施策略'}",
-        f"恢复动作：如果需要先看 plan，请发送 /coding cancel {task_id} 后再发送 /coding run {task_id}。",
+        f"恢复动作：如果需要先看计划，请发送 /coding cancel {task_id} 后再发送 /coding run {task_id}。",
     ]
 
 
@@ -78,7 +74,7 @@ def render_task_needs_human(task_id: str, summary: str, candidates: list[Project
         lines.append("候选项目：")
         for candidate in candidates:
             lines.append(f"- {candidate.project_name}: {candidate.project_path} ({candidate.confidence:.2f})")
-    lines.append("请使用 /coding task --project <项目名> <完整需求> 重新提交，或先把项目画像写入 LLM Wiki 后再重试。")
+    lines.append("请使用 /coding task --project <项目名> <完整需求> 重新提交，或先用 /coding project init <项目路径> 初始化项目。")
     return "\n".join(lines)
 
 
@@ -87,8 +83,8 @@ def render_task_needs_source_context(task_id: str, summary: str, source_url: str
         f"任务需要人工确认： {task_id}\n"
         f"需求：{summary}\n"
         f"飞书来源：{source_url}\n"
-        f"原因：飞书来源暂未进入 Codex 可解析上下文。{reason}\n"
-        "下一步：请保留来源链接交给 Codex plan 阶段读取；如果 Codex 也读取失败，再授权 lark-cli 或直接粘贴来源正文。"
+        f"原因：飞书来源暂时还不能自动读取。{reason}\n"
+        "下一步：请保留来源链接继续整理计划；如果后续仍读取失败，再授权飞书文档读取或直接粘贴来源正文。"
     )
 
 

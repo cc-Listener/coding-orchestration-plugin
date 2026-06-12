@@ -109,9 +109,10 @@ class KanbanBridge:
 
     @staticmethod
     def _status_comment(status_view: dict[str, str], reason: str) -> str:
+        label = status_view.get("status_label_zh") or status_view.get("status_display") or status_view.get("status") or "未知"
         if reason:
-            return f"状态投影：{status_view['status_display']}；原因：{reason}"
-        return f"状态投影：{status_view['status_display']}"
+            return f"任务状态已更新为：{label}。原因：{reason}"
+        return f"任务状态已更新为：{label}。"
 
     @staticmethod
     def _normalize_create_result(result: Any) -> dict[str, Any]:

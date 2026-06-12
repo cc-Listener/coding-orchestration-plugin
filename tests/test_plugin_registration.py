@@ -210,7 +210,7 @@ class PluginRegistrationTest(unittest.TestCase):
         self.assertIn("project-first workflow", text)
         self.assertIn("intent triage", text)
         self.assertIn("不默认使用插件仓库", text)
-        self.assertIn("低置信度不创建 task", text)
+        self.assertIn("低置信度不创建开发任务", text)
 
 
 if __name__ == "__main__":

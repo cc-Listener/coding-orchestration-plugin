@@ -62,12 +62,12 @@ class CodingCliTest(unittest.TestCase):
 
             output = orchestrator.command_coding_cli(["doctor"])
 
-            self.assertIn("Lark", output)
-            self.assertIn("Meegle", output)
-            self.assertIn("Kanban", output)
-            self.assertIn("Hermes runtime", output)
-            self.assertIn("Codex CLI", output)
-            self.assertIn("cron-ready", output)
+            self.assertIn("飞书", output)
+            self.assertIn("项目管理", output)
+            self.assertIn("看板", output)
+            self.assertIn("Hermes 执行入口", output)
+            self.assertIn("Codex 后端", output)
+            self.assertIn("定时检查建议", output)
 
     def test_coding_cli_lark_preflight_returns_actionable_message(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -77,6 +77,8 @@ class CodingCliTest(unittest.TestCase):
 
             self.assertIn("auth_needed", output)
             self.assertIn("lark-cli", output)
+            self.assertIn("恢复动作", output)
+            self.assertNotIn("recovery_action:", output)
 
     def test_coding_cli_source_resolve_returns_actionable_message(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -88,6 +90,10 @@ class CodingCliTest(unittest.TestCase):
 
             self.assertIn("auth_needed", output)
             self.assertIn("run lark-cli auth refresh", output)
+            self.assertIn("来源状态", output)
+            self.assertIn("恢复动作", output)
+            self.assertNotIn("source_status:", output)
+            self.assertNotIn("recovery_action:", output)
 
     def test_coding_gateway_doctor_command_reports_dependencies(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -95,10 +101,10 @@ class CodingCliTest(unittest.TestCase):
 
             output = orchestrator.command_coding("doctor")
 
-            self.assertIn("Hermes Coding Doctor", output)
-            self.assertIn("Lark", output)
-            self.assertIn("Kanban", output)
-            self.assertIn("Hermes runtime", output)
+            self.assertIn("编码流程健康检查", output)
+            self.assertIn("飞书", output)
+            self.assertIn("看板", output)
+            self.assertIn("Hermes 执行入口", output)
 
 
 if __name__ == "__main__":

@@ -63,11 +63,7 @@ class MeegleReader:
         data = self._payload_data(payload)
         title = self._first_string(data, ("name", "title", "summary")) or f"{link.work_item_type_key} {link.work_item_id}"
         fields = self._extract_fields(data)
-        description = self._description_from_fields(fields) or self._first_string(
-            data,
-            ("description", "desc", "detail", "content"),
-        )
-        summary = self._format_summary(link, title, description, fields)
+        summary = self._format_summary(link, title, fields)
         return {
             "read_status": "success",
             "source_type": f"feishu_project_{link.work_item_type_key}",
@@ -76,8 +72,7 @@ class MeegleReader:
             "work_item_type_key": link.work_item_type_key,
             "work_item_id": link.work_item_id,
             "title": title,
-            "description": description,
-            "fields": fields,
+            "raw_fields": fields,
             "summary_markdown": summary,
         }
 
@@ -194,19 +189,10 @@ class MeegleReader:
                         fields.append({"name": name, "value": self._text(value)})
         return [field for field in fields if field["name"] and field["value"]]
 
-    @staticmethod
-    def _description_from_fields(fields: list[dict[str, str]]) -> str:
-        for field in fields:
-            name = field["name"].lower()
-            if any(marker in name for marker in ("描述", "需求", "description", "detail")):
-                return field["value"]
-        return ""
-
     def _format_summary(
         self,
         link: MeegleLink,
         title: str,
-        description: str,
         fields: list[dict[str, str]],
     ) -> str:
         parts = [
@@ -218,12 +204,13 @@ class MeegleReader:
             f"- ID：{link.work_item_id}",
             f"- 标题：{title}",
         ]
-        if description:
-            parts.extend(["", "### 需求描述", self._truncate(description, 6000)])
+        parts.extend(["", "### 原始字段"])
         if fields:
-            parts.extend(["", "### 字段摘要"])
-            for field in fields[:30]:
-                parts.append(f"- {field['name']}：{self._truncate(field['value'], 800)}")
+            for field in fields[:50]:
+                parts.append(f"- {field.get('name')}: {self._truncate(field.get('value') or '', 2000)}")
+        else:
+            parts.append("- 未返回可用字段。")
+        parts.extend(["", "请在 plan 阶段从 raw_fields 中提取需求、验收标准、风险和缺口。"])
         return "\n".join(parts).strip()
 
     def _first_string(self, value: Any, keys: tuple[str, ...]) -> str:

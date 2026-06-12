@@ -5,6 +5,7 @@ from coding_orchestration.models import (
     RunMode,
     TaskStatus,
     agent_run_status_details,
+    apply_failure_type_to_run_details,
     normalize_agent_run_status,
     task_status_display,
     task_status_label_zh,
@@ -85,6 +86,15 @@ class TaskStateMachineTest(unittest.TestCase):
 
         self.assertEqual(next_status, TaskStatus.READY_FOR_MERGE_TEST)
 
+    def test_allows_restore_cancelled_task_to_blocked_state(self):
+        next_status = TaskStateMachine.transition(
+            TaskStatus.CANCELLED,
+            TaskStatus.BLOCKED,
+            reason="restore incomplete implementation evidence",
+        )
+
+        self.assertEqual(next_status, TaskStatus.BLOCKED)
+
     def test_allows_blocked_task_to_be_released_with_known_gaps(self):
         next_status = TaskStateMachine.transition(
             TaskStatus.BLOCKED,
@@ -117,10 +127,10 @@ class TaskStateMachineTest(unittest.TestCase):
 
         self.assertEqual(task_status, TaskStatus.FAILED)
 
-    def test_completed_unstructured_maps_to_ready_for_merge_test(self):
+    def test_completed_unstructured_maps_to_blocked_task(self):
         task_status = TaskStateMachine.task_status_for_run_status("completed_unstructured")
 
-        self.assertEqual(task_status, TaskStatus.READY_FOR_MERGE_TEST)
+        self.assertEqual(task_status, TaskStatus.BLOCKED)
 
     def test_maps_runner_failed_to_failed_task_status(self):
         task_status = TaskStateMachine.task_status_for_run_status("runner_failed")
@@ -152,10 +162,10 @@ class TaskStateMachineTest(unittest.TestCase):
 
         self.assertEqual(task_status, TaskStatus.READY_FOR_MERGE_TEST)
 
-    def test_unknown_runner_status_maps_to_known_gaps_not_blocked(self):
+    def test_unknown_runner_status_maps_to_blocked(self):
         task_status = TaskStateMachine.task_status_for_run_status("ready_for_implementation")
 
-        self.assertEqual(task_status, TaskStatus.READY_FOR_MERGE_TEST)
+        self.assertEqual(task_status, TaskStatus.BLOCKED)
 
     def test_task_status_enum_contains_only_public_main_statuses(self):
         self.assertEqual(
@@ -234,6 +244,29 @@ class TaskStateMachineTest(unittest.TestCase):
                 self.assertEqual(detail["raw_status"], raw_status)
                 for key, value in expected_fields.items():
                     self.assertEqual(detail[key], value)
+
+    def test_failure_type_only_forces_failed_for_runner_failures(self):
+        blocked = apply_failure_type_to_run_details(
+            agent_run_status_details(AgentRunStatus.BLOCKED.value),
+            "report_incomplete",
+        )
+        succeeded = apply_failure_type_to_run_details(
+            agent_run_status_details(AgentRunStatus.SUCCEEDED.value),
+            "report_incomplete",
+        )
+        timeout = apply_failure_type_to_run_details(
+            agent_run_status_details(AgentRunStatus.BLOCKED.value),
+            "timeout",
+        )
+        empty = apply_failure_type_to_run_details(
+            agent_run_status_details(AgentRunStatus.SUCCEEDED.value),
+            "",
+        )
+
+        self.assertEqual(blocked["status"], AgentRunStatus.BLOCKED.value)
+        self.assertEqual(succeeded["status"], AgentRunStatus.BLOCKED.value)
+        self.assertEqual(timeout["status"], AgentRunStatus.FAILED.value)
+        self.assertEqual(empty["status"], AgentRunStatus.SUCCEEDED.value)
 
     def test_task_status_has_chinese_display_label(self):
         self.assertEqual(task_status_label_zh(TaskStatus.BLOCKED), "受阻")

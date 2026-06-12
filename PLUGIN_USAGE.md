@@ -379,7 +379,7 @@ LLM 必须输出的 JSON schema：
 
 低置信度项目识别会进入人工确认；自然语言低置信度 rewrite 会交给 Hermes 主 agent，仍不会创建 task 或启动 runner；implementation 模式会使用隔离 workspace/source branch，并在 run 完成后做 diff guard。人工测试通过后，`/coding merge-test <task_id>` 会续接上一次 Codex session 执行 `merge-to-test` skill，把 source branch push 到 origin、merge 到 `test` 并 push `origin/test`，然后把 Task Ledger 更新为 `merged_test`。这代表已合入 test，但 task 还没有完成；确认测试环境符合预期后，再发送 `/coding complete <task_id>` 标记 `done`。测试环境发布仍然人工执行。
 
-`blocked` task 可以人工尝试 merge-test，但不是无条件放行。Hermes 的硬阻断只保留缺 implementation run、缺 worktree、缺 source branch 或 cancelled。其他风险会先返回确认提示；确认后发送 `/coding merge-test <task_id> --accept-risk`，Hermes 会记录 `accepted_risk` 和 `blocked_merge_test_released`，再转成 `ready_for_merge_test_with_known_gaps` 继续 merge-test。缺 Codex session 时会开新 session；缺 report、report 不完整、diff guard 越权、runner_failed/failed 或报告显示未落地代码，都需要人工接受风险。
+`blocked` task 可以人工尝试 merge-test，但不是无条件放行。Hermes 的硬阻断只保留缺 implementation run、缺 worktree、缺 source branch 或 cancelled。其他风险会先返回确认提示；确认后发送 `/coding merge-test <task_id> --accept-risk`，Hermes 会记录 `accepted_risk` 和 `blocked_merge_test_released`，任务主状态转成 `ready_for_merge_test` 后继续 merge-test；已知缺口保留在 `known_gaps`、`status_detail` 和 `verification_limitations` 中。缺 Codex session 时会开新 session；缺 report、report 不完整、diff guard 越权、runner_failed/failed 或报告显示未落地代码，都需要人工接受风险。
 
 `/coding delete` 会删除 Task Ledger 记录、active binding、该 task 生成的 LLM Wiki draft/run_summary，以及插件 run/workspace 目录。运行中任务默认需要先 cancel；可用 `--force` 强制删除，用 `--keep-artifacts` 或 `--keep-wiki` 保留对应记录。
 

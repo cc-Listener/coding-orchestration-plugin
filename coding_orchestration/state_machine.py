@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from .models import AgentRunStatus, TaskStatus, canonical_task_status, normalize_agent_run_status
+from .models import (
+    AgentRunStatus,
+    TaskStatus,
+    agent_run_status_details,
+    canonical_task_status,
+)
 
 
 class InvalidTransition(ValueError):
@@ -56,6 +61,7 @@ class TaskStateMachine:
             TaskStatus.NEEDS_HUMAN,
             TaskStatus.PLANNED,
             TaskStatus.RUNNING,
+            TaskStatus.BLOCKED,
             TaskStatus.FAILED,
             TaskStatus.READY_FOR_MERGE_TEST,
             TaskStatus.MERGED_TEST,
@@ -86,7 +92,10 @@ class TaskStateMachine:
 
     @classmethod
     def task_status_for_run_status(cls, run_status: AgentRunStatus | str) -> TaskStatus:
-        status = AgentRunStatus(normalize_agent_run_status(run_status))
+        details = agent_run_status_details(run_status)
+        if details.get("structured") is False:
+            return TaskStatus.BLOCKED
+        status = AgentRunStatus(str(details["status"]))
         task_status = canonical_task_status(cls._RUN_TO_TASK[status])
         if task_status is None:
             raise InvalidTransition(f"runner status {status.value} has no task status mapping")
