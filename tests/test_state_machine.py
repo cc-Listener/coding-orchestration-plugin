@@ -118,10 +118,10 @@ class TaskStateMachineTest(unittest.TestCase):
 
         self.assertEqual(task_status, TaskStatus.FAILED)
 
-    def test_completed_unstructured_maps_to_ready_for_merge_test(self):
+    def test_completed_unstructured_maps_to_blocked_task(self):
         task_status = TaskStateMachine.task_status_for_run_status("completed_unstructured")
 
-        self.assertEqual(task_status, TaskStatus.READY_FOR_MERGE_TEST)
+        self.assertEqual(task_status, TaskStatus.BLOCKED)
 
     def test_maps_runner_failed_to_failed_task_status(self):
         task_status = TaskStateMachine.task_status_for_run_status("runner_failed")
@@ -153,10 +153,10 @@ class TaskStateMachineTest(unittest.TestCase):
 
         self.assertEqual(task_status, TaskStatus.READY_FOR_MERGE_TEST)
 
-    def test_unknown_runner_status_maps_to_known_gaps_not_blocked(self):
+    def test_unknown_runner_status_maps_to_blocked(self):
         task_status = TaskStateMachine.task_status_for_run_status("ready_for_implementation")
 
-        self.assertEqual(task_status, TaskStatus.READY_FOR_MERGE_TEST)
+        self.assertEqual(task_status, TaskStatus.BLOCKED)
 
     def test_task_status_enum_contains_only_public_main_statuses(self):
         self.assertEqual(

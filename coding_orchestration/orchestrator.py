@@ -6180,30 +6180,6 @@ class CodingOrchestrator:
         return str(details.get("failure_type") or "") == "runner_failed" or str(details.get("raw_status") or "") == "runner_failed"
 
     @staticmethod
-    def _normalize_implementation_run_details(
-        *,
-        mode: RunMode,
-        details: dict[str, Any],
-        changed_files: list[str],
-    ) -> dict[str, Any]:
-        status = str(details.get("status") or "")
-        raw_status = str(details.get("raw_status") or "")
-        failure_type = str(details.get("failure_type") or "")
-        if mode not in {RunMode.IMPLEMENTATION, RunMode.QA}:
-            return details
-        if raw_status == "timeout" or failure_type == "timeout":
-            return (
-                agent_run_status_details("ready_for_merge_test_with_known_gaps", mode)
-                if changed_files
-                else agent_run_status_details("runner_failed", mode)
-            )
-        if mode != RunMode.IMPLEMENTATION:
-            return details
-        if status == AgentRunStatus.BLOCKED.value and changed_files:
-            return agent_run_status_details("ready_for_merge_test_with_known_gaps", mode)
-        return details
-
-    @staticmethod
     def _normalize_implementation_run_status(report: dict[str, Any], mode: RunMode) -> dict[str, Any]:
         details = CodingOrchestrator._run_status_details_from_report(report, mode)
         if mode == RunMode.IMPLEMENTATION:
@@ -6212,11 +6188,14 @@ class CodingOrchestrator:
                 details["failure_type"] = "implementation_not_landed"
                 details["status_detail"] = "implementation_not_landed"
                 return details
-        details = CodingOrchestrator._normalize_implementation_run_details(
-            mode=mode,
-            details=details,
-            changed_files=list(report.get("modified_files") or []),
-        )
+            if (
+                not CodingOrchestrator._run_details_are_runner_failed(details)
+                and CodingOrchestrator._implementation_report_explicitly_not_landed(report)
+            ):
+                details = agent_run_status_details("blocked", mode)
+                details["failure_type"] = "implementation_not_landed"
+                details["status_detail"] = "implementation_not_landed"
+                return details
         if (
             mode == RunMode.IMPLEMENTATION
             and str(details.get("status") or "") == AgentRunStatus.SUCCEEDED.value

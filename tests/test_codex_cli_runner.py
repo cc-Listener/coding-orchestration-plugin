@@ -340,7 +340,7 @@ class CodexCliRunnerTest(unittest.TestCase):
             Path("/repo/project"),
         )
 
-    def test_fallback_report_is_succeeded_with_unstructured_detail(self):
+    def test_fallback_report_defaults_to_runner_failed_without_structured_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
             (run_dir / "stdout.log").write_text("free text output", encoding="utf-8")
@@ -352,13 +352,11 @@ class CodexCliRunnerTest(unittest.TestCase):
                 mode=RunMode.PLAN_ONLY,
             )
 
-            self.assertEqual(
-                report["status"],
-                AgentRunStatus.SUCCEEDED.value,
-            )
-            self.assertEqual(report["raw_status"], "completed_unstructured")
-            self.assertEqual(report["status_detail"], "completed_unstructured")
-            self.assertFalse(report["structured"])
+            self.assertEqual(report["status"], AgentRunStatus.FAILED.value)
+            self.assertEqual(report["raw_status"], "runner_failed")
+            self.assertEqual(report["status_detail"], "runner_failed")
+            self.assertEqual(report["failure_type"], "runner_failed")
+            self.assertTrue(report["structured"])
             self.assertEqual(
                 set(report["verification_limitations"][0]),
                 {"reason", "impact", "recovery_action", "fallback_evidence"},
@@ -407,7 +405,7 @@ class CodexCliRunnerTest(unittest.TestCase):
             self.assertNotIn("schema validation", report["risks"][0])
             self.assertIn("longer timeout", report["verification_limitations"][0]["recovery_action"])
 
-    def test_implementation_fallback_summary_does_not_ask_to_confirm_plan(self):
+    def test_implementation_fallback_summary_does_not_advance_flow(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp) / "task_impl" / "run_1"
             run_dir.mkdir(parents=True)
@@ -422,7 +420,8 @@ class CodexCliRunnerTest(unittest.TestCase):
 
             self.assertIn("实现摘要", report["summary_markdown"])
             self.assertNotIn("确认计划", "\n".join(report["next_actions"]))
-            self.assertIn("/coding prepare-merge-test task_impl", report["next_actions"][0])
+            self.assertNotIn("/coding prepare-merge-test task_impl", "\n".join(report["next_actions"]))
+            self.assertIn("complete structured report", report["verification_limitations"][0]["recovery_action"])
 
     def test_run_subprocess_creates_runner_failed_report_when_process_cannot_start(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -468,13 +467,15 @@ class CodexCliRunnerTest(unittest.TestCase):
                 mode=RunMode.PLAN_ONLY,
             )
 
-            self.assertEqual(result.status, AgentRunStatus.SUCCEEDED.value)
+            self.assertEqual(result.status, AgentRunStatus.FAILED.value)
             manifest = json.loads((run_dir / "run-manifest.json").read_text(encoding="utf-8"))
             self.assertEqual(manifest["run_id"], "run_timing")
             self.assertIn("started_at", manifest)
             self.assertIn("completed_at", manifest)
             self.assertIsInstance(manifest["duration_ms"], int)
             self.assertGreaterEqual(manifest["duration_ms"], 0)
+            self.assertEqual(result.report["failure_type"], "runner_failed")
+            self.assertEqual(result.report["verification_limitations"][0]["reason"], "structured_report_missing")
 
     def test_valid_report_generates_summary_markdown(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -762,10 +763,13 @@ class CodexCliRunnerTest(unittest.TestCase):
 
             report = CodexCliRunner(command="codex").load_or_build_report(run_dir, RunMode.PLAN_ONLY)
 
-            self.assertEqual(report["status"], AgentRunStatus.COMPLETED_UNSTRUCTURED.value)
+            self.assertEqual(report["status"], AgentRunStatus.FAILED.value)
+            self.assertEqual(report["raw_status"], "runner_failed")
+            self.assertEqual(report["failure_type"], "runner_failed")
             self.assertEqual(report["summary_markdown"], "")
             self.assertEqual(len(report["risks"]), 1)
-            self.assertIn("semantic fallback", report["verification_limitations"][0]["impact"])
+            self.assertEqual(report["verification_limitations"][0]["reason"], "structured_report_missing")
+            self.assertIn("will not infer semantic completion", report["verification_limitations"][0]["impact"])
             self.assertFalse((run_dir / "summary.md").exists())
 
     def test_invalid_output_schema_stdout_is_runner_failed(self):
@@ -801,7 +805,7 @@ class CodexCliRunnerTest(unittest.TestCase):
                 "tested_commit": "abc123",
                 "summary_markdown": "实现了订单列表 2.0",
                 "user_facing_summary": "订单列表 2.0 已实现，存在登录验证缺口。",
-                "technical_summary": "恢复到 partial structured report 后保留实现摘要。",
+                "technical_summary": "stdout 中的 partial structured report 不应被恢复。",
                 "implementation_landed": True,
                 "commit_sha": "abc123",
                 "changed_files_summary": ["订单列表新增筛选入口"],
@@ -838,7 +842,7 @@ class CodexCliRunnerTest(unittest.TestCase):
 
             report = CodexCliRunner(command="codex").load_or_build_report(run_dir, RunMode.IMPLEMENTATION)
 
-            self.assertEqual(report["status"], AgentRunStatus.COMPLETED_UNSTRUCTURED.value)
+            self.assertEqual(report["status"], AgentRunStatus.FAILED.value)
             self.assertEqual(report["runner"], "codex_cli")
             self.assertEqual(report["mode"], RunMode.IMPLEMENTATION.value)
             self.assertEqual(report["modified_files"], [])
@@ -873,7 +877,7 @@ class CodexCliRunnerTest(unittest.TestCase):
 
             report = CodexCliRunner(command="codex").load_or_build_report(run_dir, RunMode.IMPLEMENTATION)
 
-            self.assertEqual(report["status"], AgentRunStatus.COMPLETED_UNSTRUCTURED.value)
+            self.assertEqual(report["status"], AgentRunStatus.FAILED.value)
             self.assertEqual(report["user_facing_summary"], "")
             self.assertEqual(report["technical_summary"], "")
             self.assertFalse(report["implementation_landed"])
@@ -910,7 +914,9 @@ class CodexCliRunnerTest(unittest.TestCase):
 
             report = CodexCliRunner(command="codex").load_or_build_report(run_dir, RunMode.PLAN_ONLY)
 
-            self.assertEqual(report["status"], AgentRunStatus.COMPLETED_UNSTRUCTURED.value)
+            self.assertEqual(report["status"], AgentRunStatus.FAILED.value)
+            self.assertEqual(report["raw_status"], "runner_failed")
+            self.assertEqual(report["failure_type"], "runner_failed")
             self.assertEqual(report["summary_markdown"], "")
             self.assertFalse((run_dir / "summary.md").exists())
 

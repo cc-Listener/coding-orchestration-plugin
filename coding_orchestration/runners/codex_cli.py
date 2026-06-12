@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import signal
 import shlex
 import subprocess
@@ -437,6 +436,11 @@ class CodexCliRunner(CodingAgentRunner):
         return self.build_fallback_report(
             run_dir=run_dir,
             mode=mode,
+            status="runner_failed",
+            limitation_reason="structured_report_missing",
+            limitation_impact="Codex did not produce a valid structured report. Hermes will not infer semantic completion from stdout/stderr.",
+            limitation_recovery_action="Resume the same Codex session and ask it to write the complete structured report.",
+            limitation_fallback_evidence=f"{run_dir / 'stdout.log'}; {run_dir / 'stderr.log'}",
         )
 
     def ensure_summary(self, run_dir: Path, report: dict[str, Any]) -> None:
@@ -459,7 +463,7 @@ class CodexCliRunner(CodingAgentRunner):
         self,
         run_dir: Path,
         mode: RunMode,
-        status: Any = "completed_unstructured",
+        status: Any = "runner_failed",
         recovered_summary: str = "",
         limitation_reason: str = "",
         limitation_impact: str = "",
@@ -482,8 +486,7 @@ class CodexCliRunner(CodingAgentRunner):
             default_recovery_action = "Rerun or resume Codex so it writes a complete structured report; Hermes will not infer semantic completion from stdout/stderr."
         if recovered_summary:
             (run_dir / "summary.md").write_text(recovered_summary, encoding="utf-8")
-            risks.append("已从非结构化输出中恢复可读摘要；仍需人工确认完整度和正确性。")
-            next_actions = self._next_actions_for_recovered_summary(mode, run_dir)
+            risks.append("已记录非结构化摘要，但缺少完整结构化 report，不能据此推进流程。")
         limitation = self._verification_limitation(
             reason=limitation_reason or self._fallback_limitation_reason(status),
             impact=limitation_impact or default_impact,
@@ -550,130 +553,6 @@ class CodexCliRunner(CodingAgentRunner):
         (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         return self._attach_operator_log_refs(run_dir, report)
 
-    def recover_partial_structured_report(
-        self,
-        *,
-        run_dir: Path,
-        raw_report: str,
-        mode: RunMode,
-    ) -> dict[str, Any]:
-        candidates: list[dict[str, Any]] = []
-        parsed_raw = self._try_parse_json(raw_report.strip()) if raw_report.strip() else None
-        if isinstance(parsed_raw, dict):
-            candidates.append(parsed_raw)
-        candidates.extend(self._report_candidates_from_stdout(run_dir / "stdout.log"))
-        for candidate in candidates:
-            report = self._normalize_partial_structured_report(candidate, run_dir=run_dir, mode=mode)
-            if report:
-                return report
-        return {}
-
-    def _report_candidates_from_stdout(self, path: Path) -> list[dict[str, Any]]:
-        if not path.exists():
-            return []
-        candidates: list[dict[str, Any]] = []
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
-        for line in reversed(lines):
-            parsed = self._try_parse_json(line.strip())
-            if not isinstance(parsed, dict):
-                continue
-            text = self._event_text(parsed)
-            if not text:
-                continue
-            candidates.extend(self._report_candidates_from_text(text))
-        return candidates
-
-    def _report_candidates_from_text(self, text: str) -> list[dict[str, Any]]:
-        value = text.strip()
-        if not value:
-            return []
-        candidates: list[dict[str, Any]] = []
-        parsed = self._try_parse_json(value)
-        if isinstance(parsed, dict):
-            candidates.append(parsed)
-        for block in re.findall(r"```(?:json)?\s*(.*?)```", value, flags=re.S | re.I):
-            parsed_block = self._try_parse_json(block.strip())
-            if isinstance(parsed_block, dict):
-                candidates.append(parsed_block)
-        return candidates
-
-    def _normalize_partial_structured_report(
-        self,
-        candidate: dict[str, Any],
-        *,
-        run_dir: Path,
-        mode: RunMode,
-    ) -> dict[str, Any]:
-        if not any(
-            key in candidate
-            for key in (
-                "status",
-                "summary_markdown",
-                "modified_files",
-                "changed_files",
-                "test_results",
-                "verification_limitations",
-            )
-        ):
-            return {}
-        status = self._normalize_report_status(
-            candidate.get("raw_status")
-            or candidate.get("status_detail")
-            or candidate.get("status")
-            or "completed_unstructured",
-            mode,
-        )
-        details = self._report_status_details(candidate, mode)
-        status = details["status"]
-        modified_files = candidate.get("modified_files", candidate.get("changed_files", []))
-        test_results = candidate.get("test_results") if isinstance(candidate.get("test_results"), list) else []
-        test_commands = candidate.get("test_commands") if isinstance(candidate.get("test_commands"), list) else []
-        if not test_commands:
-            test_commands = [
-                str(item.get("command"))
-                for item in test_results
-                if isinstance(item, dict) and str(item.get("command") or "").strip()
-            ]
-        limitations = (
-            candidate.get("verification_limitations")
-            if isinstance(candidate.get("verification_limitations"), list)
-            else []
-        )
-        risks = candidate.get("risks") if isinstance(candidate.get("risks"), list) else []
-        next_actions = (
-            candidate.get("next_actions")
-            if isinstance(candidate.get("next_actions"), list)
-            else self._default_next_actions_for_status(status, mode, run_dir)
-        )
-        return {
-            "runner": str(candidate.get("runner") or self.name),
-            **details,
-            "mode": str(candidate.get("mode") or mode.value),
-            "summary_markdown": str(candidate.get("summary_markdown") or ""),
-            "modified_files": modified_files if isinstance(modified_files, list) else [],
-            "test_commands": test_commands,
-            "test_results": test_results,
-            "risks": risks,
-            "verification_limitations": limitations,
-            "human_required": bool(
-                candidate.get(
-                    "human_required",
-                    self._status_requires_limitation(status)
-                    or status
-                    in {
-                        AgentRunStatus.BLOCKED.value,
-                        AgentRunStatus.FAILED.value,
-                    },
-                )
-            ),
-            "next_actions": next_actions,
-            "qa_artifacts": candidate.get("qa_artifacts")
-            if isinstance(candidate.get("qa_artifacts"), dict)
-            else {"report": "", "baseline": "", "screenshots_dir": ""},
-            "tested_commit": str(candidate.get("tested_commit") or ""),
-            **self._semantic_report_fields(candidate),
-        }
-
     @staticmethod
     def _semantic_report_fields(report: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -694,38 +573,6 @@ class CodexCliRunner(CodingAgentRunner):
             if isinstance(report.get("merge_readiness"), dict)
             else {},
         }
-
-    @staticmethod
-    def _default_next_actions_for_status(status: str, mode: RunMode, run_dir: Path) -> list[str]:
-        task_id = run_dir.parent.name
-        details = agent_run_status_details(status, mode)
-        canonical = str(details.get("status") or "")
-        if mode == RunMode.PLAN_ONLY:
-            return [f"人工确认计划后发送 /coding implement {task_id}。"]
-        if mode == RunMode.IMPLEMENTATION:
-            if details.get("known_gaps") or details.get("status_detail") == "ready_for_merge_test_with_known_gaps":
-                return [f"开发完成但存在已知验证缺口；确认风险或补验证后发送 /coding merge-test {task_id}。"]
-            if canonical == AgentRunStatus.SUCCEEDED.value:
-                return [f"开发和验证完成，确认后发送 /coding merge-test {task_id}。"]
-            return [f"查看 stdout/stderr 和恢复动作后，继续发送 /coding implement {task_id}。"]
-        if mode == RunMode.QA:
-            return [f"查看 QA 结果；确认后发送 /coding merge-test {task_id}。"]
-        if mode == RunMode.MERGE_TEST:
-            return [f"测试环境确认后发送 /coding complete {task_id}。"]
-        return ["Review stdout/stderr and decide whether to rerun or continue manually."]
-
-    @classmethod
-    def _next_actions_for_recovered_summary(cls, mode: RunMode, run_dir: Path) -> list[str]:
-        task_id = run_dir.parent.name
-        if mode == RunMode.PLAN_ONLY:
-            return [f"请人工确认计划完整度和正确性；确认后发送 /coding implement {task_id}。"]
-        if mode == RunMode.IMPLEMENTATION:
-            return [f"请人工确认实现摘要和 stdout/stderr；如实现可接受，发送 /coding prepare-merge-test {task_id} 或继续 /coding implement {task_id}。"]
-        if mode == RunMode.QA:
-            return [f"请人工确认 QA 摘要和 stdout/stderr；如风险可接受，发送 /coding merge-test {task_id}。"]
-        if mode == RunMode.MERGE_TEST:
-            return [f"请人工确认 merge-test 摘要和 stdout/stderr；测试环境确认后发送 /coding complete {task_id}。"]
-        return ["Review stdout/stderr and decide whether to rerun or continue manually."]
 
     def ensure_report_contract(self, run_dir: Path, mode: RunMode, report: dict[str, Any]) -> dict[str, Any]:
         report = dict(report)
@@ -843,94 +690,12 @@ class CodexCliRunner(CodingAgentRunner):
             "fallback_evidence": fallback_evidence,
         }
 
-    def recover_summary_markdown(self, *, run_dir: Path, raw_report: str = "") -> str:
-        candidates = [
-            self._summary_from_json_or_markdown(raw_report),
-            self._summary_from_stdout_jsonl(run_dir / "stdout.log"),
-            self._summary_from_json_or_markdown(self._read_text(run_dir / "stdout.log")),
-        ]
-        for candidate in candidates:
-            summary = self._clean_summary(candidate)
-            if summary:
-                return summary
-        return ""
-
-    def _summary_from_json_or_markdown(self, text: str) -> str:
-        value = text.strip()
-        if not value:
-            return ""
-        parsed = self._try_parse_json(value)
-        if isinstance(parsed, dict):
-            summary = parsed.get("summary_markdown")
-            if isinstance(summary, str) and summary.strip():
-                return summary
-        for block in re.findall(r"```(?:json|markdown|md)?\s*(.*?)```", value, flags=re.S | re.I):
-            parsed_block = self._try_parse_json(block.strip())
-            if isinstance(parsed_block, dict):
-                summary = parsed_block.get("summary_markdown")
-                if isinstance(summary, str) and summary.strip():
-                    return summary
-            if self._looks_like_plan(block):
-                return block
-        if self._looks_like_plan(value):
-            return value
-        return ""
-
-    def _summary_from_stdout_jsonl(self, path: Path) -> str:
-        if not path.exists():
-            return ""
-        messages: list[str] = []
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            line = line.strip()
-            if not line:
-                continue
-            parsed = self._try_parse_json(line)
-            if not isinstance(parsed, dict):
-                continue
-            text = self._event_text(parsed)
-            if text:
-                messages.append(text)
-        for message in reversed(messages):
-            summary = self._summary_from_json_or_markdown(message)
-            if summary:
-                return summary
-            if self._looks_like_plan(message):
-                return message
-        return ""
-
-    def _event_text(self, event: dict[str, Any]) -> str:
-        for key in ("message", "text", "content", "delta", "item"):
-            value = event.get(key)
-            text = self._text_from_value(value)
-            if text:
-                return text
-        return ""
-
-    def _text_from_value(self, value: Any) -> str:
-        if isinstance(value, str):
-            return value
-        if isinstance(value, list):
-            parts = [self._text_from_value(item) for item in value]
-            return "\n".join(part for part in parts if part)
-        if isinstance(value, dict):
-            for key in ("text", "content", "message"):
-                text = self._text_from_value(value.get(key))
-                if text:
-                    return text
-        return ""
-
     @staticmethod
     def _try_parse_json(text: str) -> Any:
         try:
             return json.loads(text)
         except json.JSONDecodeError:
             return None
-
-    @staticmethod
-    def _read_text(path: Path) -> str:
-        if not path.exists():
-            return ""
-        return path.read_text(encoding="utf-8", errors="replace")
 
     @staticmethod
     def _runner_failure_from_stdout(path: Path) -> dict[str, str] | None:
@@ -945,22 +710,6 @@ class CodexCliRunner(CodingAgentRunner):
                 "fallback_evidence": str(path),
             }
         return None
-
-    @staticmethod
-    def _looks_like_plan(text: str) -> bool:
-        value = text.strip()
-        if len(value) < 12:
-            return False
-        markers = ("计划", "步骤", "实现", "测试", "风险", "Plan", "Implementation", "Tests", "Risks")
-        return any(marker in value for marker in markers)
-
-    @staticmethod
-    def _clean_summary(text: str) -> str:
-        value = text.strip()
-        if value.startswith("```"):
-            value = re.sub(r"^```(?:markdown|md)?\s*", "", value, flags=re.I)
-            value = re.sub(r"\s*```$", "", value)
-        return value.strip()
 
     @staticmethod
     def _is_valid_report(report: dict[str, Any]) -> bool:

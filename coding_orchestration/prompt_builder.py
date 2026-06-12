@@ -296,7 +296,7 @@ class PromptBuilder:
             "## 输出要求",
             "- 返回符合 report schema 的 JSON。",
             "- `status` 只能是 `running`、`succeeded`、`blocked`、`failed`、`cancelled`；不要把 Task 状态写进 runner `status`。",
-            "- 兼容旧状态时，把原始语义写入 `raw_status` 或 `status_detail`，例如 `ready_for_merge_test_with_known_gaps`、`completed_unstructured`、`runner_failed`。",
+            "- 兼容旧状态时，把原始语义写入 `raw_status` 或 `status_detail`，例如 `ready_for_merge_test_with_known_gaps`、`runner_failed`；不要输出 `completed_unstructured`。",
             "- 把给人看的计划、实现或 merge-test 摘要写入 `summary_markdown`。",
             '- `test_results` 使用 `{"command":"...","status":"passed|failed|not_run|blocked","output_summary":"..."}` 结构。',
             '- 必须包含 `qa_artifacts` 和 `tested_commit`；没有 QA 产物时使用 `{"report":"","baseline":"","screenshots_dir":""}` 和空字符串。',

@@ -5232,7 +5232,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                     "modified_files": [],
                 },
                 AgentRunStatus.FAILED.value,
-                "runner_failed",
+                "timeout",
             ),
             (
                 {
@@ -5249,8 +5249,8 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                     "mode": RunMode.IMPLEMENTATION.value,
                     "modified_files": ["src/order.py"],
                 },
-                AgentRunStatus.SUCCEEDED.value,
-                "ready_for_merge_test_with_known_gaps",
+                AgentRunStatus.BLOCKED.value,
+                "",
             ),
         ]
 
@@ -5261,6 +5261,22 @@ class OrchestratorRunFlowTest(unittest.TestCase):
                 self.assertEqual(details["status"], expected_status)
                 self.assertNotEqual(details["failure_type"], "implementation_not_landed")
                 self.assertEqual(details["status_detail"] or details["failure_type"], expected_detail)
+
+    def test_blocked_implementation_respects_explicit_not_landed_report(self):
+        details = CodingOrchestrator._normalize_implementation_run_status(
+            {
+                "status": AgentRunStatus.BLOCKED.value,
+                "mode": RunMode.IMPLEMENTATION.value,
+                "modified_files": ["src/order.py"],
+                "implementation_landed": False,
+                "commit_sha": "abc123",
+            },
+            RunMode.IMPLEMENTATION,
+        )
+
+        self.assertEqual(details["status"], AgentRunStatus.BLOCKED.value)
+        self.assertEqual(details["failure_type"], "implementation_not_landed")
+        self.assertEqual(details["status_detail"], "implementation_not_landed")
 
     def test_report_incomplete_stays_blocked_when_report_has_failure_type(self):
         details = CodingOrchestrator._normalize_implementation_run_status(
@@ -6132,7 +6148,7 @@ class OrchestratorRunFlowTest(unittest.TestCase):
 
             self.assertEqual(message.count(action), 1)
 
-    def test_implementation_blocked_after_changes_enters_known_gaps_ready_status(self):
+    def test_implementation_blocked_after_changes_stays_blocked_without_codex_readiness(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "order"
@@ -6165,17 +6181,18 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             task = ledger.get_task("task_known_gaps")
             report = json.loads(Path(task["artifacts"][0]["report"]).read_text(encoding="utf-8"))
 
-            self.assertEqual(result["status"], AgentRunStatus.SUCCEEDED.value)
-            self.assertEqual(result["task_status"], TaskStatus.READY_FOR_MERGE_TEST.value)
-            self.assertEqual(task["status"], TaskStatus.READY_FOR_MERGE_TEST.value)
-            self.assertEqual(task["phase"], TaskPhase.READY_TO_MERGE_TEST.value)
-            self.assertEqual(report["status"], AgentRunStatus.SUCCEEDED.value)
-            self.assertEqual(report["raw_status"], "ready_for_merge_test_with_known_gaps")
-            self.assertEqual(report["status_detail"], "ready_for_merge_test_with_known_gaps")
-            self.assertEqual(report["task_status"], TaskStatus.READY_FOR_MERGE_TEST.value)
-            self.assertTrue(report["known_gaps"])
+            self.assertEqual(result["status"], AgentRunStatus.BLOCKED.value)
+            self.assertEqual(result["task_status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
+            self.assertEqual(task["phase"], TaskPhase.BLOCKED.value)
+            self.assertEqual(report["status"], AgentRunStatus.BLOCKED.value)
+            self.assertEqual(report["raw_status"], AgentRunStatus.BLOCKED.value)
+            self.assertEqual(report["status_detail"], "")
+            self.assertEqual(report["task_status"], TaskStatus.BLOCKED.value)
+            self.assertFalse(report["known_gaps"])
+            self.assertEqual(report["verification_limitations"][0]["reason"], "blocked_or_partial_without_details")
 
-    def test_implementation_timeout_after_changes_enters_known_gaps_ready_status(self):
+    def test_implementation_timeout_after_changes_stays_failed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "order"
@@ -6220,18 +6237,18 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             task = ledger.get_task("task_timeout")
             report = json.loads(Path(task["artifacts"][0]["report"]).read_text(encoding="utf-8"))
 
-            self.assertEqual(result["status"], AgentRunStatus.SUCCEEDED.value)
-            self.assertEqual(result["task_status"], TaskStatus.READY_FOR_MERGE_TEST.value)
-            self.assertEqual(task["status"], TaskStatus.READY_FOR_MERGE_TEST.value)
-            self.assertEqual(task["phase"], TaskPhase.READY_TO_MERGE_TEST.value)
-            self.assertEqual(report["status"], AgentRunStatus.SUCCEEDED.value)
-            self.assertEqual(report["raw_status"], "ready_for_merge_test_with_known_gaps")
-            self.assertEqual(report["status_detail"], "ready_for_merge_test_with_known_gaps")
-            self.assertEqual(report["task_status"], TaskStatus.READY_FOR_MERGE_TEST.value)
-            self.assertTrue(report["known_gaps"])
+            self.assertEqual(result["status"], AgentRunStatus.FAILED.value)
+            self.assertEqual(result["task_status"], TaskStatus.FAILED.value)
+            self.assertEqual(task["status"], TaskStatus.FAILED.value)
+            self.assertEqual(task["phase"], TaskPhase.FAILED.value)
+            self.assertEqual(report["status"], AgentRunStatus.FAILED.value)
+            self.assertEqual(report["raw_status"], "timeout")
+            self.assertEqual(report["failure_type"], "timeout")
+            self.assertEqual(report["task_status"], TaskStatus.FAILED.value)
+            self.assertFalse(report["known_gaps"])
             self.assertEqual(report["verification_limitations"][0]["reason"], "runner_timeout")
 
-    def test_implementation_timeout_without_changes_becomes_runner_failed(self):
+    def test_implementation_timeout_without_changes_stays_failed(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             project = root / "order"
@@ -6263,11 +6280,11 @@ class OrchestratorRunFlowTest(unittest.TestCase):
             self.assertEqual(result["status"], AgentRunStatus.FAILED.value)
             self.assertEqual(result["task_status"], TaskStatus.FAILED.value)
             self.assertEqual(task["status"], TaskStatus.FAILED.value)
-            self.assertEqual(task["phase"], TaskPhase.RUNNER_FAILED.value)
+            self.assertEqual(task["phase"], TaskPhase.FAILED.value)
             self.assertEqual(report["status"], AgentRunStatus.FAILED.value)
             self.assertEqual(report["task_status"], TaskStatus.FAILED.value)
-            self.assertEqual(report["raw_status"], "runner_failed")
-            self.assertEqual(report["failure_type"], "runner_failed")
+            self.assertEqual(report["raw_status"], "timeout")
+            self.assertEqual(report["failure_type"], "timeout")
             self.assertEqual(report["verification_limitations"][0]["reason"], "blocked_or_partial_without_details")
 
     def test_implementation_manifest_records_visible_session_attach_metadata(self):
