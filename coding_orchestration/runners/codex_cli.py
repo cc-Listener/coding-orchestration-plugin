@@ -20,6 +20,7 @@ from ..models import (
     normalize_agent_run_status,
 )
 from ..report_contract import validate_codex_semantic_report
+from ..report_admission import admit_report
 from ..run_log_compactor import compact_run_logs
 
 
@@ -426,6 +427,14 @@ class CodexCliRunner(CodingAgentRunner):
                     if not completeness.ok:
                         return self.build_report_incomplete_report(run_dir, mode, completeness.missing)
                     report = self.ensure_report_contract(run_dir, mode, report)
+                    admission = admit_report(report, mode)
+                    if not admission.accepted:
+                        return self.build_report_admission_rejected_report(
+                            run_dir,
+                            mode,
+                            admission.reason,
+                            admission.errors,
+                        )
                     self.ensure_summary(run_dir, report)
                     return report
             except json.JSONDecodeError:
@@ -556,6 +565,40 @@ class CodexCliRunner(CodingAgentRunner):
             "branch_slug_candidate": "",
             "execution_policy_decision": {},
             "merge_readiness": {},
+        }
+        report = self._report_contract_fields(report)
+        (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+        return self._attach_operator_log_refs(run_dir, report)
+
+    def build_report_admission_rejected_report(
+        self,
+        run_dir: Path,
+        mode: RunMode,
+        reason: str,
+        errors: list[str],
+    ) -> dict[str, Any]:
+        limitation = self._verification_limitation(
+            reason=reason,
+            impact="Codex 输出的结构化 report 未通过 Hermes admission gate，不能驱动状态推进或任务物化。",
+            recovery_action="续接 Codex，让它修复 report 中列出的结构化问题。",
+            fallback_evidence=str(run_dir / "report.json"),
+        )
+        report = {
+            "runner": self.name,
+            **agent_run_status_details(AgentRunStatus.BLOCKED.value, mode),
+            "failure_type": "report_admission_rejected",
+            "mode": mode.value,
+            "summary_markdown": "Codex report 未通过 admission gate，Hermes 已阻止流程推进。",
+            "modified_files": [],
+            "test_commands": [],
+            "test_results": [],
+            "risks": [f"{reason}: {'; '.join(errors)}"],
+            "verification_limitations": [limitation],
+            "human_required": True,
+            "next_actions": ["续接 Codex 修复结构化 report，或人工补充缺失信息后重跑。"],
+            "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
+            "tested_commit": "",
+            **self._semantic_report_fields({}),
         }
         report = self._report_contract_fields(report)
         (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")

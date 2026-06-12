@@ -549,6 +549,50 @@ class CodexCliRunnerTest(unittest.TestCase):
             for field, value in semantic_fields.items():
                 self.assertEqual(saved[field], value)
 
+    def test_decomposition_invalid_dependency_is_blocked_by_admission_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "stdout.log").write_text("", encoding="utf-8")
+            (run_dir / "stderr.log").write_text("", encoding="utf-8")
+            report = {
+                "runner": "codex_cli",
+                "status": "succeeded",
+                "mode": RunMode.DECOMPOSITION.value,
+                "summary_markdown": "拆解完成",
+                "modified_files": [],
+                "test_commands": [],
+                "test_results": [],
+                "risks": [],
+                "verification_limitations": [],
+                "human_required": False,
+                "next_actions": ["确认拆解"],
+                "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
+                "tested_commit": "",
+                "user_facing_summary": "拆解完成",
+                "technical_summary": "含有无效依赖引用",
+                "implementation_landed": False,
+                "commit_sha": "",
+                "changed_files_summary": [],
+                "branch_slug_candidate": "",
+                "execution_policy_decision": {},
+                "merge_readiness": {},
+                "classification": "multi_task",
+                "reason": "需要拆解",
+                "delivery_units": [{"unit_id": "unit_backend", "title": "后端", "acceptance_criteria": ["接口通过"]}],
+                "execution_tasks": [],
+                "dependencies": [{"from": "unit_missing", "to": "unit_backend"}],
+                "acceptance_plan": ["整体验收"],
+                "open_questions": [],
+                "materialization_allowed": True,
+            }
+            (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False), encoding="utf-8")
+
+            loaded = CodexCliRunner(command="codex").load_or_build_report(run_dir, RunMode.DECOMPOSITION)
+
+            self.assertEqual(loaded["status"], AgentRunStatus.BLOCKED.value)
+            self.assertEqual(loaded["failure_type"], "report_admission_rejected")
+            self.assertIn("invalid_decomposition_references", loaded["risks"][0])
+
     def test_implementation_success_report_missing_semantic_fields_is_report_incomplete(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)
