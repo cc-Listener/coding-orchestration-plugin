@@ -6,7 +6,7 @@ from pathlib import Path
 from coding_orchestration.kanban_bridge import KanbanBridge
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
-from coding_orchestration.models import TaskStatus
+from coding_orchestration.models import TaskKind, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
 
@@ -91,7 +91,11 @@ class KanbanBridgeTest(unittest.TestCase):
             task = orchestrator.ledger.get_task(created.task_id)
             self.assertEqual(task["task_session"]["kanban_task_id"], "t_123")
             self.assertEqual(dispatch_tool.calls[0]["name"], "kanban_create")
-            self.assertEqual(dispatch_tool.calls[0]["args"]["metadata"]["local_task_id"], created.task_id)
+            metadata = dispatch_tool.calls[0]["args"]["metadata"]
+            self.assertEqual(metadata["local_task_id"], created.task_id)
+            self.assertEqual(metadata["task_kind"], TaskKind.EXECUTION.value)
+            self.assertEqual(metadata["root_task_id"], created.task_id)
+            self.assertEqual(metadata["parent_task_id"], "")
 
     def test_sync_task_status_projects_to_real_kanban_tools(self):
         cases = [

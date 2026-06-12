@@ -134,5 +134,29 @@ def render_task_tree_status(*, parent: dict[str, Any], children: list[dict[str, 
     return "\n".join(lines)
 
 
+def render_delivery_status(
+    *,
+    parent: dict[str, Any],
+    children: list[dict[str, Any]],
+    next_child: dict[str, Any] | None,
+) -> str:
+    total = len(children)
+    completed_statuses = {"done", "merged_test", "ready_for_merge_test"}
+    completed = sum(1 for child in children if child.get("status") in completed_statuses)
+    blocked = [child for child in children if child.get("status") == "blocked"]
+    running = [child for child in children if child.get("status") == "running"]
+    lines = [
+        f"需求：{parent.get('requirement_summary') or parent.get('task_id')}",
+        f"整体进度：{completed}/{total}",
+        f"运行中：{len(running)}；阻塞：{len(blocked)}",
+    ]
+    if next_child:
+        lines.append(f"下一步：{next_child['task_id']} - {next_child.get('requirement_summary') or ''}")
+    if blocked:
+        lines.extend(["", "当前阻塞："])
+        lines.extend(f"- {child['task_id']}：{child.get('requirement_summary') or ''}" for child in blocked)
+    return "\n".join(lines)
+
+
 def render_error(task_id: str, status: str, reason: str) -> str:
     return f"[{task_id}] 异常：{reason}\n当前状态：{task_status_display(status)}\n请人工确认下一步。"

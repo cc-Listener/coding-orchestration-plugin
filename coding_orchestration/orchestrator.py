@@ -19,9 +19,11 @@ from .execution_policy import control_policy_for_mode
 from .feishu_copy import render_user_update
 from .feishu_messages import (
     render_delivery_breakdown,
+    render_delivery_status,
     render_task_created,
     render_task_needs_human,
     render_task_needs_source_context,
+    render_task_tree_status,
 )
 from .feishu_project_reader import FeishuProjectReader
 from .hermes_runtime import HermesRuntime
@@ -611,7 +613,10 @@ class CodingOrchestrator:
         return "当前会话没有绑定任务；请在飞书里使用 /coding bugfix <反馈>，或使用 /coding implement <task_id>。"
 
     def command_coding_status(self, raw_args: str) -> str:
-        task_id = raw_args.strip()
+        args = raw_args.split()
+        delivery_view = "--delivery" in args
+        tree_view = "--tree" in args
+        task_id = " ".join(arg for arg in args if not arg.startswith("--")).strip()
         if not task_id:
             return "请提供任务 ID。"
         task = self.ledger.get_task(task_id)
@@ -625,6 +630,15 @@ class CodingOrchestrator:
                     f"[{task_id}] 已自动回收后台执行：{reconciled['run_id']}",
                     self._format_task_status_details(task, include_branch=False),
                 ]
+            )
+        if delivery_view or tree_view:
+            children = self.ledger.list_child_tasks(task_id)
+            if tree_view:
+                return render_task_tree_status(parent=task, children=children)
+            return render_delivery_status(
+                parent=task,
+                children=children,
+                next_child=self._next_runnable_child(task),
             )
         return self._format_task_status_details(task, include_branch=False)
 
@@ -1378,6 +1392,7 @@ class CodingOrchestrator:
         bridge = getattr(self, "kanban_bridge", None)
         if bridge is None or not hasattr(bridge, "create_task"):
             return None
+        task = self.ledger.get_task(task_id) or {}
         try:
             result = bridge.create_task(
                 local_task_id=task_id,
@@ -1388,6 +1403,9 @@ class CodingOrchestrator:
                     "project": project_name,
                     "project_path": project_path,
                     "status": status,
+                    "task_kind": str(task.get("task_kind") or TaskKind.EXECUTION.value),
+                    "root_task_id": str(task.get("root_task_id") or task_id),
+                    "parent_task_id": str(task.get("parent_task_id") or ""),
                 },
             )
         except Exception as exc:
@@ -3148,9 +3166,13 @@ class CodingOrchestrator:
         )
 
     def _status_for_event(self, raw_args: str, event: Any) -> str:
-        task_id = raw_args.strip() or self._active_task_id_for_event(event) or ""
+        args = raw_args.split()
+        flags = [arg for arg in args if arg.startswith("--")]
+        task_id = next((arg for arg in args if not arg.startswith("--")), "") or self._active_task_id_for_event(event) or ""
         if not task_id:
             return "请提供任务 ID，或先使用 /coding use <task_id> 切换当前任务。"
+        if flags:
+            return self.command_coding_status(" ".join([task_id, *flags]))
         task = self.ledger.get_task(task_id)
         if not task:
             return f"未找到任务：{task_id}"
