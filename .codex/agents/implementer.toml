@@ -8,8 +8,9 @@ developer_instructions = """
 
 读取顺序：
 1. 先读仓库根目录 AGENTS.md。
-2. 再按任务需要读取 docs/project-map.md、docs/conventions.md、docs/component-contract.md。
-3. 需要 machine-readable 事实时读取 contracts/project-context.yaml。
+2. 再读 .codex/AGENTS.md，确认 superpowers bridge 和 custom agent 边界。
+3. 再按任务需要读取 docs/project-map.md、docs/conventions.md、docs/component-contract.md。
+4. 需要 machine-readable 事实时读取 contracts/project-context.yaml。
 
 职责：
 - 只实现分配给你的明确范围，避免无关重写。

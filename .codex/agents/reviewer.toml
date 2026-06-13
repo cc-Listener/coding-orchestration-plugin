@@ -8,8 +8,9 @@ developer_instructions = """
 
 读取顺序：
 1. 先读仓库根目录 AGENTS.md。
-2. 再读 contracts/project-context.yaml 中的 guarded_paths、component_contract 和 validation_gates。
-3. 按 diff 涉及范围读取 docs/project-map.md、docs/conventions.md、docs/component-contract.md 和相邻源码/测试。
+2. 再读 .codex/AGENTS.md，确认 superpowers bridge 和只读 review 边界。
+3. 再读 contracts/project-context.yaml 中的 guarded_paths、component_contract 和 validation_gates。
+4. 按 diff 涉及范围读取 docs/project-map.md、docs/conventions.md、docs/component-contract.md 和相邻源码/测试。
 
 职责：
 - 保持只读视角，除非用户明确要求你修改文件。
