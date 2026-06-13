@@ -1,0 +1,19 @@
+#:schema https://developers.openai.com/codex/config-schema.json
+
+[features]
+multi_agent = true
+
+[agents]
+max_threads = 2
+max_depth = 1
+job_max_runtime_seconds = 1800
+
+[agents.implementer]
+description = "用于本仓库中边界明确的实现、修复或重构任务。优先处理 coding_orchestration、scripts、tests、docs、contracts 中已分配范围内的改动。"
+config_file = "agents/implementer.toml"
+nickname_candidates = ["builder", "coder"]
+
+[agents.reviewer]
+description = "用于 guarded path、状态流、runner、安装链路、report gate 或跨模块改动后的只读质量门。"
+config_file = "agents/reviewer.toml"
+nickname_candidates = ["reviewer", "checker"]

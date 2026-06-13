@@ -1,0 +1,214 @@
+version: 1
+bootstrap_status:
+  level: bootstrap_complete
+  mode: bootstrap
+  depth_scope: repo
+  app_targets: []
+  placement_strategy: root-docs
+  trigger_evidence:
+    - "仓库缺少 AGENTS.md。"
+    - "仓库缺少 docs/project-map.md、docs/conventions.md、docs/component-contract.md。"
+    - "仓库缺少 contracts/project-context.yaml。"
+    - "未发现 apps/* 或独立主应用子域，因此未触发 app-deep refresh。"
+
+navigation_layer:
+  agents_md:
+    path: AGENTS.md
+    role: repository_navigation
+  effective_guidance_entry:
+    path: AGENTS.md
+    role: active_guidance_entrypoint
+  effective_guidance_kind: agents_md
+  canonical_sources:
+    human_readable:
+      - docs/project-map.md
+      - docs/conventions.md
+      - docs/component-contract.md
+    machine_readable:
+      - contracts/project-context.yaml
+  agent_index: null
+
+project_map:
+  repo_type: python_hermes_plugin
+  workspace_mode: single_package
+  runtime_model:
+    plugin_symlink: "~/.hermes/plugins/coding_orchestration -> coding_orchestration"
+    runtime_root: "~/.hermes/coding-orchestration"
+    gateway: Hermes Gateway
+  top_level_modules:
+    - name: coding_orchestration
+      path: coding_orchestration/
+      role: Hermes plugin source, orchestration logic, runners, source adapters, ledger, dashboard API
+    - name: tests
+      path: tests/
+      role: unittest coverage for orchestration, runners, source resolution, install scripts, dashboard, state machine
+    - name: scripts
+      path: scripts/
+      role: user-facing install and uninstall entry scripts
+    - name: examples
+      path: examples/
+      role: project registry and WORKFLOW examples
+    - name: docs
+      path: docs/
+      role: canonical bootstrap docs, project documentation, deployment/preflight docs, state/delivery flow docs
+    - name: implementation_plans
+      path: docs/plans/
+      role: committed implementation plans produced by superpowers or execution planning workflows
+    - name: local_presentations
+      path: docs/local/presentations/
+      role: ignored local presentation/demo materials; not canonical project facts
+  core_entrypoints:
+    plugin_registration: coding_orchestration/__init__.py
+    orchestrator: coding_orchestration/orchestrator.py
+    cli_registration: coding_orchestration/cli.py
+    tool_registration: coding_orchestration/plugin_tools.py
+    plugin_manifest: coding_orchestration/plugin.yaml
+    install_script: scripts/install_symlink.py
+    uninstall_script: scripts/uninstall_legacy.py
+  guarded_paths:
+    - path: ".env*"
+      reason: "本地密钥、token 或运行配置。"
+    - path: "~/.hermes/.env"
+      reason: "Hermes FEISHU_APP_ID、FEISHU_APP_SECRET、CODEX_CLI_COMMAND 等本机配置。"
+    - path: "~/.hermes/auth.json"
+      reason: "Hermes provider/OAuth 凭据，不得复制。"
+    - path: "~/.codex/auth.json"
+      reason: "standalone Codex CLI 凭据，不得复制到 Hermes。"
+    - path: "~/.hermes/coding-orchestration/"
+      reason: "运行期 ledger、runs、workspaces、LLM Wiki，不是源码事实。"
+    - path: coding_orchestration/orchestrator.py
+      reason: "任务状态推进、人工门禁和 runner 调度中心。"
+    - path: coding_orchestration/runners/codex_cli.py
+      reason: "Codex CLI sandbox、resume、report 输出和高权限 flag。"
+    - path: coding_orchestration/install.py
+      reason: "本机 Hermes 安装、卸载和 preflight 检查逻辑。"
+    - path: coding_orchestration/report_contract.py
+      reason: "结构化 runner report 质量门。"
+    - path: coding_orchestration/state_machine.py
+      reason: "公共任务状态转换 contract。"
+
+conventions:
+  sources:
+    - path: AGENTS.md
+      kind: navigation
+    - path: README.md
+      kind: product_and_runtime_overview
+    - path: PLUGIN_USAGE.md
+      kind: usage
+    - path: PLUGIN_PREREQUISITES.md
+      kind: preflight_and_environment
+    - path: docs/conventions.md
+      kind: canonical_conventions
+  command_prefix: rtk
+  validation_gates:
+    - name: full_unittest
+      command_hint: "rtk proxy python3 -m unittest discover -s tests -v"
+    - name: single_unittest_file
+      command_hint: "rtk proxy python3 -m unittest tests.test_install -v"
+    - name: install_preflight
+      command_hint: "rtk python3 scripts/install_symlink.py --hermes-home ~/.hermes"
+    - name: uninstall_dry_run
+      command_hint: "rtk python3 scripts/uninstall_legacy.py --hermes-home ~/.hermes"
+    - name: hermes_plugin_status
+      command_hint: "rtk hermes plugins list"
+    - name: hermes_gateway_status
+      command_hint: "rtk hermes gateway status"
+  test_framework:
+    type: unittest
+    test_dir: tests/
+    primary_command: "rtk proxy python3 -m unittest discover -s tests -v"
+  release_gates:
+    - "插件更新后必须重启 Hermes Gateway。"
+    - "merge-test 和发布需要人工触发。"
+    - "plan-only 不应修改项目文件。"
+
+component_contract:
+  sources:
+    - path: docs/component-contract.md
+      kind: canonical_component_contract
+    - path: coding_orchestration/__init__.py
+      kind: plugin_entrypoint
+    - path: coding_orchestration/orchestrator.py
+      kind: orchestration_core
+    - path: coding_orchestration/runners/
+      kind: runner_adapters
+    - path: coding_orchestration/source_resolver.py
+      kind: source_adapter
+    - path: coding_orchestration/report_contract.py
+      kind: report_gate
+  systems:
+    - name: plugin_registration
+      path: coding_orchestration/__init__.py
+      preferred: true
+    - name: orchestration
+      path: coding_orchestration/orchestrator.py
+      preferred: true
+    - name: runner_router
+      path: coding_orchestration/runner_router.py
+      preferred: true
+    - name: source_resolution
+      path: coding_orchestration/source_resolver.py
+      preferred: true
+    - name: task_ledger
+      path: coding_orchestration/ledger.py
+      preferred: true
+    - name: report_contract
+      path: coding_orchestration/report_contract.py
+      preferred: true
+  preferred_abstractions:
+    - name: CodingOrchestrator
+      path: coding_orchestration/orchestrator.py
+      use_instead_of:
+        - "在外部直接改 Task Ledger 状态。"
+        - "绕过 command/task flow 手动推进 phase。"
+    - name: TaskLedger
+      path: coding_orchestration/ledger.py
+      use_instead_of:
+        - "手写 SQLite SQL 更新任务 JSON 字段。"
+    - name: TaskStateMachine
+      path: coding_orchestration/state_machine.py
+      use_instead_of:
+        - "自行拼接非法状态转换。"
+    - name: RunnerRouter
+      path: coding_orchestration/runner_router.py
+      use_instead_of:
+        - "按字符串直接实例化 runner。"
+    - name: CodexCliRunner
+      path: coding_orchestration/runners/codex_cli.py
+      use_instead_of:
+        - "在 orchestrator 中手写 Codex CLI 参数。"
+    - name: SourceResolver
+      path: coding_orchestration/source_resolver.py
+      use_instead_of:
+        - "直接猜测飞书/Meegle 来源正文。"
+    - name: validate_codex_semantic_report
+      path: coding_orchestration/report_contract.py
+      use_instead_of:
+        - "不校验 report.json 就推进任务。"
+
+agent_context:
+  canonical_agent_contracts:
+    - path: AGENTS.md
+      kind: repository_navigation
+    - path: contracts/project-context.yaml
+      kind: project_context
+    - path: coding_orchestration/skills/hermes-coding-operator/SKILL.md
+      kind: hermes_registered_operator_skill
+      optional: true
+  multi_agent_readiness:
+    ownership_boundaries_clear: true
+    guarded_paths_defined: true
+    bootstrap_layer_complete: true
+  non_goals:
+    - "不在 project-context 中定义 topology 推荐。"
+    - "不在 project-context 中定义 agent 数量。"
+    - "不在 project-context 中定义 execution order。"
+    - "不生成 .codex/agents/* 配置层。"
+
+uncertainty:
+  missing_information:
+    - "仓库没有 pyproject.toml、requirements.txt 或 lockfile，依赖声明不完整。"
+    - "Hermes CLI、Codex CLI、lark-cli 和飞书权限状态需要在本机运行时验证。"
+  inferred_but_unverified:
+    - "测试框架从 README 和测试文件推断为标准库 unittest。"
+    - "当前无需 app-deep refresh，因为未发现 apps/*、独立 package.json/Vite app 或主前端入口链。"

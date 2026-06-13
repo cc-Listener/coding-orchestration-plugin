@@ -20,5 +20,7 @@ llm-wiki/
 
 # Generated documentation/demo artifacts.
 .omm/
-docs/
+docs/local/presentations/
+docs/presentations/
 images/
+output/
