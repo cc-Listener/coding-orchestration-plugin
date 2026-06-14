@@ -6,6 +6,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
+from .project_workitem_binding import ProjectWorkitemIdentity
+
 
 class TaskLedger:
     def __init__(self, db_path: Path):
@@ -65,6 +67,42 @@ class TaskLedger:
                 )
                 """
             )
+            conn.execute(
+                """
+                create table if not exists project_workitem_bindings (
+                    project_workitem_key text primary key,
+                    hermes_task_id text not null,
+                    relation_kind text not null,
+                    source_workitem_key text,
+                    root_task_id text,
+                    parent_task_id text,
+                    domain text not null,
+                    space_key text not null,
+                    workitem_type text not null,
+                    workitem_id text not null,
+                    workitem_url text not null,
+                    workitem_title text not null default '',
+                    identity_confidence text not null default 'high',
+                    external_status text not null default '',
+                    writeback_status text not null default '',
+                    metadata_json text not null default '{}',
+                    created_at text not null default current_timestamp,
+                    updated_at text not null default current_timestamp
+                )
+                """
+            )
+            conn.execute(
+                "create index if not exists idx_project_workitem_bindings_task on project_workitem_bindings(hermes_task_id)"
+            )
+            conn.execute(
+                "create index if not exists idx_project_workitem_bindings_root on project_workitem_bindings(root_task_id)"
+            )
+            conn.execute(
+                "create index if not exists idx_project_workitem_bindings_source on project_workitem_bindings(source_workitem_key)"
+            )
+            conn.execute(
+                "create unique index if not exists idx_project_workitem_bindings_url on project_workitem_bindings(workitem_url)"
+            )
 
     @staticmethod
     def _ensure_column(conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -90,7 +128,14 @@ class TaskLedger:
         root_task_id: str | None = None,
         parent_task_id: str | None = None,
         dependency_task_ids: list[str] | None = None,
+        source_branch: str | None = None,
+        branch_policy: str | None = None,
     ) -> None:
+        next_task_session = dict(task_session or {})
+        if source_branch:
+            next_task_session["source_branch"] = source_branch
+        if branch_policy:
+            next_task_session["branch_policy"] = branch_policy
         with self._connect() as conn:
             conn.execute(
                 """
@@ -112,7 +157,7 @@ class TaskLedger:
                     json.dumps([], ensure_ascii=False),
                     json.dumps(human_decisions, ensure_ascii=False),
                     phase,
-                    json.dumps(task_session or {}, ensure_ascii=False),
+                    json.dumps(next_task_session, ensure_ascii=False),
                     json.dumps(merge_records or [], ensure_ascii=False),
                     task_kind,
                     root_task_id or task_id,
@@ -497,6 +542,103 @@ class TaskLedger:
             )
         return cursor.rowcount > 0
 
+    def upsert_project_workitem_binding(
+        self,
+        *,
+        identity: ProjectWorkitemIdentity,
+        hermes_task_id: str,
+        relation_kind: str,
+        source_workitem_key: str | None = None,
+        root_task_id: str | None = None,
+        parent_task_id: str | None = None,
+        external_status: str = "",
+        writeback_status: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                insert into project_workitem_bindings (
+                    project_workitem_key, hermes_task_id, relation_kind,
+                    source_workitem_key, root_task_id, parent_task_id,
+                    domain, space_key, workitem_type, workitem_id,
+                    workitem_url, workitem_title, identity_confidence,
+                    external_status, writeback_status, metadata_json
+                ) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                on conflict(project_workitem_key) do update set
+                    hermes_task_id = excluded.hermes_task_id,
+                    relation_kind = excluded.relation_kind,
+                    source_workitem_key = excluded.source_workitem_key,
+                    root_task_id = excluded.root_task_id,
+                    parent_task_id = excluded.parent_task_id,
+                    domain = excluded.domain,
+                    space_key = excluded.space_key,
+                    workitem_type = excluded.workitem_type,
+                    workitem_id = excluded.workitem_id,
+                    workitem_url = excluded.workitem_url,
+                    workitem_title = excluded.workitem_title,
+                    identity_confidence = excluded.identity_confidence,
+                    external_status = excluded.external_status,
+                    writeback_status = excluded.writeback_status,
+                    metadata_json = excluded.metadata_json,
+                    updated_at = current_timestamp
+                """,
+                (
+                    identity.key,
+                    hermes_task_id,
+                    relation_kind,
+                    source_workitem_key,
+                    root_task_id,
+                    parent_task_id,
+                    identity.domain.rstrip("/"),
+                    identity.space_key,
+                    identity.workitem_type,
+                    identity.workitem_id,
+                    identity.url,
+                    identity.title,
+                    identity.identity_confidence,
+                    external_status,
+                    writeback_status,
+                    json.dumps(metadata or {}, ensure_ascii=False),
+                ),
+            )
+
+    def find_task_by_project_workitem(self, project_workitem_key: str) -> dict[str, Any] | None:
+        binding = self.find_project_workitem_binding(project_workitem_key)
+        if binding is None:
+            return None
+        return self.get_task(binding["hermes_task_id"])
+
+    def find_task_by_project_workitem_url(self, url: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "select * from project_workitem_bindings where workitem_url = ?",
+                (url,),
+            ).fetchone()
+        if row is None:
+            return None
+        return self.get_task(row["hermes_task_id"])
+
+    def find_project_workitem_binding(self, project_workitem_key: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "select * from project_workitem_bindings where project_workitem_key = ?",
+                (project_workitem_key,),
+            ).fetchone()
+        return self._row_to_project_workitem_binding(row) if row else None
+
+    def list_project_workitem_bindings(self, task_id: str) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                select * from project_workitem_bindings
+                where hermes_task_id = ? or root_task_id = ?
+                order by created_at asc, project_workitem_key asc
+                """,
+                (task_id, task_id),
+            ).fetchall()
+        return [self._row_to_project_workitem_binding(row) for row in rows]
+
     @staticmethod
     def _deep_merge(target: dict[str, Any], updates: dict[str, Any]) -> None:
         for key, value in updates.items():
@@ -507,6 +649,7 @@ class TaskLedger:
 
     @staticmethod
     def _row_to_task(row: sqlite3.Row) -> dict[str, Any]:
+        task_session = json.loads(row["task_session_json"])
         return {
             "task_id": row["task_id"],
             "source": json.loads(row["source_json"]),
@@ -518,12 +661,37 @@ class TaskLedger:
             "artifacts": json.loads(row["artifacts_json"]),
             "human_decisions": json.loads(row["human_decisions_json"]),
             "phase": row["phase"],
-            "task_session": json.loads(row["task_session_json"]),
+            "task_session": task_session,
+            "source_branch": task_session.get("source_branch"),
+            "branch_policy": task_session.get("branch_policy"),
             "merge_records": json.loads(row["merge_records_json"]),
             "task_kind": row["task_kind"],
             "root_task_id": row["root_task_id"] or row["task_id"],
             "parent_task_id": row["parent_task_id"],
             "dependency_task_ids": json.loads(row["dependency_task_ids_json"]),
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    @staticmethod
+    def _row_to_project_workitem_binding(row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "project_workitem_key": row["project_workitem_key"],
+            "hermes_task_id": row["hermes_task_id"],
+            "relation_kind": row["relation_kind"],
+            "source_workitem_key": row["source_workitem_key"],
+            "root_task_id": row["root_task_id"],
+            "parent_task_id": row["parent_task_id"],
+            "domain": row["domain"],
+            "space_key": row["space_key"],
+            "workitem_type": row["workitem_type"],
+            "workitem_id": row["workitem_id"],
+            "workitem_url": row["workitem_url"],
+            "workitem_title": row["workitem_title"],
+            "identity_confidence": row["identity_confidence"],
+            "external_status": row["external_status"],
+            "writeback_status": row["writeback_status"],
+            "metadata": json.loads(row["metadata_json"]),
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
         }

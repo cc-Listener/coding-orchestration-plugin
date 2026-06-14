@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import tempfile
 import unittest
 import subprocess
@@ -167,6 +169,28 @@ class InstallTest(unittest.TestCase):
             self.assertIn("codex.exec_resume_help", check_names)
             self.assertIn("lark.preflight", check_names)
             self.assertIn("hermes.legacy_components", check_names)
+
+    def test_existing_install_preflight_does_not_require_project_mcp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            hermes_home = root / ".hermes"
+            codex = root / "bin" / "codex"
+            codex.parent.mkdir(parents=True)
+            codex.write_text("#!/bin/sh\n", encoding="utf-8")
+            codex.chmod(0o755)
+            hermes_home.mkdir()
+            (hermes_home / ".env").write_text(
+                f"FEISHU_APP_ID=cli_hermes\nFEISHU_APP_SECRET=redacted\nCODEX_CLI_COMMAND={codex}\n",
+                encoding="utf-8",
+            )
+
+            result = run_install_preflight(
+                hermes_home=hermes_home,
+                command_runner=_preflight_runner(codex_path=str(codex)),
+            )
+
+            self.assertTrue(result["ok"])
+            self.assertFalse(any("FEISHU_PROJECT_MCP" in str(check) for check in result["checks"]))
 
     def test_install_preflight_requires_feishu_secret_and_codex_command(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -14,7 +14,17 @@ MVP 不追求大平台化，也不让普通自然语言绕过主控直接进入 
 
 当前仓库已经是 Hermes plugin，本轮能力重点是接入 Hermes native tools 和运行时能力：`pre_llm_call` 注入 active task/source health/next actions，`coding_task_create`、`coding_task_status`、`coding_task_run`、`coding_source_resolve`、`coding_lark_preflight` 供 Hermes 主 agent 结构化调用，Kanban 记录协作任务，terminal/process runtime 运行 Codex CLI。`/coding` 仍保留为人工命令面。
 
-当前方案不引入 MCP，也不新增独立 Lark/Meegle server。来源和权限诊断走插件内 `SourceResolver`、`MeegleReader` 和文档 reader；blocked 只表示 hard human-blocked。Hermes `openai-codex` provider/OAuth 使用 `~/.hermes/auth.json`，standalone Codex CLI 可使用 `~/.codex/auth.json`，插件不会在两者之间复制或共享 auth。
+飞书项目 Story / Issue / WBS / 状态流转读写通过 Hermes 受控的 `FeishuProjectMcpAdapter` 完成。该 MCP 层只存在于 `coding_orchestration` 插件内，负责 transport、token 引用、工具白名单、写操作确认、审计和脱敏；Codex / Claude / Gemini runner 不直接持有飞书项目 MCP token，也不直接写飞书项目。
+
+飞书 Wiki/Docx 来源和普通 Lark 权限诊断仍走插件内 `SourceResolver` 和文档 reader；blocked 只表示 hard human-blocked。Hermes `openai-codex` provider/OAuth 使用 `~/.hermes/auth.json`，standalone Codex CLI 可使用 `~/.codex/auth.json`，插件不会在两者之间复制或共享 auth。
+
+飞书项目工作项与 Hermes task 的对应关系写入 `project_workitem_bindings`：
+
+- Story / 需求绑定到 Hermes root task，作为编码需求入口。
+- WBS 行或节点子任务绑定到 Hermes child task，作为交付拆解和工时承载。
+- Issue / Bug 绑定到 Hermes bugfix task，必要时通过 `source_workitem_key` 归属到原需求 root task。
+- 已关联需求的 bugfix task 默认继承需求 root task 的 `source_branch`，使用 `branch_policy=inherit_root_branch`，不创建独立长期分支。
+- merge-test / PR 只能从需求 root task 执行；同一需求下多个 bugfix 在 root branch 内收敛，避免每个 bugfix 单独分支后再反复合并。
 
 ## 解决的问题
 
@@ -227,9 +237,28 @@ coding_orchestration:
   ledger_db: ~/.hermes/coding-orchestration/ledger.db
   run_root: ~/.hermes/coding-orchestration/runs
   workspace_root: ~/.hermes/coding-orchestration/workspaces
+  feishu_project_mcp:
+    enabled: true
+    domain: https://project.feishu.cn
+    transport: stdio
+    token_ref: env:FEISHU_PROJECT_MCP_TOKEN
+    intake_rules:
+      - name: story-ready-for-coding
+        space: BPS空间
+        workitem_type: 需求
+        mql: '状态 = "待开发"'
+        create_coding_task: true
   llm_wiki:
     adapter: local
     root: ~/.hermes/coding-orchestration/llm-wiki
+```
+
+飞书项目 MCP 建议先在非生产空间验证，token 只放在运行进程环境中，不写入仓库或 `.env`。本地检查：
+
+```bash
+rtk node --version
+rtk npx --version
+rtk hermes coding project-mcp-preflight
 ```
 
 ### 飞书来源索引

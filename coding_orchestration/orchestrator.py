@@ -26,6 +26,14 @@ from .feishu_messages import (
     render_task_tree_status,
 )
 from .feishu_project_reader import FeishuProjectReader
+from .feishu_project_mcp import (
+    READ_TOOLS,
+    WRITE_TOOLS,
+    FeishuProjectMcpAdapter,
+    FeishuProjectMcpConfig,
+    build_stdio_client_factory,
+    redact_secrets,
+)
 from .hermes_runtime import HermesRuntime
 from .kanban_bridge import KanbanBridge
 from .ledger import TaskLedger
@@ -59,6 +67,8 @@ from .models import (
 )
 from .pre_llm_context import build_pre_llm_context
 from .prompt_builder import PromptBuilder
+from .project_intake import ProjectIntakeRule
+from .project_workitem_binding import ProjectWorkitemIdentity
 from .project_initialization_quality import evaluate_project_initialization_quality
 from .project_knowledge_initializer import ProjectKnowledgeInitializer
 from .project_knowledge_resolver import ProjectKnowledgeResolver
@@ -117,6 +127,7 @@ class CodingOrchestrator:
     runner_router: Any | None = None
     command_rewriter: Any | None = None
     feishu_project_reader: Any | None = None
+    project_mcp_adapter: Any | None = None
     source_resolver: Any | None = None
     dispatch_tool: Any | None = None
     kanban_bridge: Any | None = None
@@ -143,6 +154,13 @@ class CodingOrchestrator:
             self.runner_router = RunnerRouter.from_config({"default_runner": "codex_cli"})
         if self.feishu_project_reader is None:
             self.feishu_project_reader = FeishuProjectReader()
+        if self.project_mcp_adapter is None:
+            project_mcp_config = FeishuProjectMcpConfig.from_env()
+            self.project_mcp_adapter = FeishuProjectMcpAdapter(
+                config=project_mcp_config,
+                client_factory=build_stdio_client_factory(project_mcp_config),
+                allowed_tools=READ_TOOLS | WRITE_TOOLS,
+            )
         if self.source_resolver is None:
             self.source_resolver = SourceResolver(feishu_reader=self.feishu_project_reader)
         if self.kanban_bridge is None:
@@ -241,6 +259,25 @@ class CodingOrchestrator:
 
         source_context = self._index_external_source_context(source_url) if source_url else None
         created = self._create_task_from_text(" ".join(parts), source_context=source_context)
+        task_kind = str(args.get("task_kind") or ("bugfix" if args.get("action") == "bugfix" else "")).strip()
+        root_task_id = str(args.get("root_task_id") or "").strip()
+        parent_task_id = str(args.get("parent_task_id") or "").strip()
+        if task_kind or root_task_id or parent_task_id:
+            self.ledger.update_task_hierarchy(
+                created.task_id,
+                task_kind=task_kind or None,
+                root_task_id=root_task_id or None,
+                parent_task_id=parent_task_id or None,
+            )
+        session_updates = {}
+        if args.get("source_branch"):
+            session_updates["source_branch"] = str(args.get("source_branch"))
+        if args.get("branch_policy"):
+            session_updates["branch_policy"] = str(args.get("branch_policy"))
+        if args.get("action"):
+            session_updates["action"] = str(args.get("action"))
+        if session_updates:
+            self.ledger.update_task_session(created.task_id, session_updates)
         task = self.ledger.get_task(created.task_id)
         status_view = task_status_view(task.get("status") if task else None)
         return {
@@ -306,6 +343,589 @@ class CodingOrchestrator:
             }
         return resolver.preflight_lark(args)
 
+    def tool_project_mcp_preflight(self, args: dict[str, Any]) -> dict[str, Any]:
+        adapter = self._project_mcp_adapter()
+        if not adapter.is_enabled():
+            return {
+                "ok": False,
+                "status": "disabled",
+                "transport": adapter.config.transport,
+                "domain": adapter.config.domain,
+                "allowed_tools": sorted(adapter.allowed_tools),
+                "recovery_action": "Set FEISHU_PROJECT_MCP_ENABLED=1 and configure FEISHU_PROJECT_MCP_TOKEN_REF.",
+            }
+        result = adapter.call_tool("search_project_info", {"query": "__preflight__"})
+        return {
+            "ok": bool(result.get("ok")),
+            "status": str(result.get("status") or "unknown"),
+            "transport": adapter.config.transport,
+            "domain": adapter.config.domain,
+            "allowed_tools": sorted(adapter.allowed_tools),
+            "error": result.get("error", ""),
+        }
+
+    def tool_project_workitem_search(self, args: dict[str, Any]) -> dict[str, Any]:
+        space = str(args.get("space") or args.get("project") or "").strip()
+        if not space:
+            return {"ok": False, "status": "invalid_args", "error": "space is required"}
+        payload = {
+            "space": space,
+            "workitem_type": str(args.get("workitem_type") or args.get("type") or "").strip(),
+            "query": str(args.get("query") or "").strip(),
+            "limit": int(args.get("limit") or 20),
+        }
+        result = self._project_mcp_adapter().call_tool("search_by_mql", payload)
+        return self._project_mcp_tool_result(result)
+
+    def tool_project_workitem_create(self, args: dict[str, Any]) -> dict[str, Any]:
+        if not args.get("confirm_write"):
+            return {
+                "ok": False,
+                "status": "confirmation_required",
+                "risk": "write",
+                "action": "create_workitem",
+                "preview": self._redacted_project_payload(args),
+            }
+        payload = {
+            "space": str(args.get("space") or "").strip(),
+            "workitem_type": str(args.get("workitem_type") or "").strip(),
+            "title": str(args.get("title") or "").strip(),
+            "fields": dict(args.get("fields") or {}),
+        }
+        missing = [key for key in ("space", "workitem_type", "title") if not payload[key]]
+        if missing:
+            return {"ok": False, "status": "invalid_args", "error": f"{', '.join(missing)} required"}
+        result = self._project_mcp_adapter().call_tool("create_workitem", payload)
+        self._record_project_mcp_audit("create_workitem", payload, result)
+        return self._project_mcp_tool_result(result)
+
+    def tool_project_intake_sync(self, args: dict[str, Any]) -> dict[str, Any]:
+        rule_payload = args.get("rule") if isinstance(args.get("rule"), dict) else args
+        rule = ProjectIntakeRule.from_dict(rule_payload)
+        search_args = rule.search_args()
+        search_args["limit"] = int(args.get("max_items") or rule_payload.get("limit") or search_args["limit"])
+        search = self.tool_project_workitem_search(search_args)
+        if not search.get("ok"):
+            return {**search, "created_tasks": 0, "existing_tasks": 0, "tasks": []}
+        items = self._project_mcp_items(search.get("result") or {})
+        created_tasks = []
+        existing_tasks = []
+        skipped = []
+        dry_run = bool(args.get("dry_run"))
+        for item in items:
+            identity = ProjectWorkitemIdentity.from_mcp_item(item)
+            existing = self.ledger.find_task_by_project_workitem(identity.key)
+            if existing:
+                existing_tasks.append(existing["task_id"])
+                continue
+            if dry_run:
+                skipped.append(identity.url)
+                continue
+            task = self.tool_task_create({"requirement": identity.title or identity.workitem_id, "source_url": identity.url})
+            task_id = task["task_id"]
+            self.ledger.upsert_project_workitem_binding(
+                identity=identity,
+                hermes_task_id=task_id,
+                relation_kind="source_requirement",
+                root_task_id=task_id,
+                external_status=str(item.get("status") or ""),
+                metadata={"intake_rule": rule.name},
+            )
+            created_tasks.append(task_id)
+        return {
+            "ok": True,
+            "status": "ok",
+            "created_tasks": len(created_tasks),
+            "existing_tasks": len(existing_tasks),
+            "skipped": len(skipped),
+            "tasks": [{"task_id": task_id} for task_id in created_tasks],
+            "existing_task_ids": existing_tasks,
+        }
+
+    def _create_project_bugfix_task(
+        self,
+        *,
+        issue_identity: ProjectWorkitemIdentity,
+        source_workitem_key: str | None,
+    ) -> dict[str, Any]:
+        story_task = self.ledger.find_task_by_project_workitem(source_workitem_key) if source_workitem_key else None
+        if story_task:
+            root_task_id = story_task.get("root_task_id") or story_task["task_id"]
+            parent_task_id = root_task_id
+            source_branch = story_task.get("source_branch") or (story_task.get("task_session") or {}).get("source_branch")
+            branch_policy = "inherit_root_branch"
+            needs_story_link = False
+        else:
+            root_task_id = None
+            parent_task_id = None
+            source_branch = None
+            branch_policy = "own_branch"
+            needs_story_link = True
+        bugfix_task = self.tool_task_create(
+            {
+                "requirement": issue_identity.title or f"Bugfix {issue_identity.workitem_id}",
+                "source_url": issue_identity.url,
+                "action": "bugfix",
+                "task_kind": "bugfix",
+                "root_task_id": root_task_id,
+                "parent_task_id": parent_task_id,
+                "source_branch": source_branch,
+                "branch_policy": branch_policy,
+            }
+        )
+        if root_task_id is None:
+            root_task_id = bugfix_task["task_id"]
+            self.ledger.update_task_hierarchy(
+                bugfix_task["task_id"],
+                root_task_id=root_task_id,
+                parent_task_id=None,
+            )
+        self.ledger.upsert_project_workitem_binding(
+            identity=issue_identity,
+            hermes_task_id=bugfix_task["task_id"],
+            relation_kind="bugfix_source",
+            source_workitem_key=source_workitem_key,
+            root_task_id=root_task_id,
+            parent_task_id=parent_task_id,
+            metadata={"branch_policy": branch_policy, "needs_story_link": needs_story_link},
+        )
+        return {"ok": True, "task_id": bugfix_task["task_id"], "branch_policy": branch_policy}
+
+    def tool_project_bugfix_intake(self, args: dict[str, Any]) -> dict[str, Any]:
+        space = str(args.get("space") or args.get("project") or "").strip()
+        if not space:
+            return {"ok": False, "status": "invalid_args", "error": "space is required"}
+        search = self.tool_project_workitem_search(
+            {
+                "space": space,
+                "workitem_type": str(args.get("workitem_type") or args.get("type") or "issue").strip(),
+                "query": str(args.get("query") or args.get("mql") or "").strip(),
+                "limit": int(args.get("max_items") or args.get("limit") or 20),
+            }
+        )
+        if not search.get("ok"):
+            return {**search, "created_tasks": 0, "existing_tasks": 0, "tasks": []}
+
+        created_tasks: list[dict[str, Any]] = []
+        existing_tasks: list[str] = []
+        skipped: list[str] = []
+        transition_results: list[dict[str, Any]] = []
+        dry_run = bool(args.get("dry_run"))
+        transition_to = str(args.get("transition_to") or "").strip()
+        for item in self._project_mcp_items(search.get("result") or {}):
+            issue_identity = ProjectWorkitemIdentity.from_mcp_item(item)
+            existing = self.ledger.find_task_by_project_workitem(issue_identity.key)
+            if existing:
+                existing_tasks.append(existing["task_id"])
+                continue
+            if dry_run:
+                skipped.append(issue_identity.url)
+                continue
+            source_workitem_key = self._project_related_story_key(item)
+            created = self._create_project_bugfix_task(
+                issue_identity=issue_identity,
+                source_workitem_key=source_workitem_key,
+            )
+            created_tasks.append(
+                {
+                    "task_id": created["task_id"],
+                    "project_workitem_key": issue_identity.key,
+                    "source_workitem_key": source_workitem_key,
+                    "branch_policy": created.get("branch_policy"),
+                }
+            )
+            if transition_to:
+                if not args.get("confirm_write"):
+                    transition_results.append(
+                        {
+                            "ok": False,
+                            "status": "confirmation_required",
+                            "task_id": created["task_id"],
+                            "workitem_url": issue_identity.url,
+                        }
+                    )
+                else:
+                    transition_results.append(
+                        self.tool_project_state_transition(
+                            {
+                                "workitem_url": issue_identity.url,
+                                "target_state": transition_to,
+                                "confirm_write": True,
+                            }
+                        )
+                    )
+
+        return {
+            "ok": True,
+            "status": "ok",
+            "created_tasks": len(created_tasks),
+            "existing_tasks": len(existing_tasks),
+            "skipped": len(skipped),
+            "tasks": created_tasks,
+            "existing_task_ids": existing_tasks,
+            "transition_results": transition_results,
+        }
+
+    def _writeback_project_bugfix_completion(
+        self,
+        task_id: str,
+        result: dict[str, Any],
+        *,
+        mode: RunMode,
+    ) -> dict[str, Any]:
+        task = self.ledger.get_task(task_id)
+        if not task:
+            return {"ok": False, "status": "task_not_found"}
+        if str(task.get("task_kind") or "") != "bugfix":
+            return {"ok": False, "status": "skipped_not_bugfix"}
+        if mode not in {RunMode.IMPLEMENTATION, RunMode.QA}:
+            return {"ok": False, "status": "skipped_mode"}
+        status = str(result.get("status") or (result.get("report") or {}).get("status") or "")
+        task_status = str(result.get("task_status") or (result.get("report") or {}).get("task_status") or "")
+        if status != AgentRunStatus.SUCCEEDED.value and task_status != TaskStatus.READY_FOR_MERGE_TEST.value:
+            return {"ok": False, "status": "skipped_not_successful"}
+
+        binding = next(
+            (
+                item
+                for item in self.ledger.list_project_workitem_bindings(task_id)
+                if item.get("relation_kind") == "bugfix_source"
+            ),
+            None,
+        )
+        source = task.get("source") or {}
+        workitem_url = str((binding or {}).get("workitem_url") or source.get("url") or "").strip()
+        if not workitem_url:
+            source_context = source.get("source_context")
+            if isinstance(source_context, dict):
+                workitem_url = str(source_context.get("url") or "").strip()
+        if not workitem_url:
+            return {"ok": False, "status": "skipped_missing_workitem_url"}
+
+        report = dict(result.get("report") or {})
+        test_commands = report.get("test_commands") or []
+        verification = str(report.get("verification_summary") or "").strip()
+        if not verification:
+            verification = ", ".join(str(command) for command in test_commands) or "未提供自动验证摘要"
+        summary = str(report.get("summary") or report.get("user_facing_summary") or task.get("requirement_summary") or "").strip()
+        branch = str(task.get("source_branch") or (task.get("task_session") or {}).get("source_branch") or "").strip()
+        comment = redact_secrets(
+            "\n".join(
+                [
+                    f"Hermes 已完成 bugfix：{summary or task_id}",
+                    f"验证：{verification}",
+                    f"分支：{branch or '未记录'}",
+                ]
+            )
+        )
+        payload = {"workitem_url": workitem_url, "content": comment}
+        writeback = self._project_mcp_adapter().call_tool("add_comment", payload)
+        writeback_status = "ok" if writeback.get("ok") else str(writeback.get("status") or "failed")
+        writeback_record = {
+            "type": "bugfix_completion_comment",
+            "status": writeback_status,
+            "workitem_url": workitem_url,
+            "comment_id": (writeback.get("result") or {}).get("comment_id"),
+            "run_id": result.get("run_id"),
+            "mode": mode.value,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }
+        self.ledger.update_task_session(task_id, {"project_writeback": writeback_record})
+        if binding:
+            identity = ProjectWorkitemIdentity(
+                domain=str(binding.get("domain") or "https://project.feishu.cn"),
+                space_key=str(binding.get("space_key") or ""),
+                workitem_type=str(binding.get("workitem_type") or ""),
+                workitem_id=str(binding.get("workitem_id") or ""),
+                url=workitem_url,
+                title=str(binding.get("workitem_title") or ""),
+                identity_confidence=str(binding.get("identity_confidence") or "high"),
+            )
+            self.ledger.upsert_project_workitem_binding(
+                identity=identity,
+                hermes_task_id=task_id,
+                relation_kind=str(binding.get("relation_kind") or "bugfix_source"),
+                source_workitem_key=binding.get("source_workitem_key"),
+                root_task_id=binding.get("root_task_id"),
+                parent_task_id=binding.get("parent_task_id"),
+                external_status=str(binding.get("external_status") or ""),
+                writeback_status=writeback_status,
+                metadata=dict(binding.get("metadata") or {}),
+            )
+        return {"ok": bool(writeback.get("ok")), **writeback_record}
+
+    def tool_project_wbs_update(self, args: dict[str, Any]) -> dict[str, Any]:
+        if not args.get("confirm_write"):
+            return {
+                "ok": False,
+                "status": "confirmation_required",
+                "risk": "write",
+                "action": "update_wbs",
+                "preview": self._redacted_project_payload(args),
+            }
+        workitem_url = str(args.get("workitem_url") or args.get("url") or "").strip()
+        rows = args.get("rows")
+        if not workitem_url:
+            return {"ok": False, "status": "invalid_args", "error": "workitem_url is required"}
+        if not isinstance(rows, list) or not rows:
+            return {"ok": False, "status": "invalid_args", "error": "rows is required"}
+
+        adapter = self._project_mcp_adapter()
+        draft_payload = {
+            "workitem_url": workitem_url,
+            "space": str(args.get("space") or "").strip(),
+            "workitem_name": str(args.get("workitem_name") or "").strip(),
+        }
+        draft_result = adapter.call_tool("create_wbs_draft", draft_payload)
+        self._record_project_mcp_audit("create_wbs_draft", draft_payload, draft_result)
+        if not draft_result.get("ok"):
+            return self._project_mcp_tool_result(draft_result)
+        draft = dict(draft_result.get("result") or {})
+        draft_id = str(draft.get("draft_id") or draft.get("id") or "")
+
+        root_identity = ProjectWorkitemIdentity.from_url(workitem_url)
+        story_task = self.ledger.find_task_by_project_workitem(root_identity.key)
+        parent_task_id = ""
+        if story_task:
+            parent_task_id = str(story_task.get("task_id") or story_task.get("root_task_id") or "")
+        parent_task_id = parent_task_id or str(args.get("hermes_parent_task_id") or "").strip()
+
+        updated_rows: list[dict[str, Any]] = []
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict):
+                return {"ok": False, "status": "invalid_args", "error": f"rows[{index}] must be an object"}
+            edit_payload = {
+                "workitem_url": workitem_url,
+                "draft_id": draft_id,
+                "operation": "upsert_row",
+                "row": row,
+            }
+            edit_result = adapter.call_tool("edit_wbs_draft", edit_payload)
+            self._record_project_mcp_audit("edit_wbs_draft", edit_payload, edit_result)
+            if not edit_result.get("ok"):
+                return self._project_mcp_tool_result(edit_result)
+            row_result = dict(edit_result.get("result") or {})
+            row_uuid = str(row_result.get("row_uuid") or row_result.get("uuid") or row.get("row_uuid") or "")
+            row_identity = ProjectWorkitemIdentity.for_wbs_row(
+                root_identity=root_identity,
+                row_uuid=row_uuid,
+                title=str(row.get("name") or row.get("title") or ""),
+            )
+            hermes_task_id = str(row.get("hermes_task_id") or parent_task_id or "").strip()
+            if hermes_task_id:
+                self.ledger.upsert_project_workitem_binding(
+                    identity=row_identity,
+                    hermes_task_id=hermes_task_id,
+                    relation_kind="wbs_task_row" if row.get("hermes_task_id") else "wbs_row_without_local_task",
+                    source_workitem_key=root_identity.key,
+                    root_task_id=parent_task_id or hermes_task_id,
+                    parent_task_id=parent_task_id or None,
+                    metadata={
+                        "wbs_row_uuid": row_identity.workitem_id,
+                        "estimate": row.get("estimate"),
+                        "actual_hours": row.get("actual_hours"),
+                        "owner": row.get("owner"),
+                        "schedule": row.get("schedule"),
+                    },
+                )
+            updated_rows.append(
+                {
+                    "row_uuid": row_identity.workitem_id,
+                    "binding_key": row_identity.key,
+                    "hermes_task_id": hermes_task_id,
+                }
+            )
+
+        publish_result = None
+        if args.get("publish"):
+            publish_payload = {"workitem_url": workitem_url, "draft_id": draft_id}
+            publish_result = adapter.call_tool("publish_wbs_draft", publish_payload)
+            self._record_project_mcp_audit("publish_wbs_draft", publish_payload, publish_result)
+            if not publish_result.get("ok"):
+                return self._project_mcp_tool_result(publish_result)
+
+        return {
+            "ok": True,
+            "status": "ok",
+            "draft_id": draft_id,
+            "rows": updated_rows,
+            "published": bool(args.get("publish")),
+            "publish_result": (publish_result or {}).get("result", {}),
+        }
+
+    def tool_project_state_transition(self, args: dict[str, Any]) -> dict[str, Any]:
+        if not args.get("confirm_write"):
+            return {
+                "ok": False,
+                "status": "confirmation_required",
+                "risk": "write",
+                "action": "transition_state",
+                "preview": self._redacted_project_payload(args),
+            }
+        workitem_url = str(args.get("workitem_url") or args.get("url") or "").strip()
+        target_state = str(args.get("target_state") or args.get("state") or "").strip()
+        if not workitem_url or not target_state:
+            return {"ok": False, "status": "invalid_args", "error": "workitem_url and target_state are required"}
+
+        adapter = self._project_mcp_adapter()
+        base_payload = {"workitem_url": workitem_url, "target_state": target_state}
+        required = adapter.call_tool("get_transition_required", base_payload)
+        if not required.get("ok"):
+            return self._project_mcp_tool_result(required)
+        missing = self._project_required_fields(required.get("result") or {})
+        if missing:
+            return {"ok": False, "status": "required_fields_missing", "required": missing}
+
+        states_result = adapter.call_tool("get_transitable_states", {"workitem_url": workitem_url})
+        if not states_result.get("ok"):
+            return self._project_mcp_tool_result(states_result)
+        states = self._project_transitable_states(states_result.get("result") or {})
+        if states and target_state not in states:
+            return {"ok": False, "status": "state_not_transitable", "states": states}
+
+        transition_payload = {
+            "workitem_url": workitem_url,
+            "target_state": target_state,
+            "fields": dict(args.get("fields") or {}),
+        }
+        transition = adapter.call_tool("transition_state", transition_payload)
+        self._record_project_mcp_audit("transition_state", transition_payload, transition)
+        return self._project_mcp_tool_result(transition)
+
+    def _project_mcp_adapter(self) -> Any:
+        return self.project_mcp_adapter
+
+    def _redacted_project_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        redacted = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"token", "secret", "authorization", "confirm_write"}
+        }
+        return redacted
+
+    def _record_project_mcp_audit(self, tool: str, payload: dict[str, Any], result: dict[str, Any]) -> None:
+        # Audit persistence is added with project binding/writeback tasks. Keep this hook redaction-only for now.
+        _ = (tool, self._redacted_project_payload(payload), bool(result.get("ok")), result.get("status"))
+
+    def _project_mcp_tool_result(self, result: dict[str, Any]) -> dict[str, Any]:
+        if result.get("ok"):
+            return {
+                "ok": True,
+                "status": str(result.get("status") or "ok"),
+                "tool": result.get("tool"),
+                "result": result.get("result", {}),
+            }
+        return {
+            "ok": False,
+            "status": str(result.get("status") or "failed"),
+            "tool": result.get("tool"),
+            "error": str(result.get("error") or ""),
+        }
+
+    @staticmethod
+    def _project_mcp_payload(result: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(result, dict):
+            return {}
+        payload = result.get("result")
+        return payload if isinstance(payload, dict) else result
+
+    @classmethod
+    def _project_mcp_states(cls, result: dict[str, Any]) -> list[str]:
+        payload = cls._project_mcp_payload(result)
+        states = payload.get("states")
+        if isinstance(states, list):
+            return [str(state) for state in states]
+        return []
+
+    @staticmethod
+    def _project_mcp_items(result: dict[str, Any]) -> list[dict[str, Any]]:
+        items = result.get("items")
+        if isinstance(items, list):
+            return [item for item in items if isinstance(item, dict)]
+        data = result.get("data")
+        if isinstance(data, dict) and isinstance(data.get("items"), list):
+            return [item for item in data["items"] if isinstance(item, dict)]
+        return []
+
+    @staticmethod
+    def _project_related_story_key(item: dict[str, Any]) -> str | None:
+        def from_url_value(value: Any) -> str | None:
+            url = str(value or "").strip()
+            if not url:
+                return None
+            return ProjectWorkitemIdentity.from_url(url).key
+
+        for key in (
+            "related_story_url",
+            "story_url",
+            "source_story_url",
+            "related_requirement_url",
+            "requirement_url",
+        ):
+            found = from_url_value(item.get(key))
+            if found:
+                return found
+
+        fields = item.get("fields")
+        if isinstance(fields, dict):
+            for key in (
+                "related_story_url",
+                "story_url",
+                "source_story_url",
+                "related_requirement_url",
+                "requirement_url",
+            ):
+                found = from_url_value(fields.get(key))
+                if found:
+                    return found
+
+        relation_values: list[Any] = []
+        for key in ("relations", "related_workitems", "related_work_items", "related"):
+            value = item.get(key)
+            if isinstance(value, list):
+                relation_values.extend(value)
+            elif isinstance(value, dict):
+                relation_values.extend(value.values())
+        for relation in relation_values:
+            if not isinstance(relation, dict):
+                continue
+            relation_type = str(
+                relation.get("workitem_type")
+                or relation.get("type")
+                or relation.get("relation_type")
+                or ""
+            ).lower()
+            if relation_type and relation_type not in {"story", "requirement", "demand", "需求"}:
+                continue
+            found = from_url_value(relation.get("url") or relation.get("workitem_url"))
+            if found:
+                return found
+        return None
+
+    @staticmethod
+    def _project_required_fields(result: dict[str, Any]) -> list[Any]:
+        for key in ("missing", "required_fields", "required"):
+            value = result.get(key)
+            if isinstance(value, list):
+                return value
+        return []
+
+    @staticmethod
+    def _project_transitable_states(result: dict[str, Any]) -> list[str]:
+        raw_states = result.get("states") or result.get("data") or []
+        if isinstance(raw_states, dict):
+            raw_states = raw_states.get("states") or raw_states.get("items") or []
+        states: list[str] = []
+        if isinstance(raw_states, list):
+            for state in raw_states:
+                if isinstance(state, str):
+                    states.append(state)
+                elif isinstance(state, dict):
+                    name = str(state.get("name") or state.get("state") or state.get("label") or "").strip()
+                    if name:
+                        states.append(name)
+        return states
+
     def command_coding_cli(self, args: Any = None) -> str:
         if args is None:
             parts: list[str] = []
@@ -319,11 +939,13 @@ class CodingOrchestrator:
             return self.command_coding_doctor()
         if command == "lark-preflight":
             return self._format_lark_preflight(self.tool_lark_preflight({}))
+        if command == "project-mcp-preflight":
+            return self._format_project_mcp_preflight()
         if command == "source-resolve":
             return self._format_source_resolve(" ".join(rest))
         if command == "status":
             return self.command_coding_status(" ".join(rest)) if rest else self.command_coding_list("")
-        return "Usage: hermes coding <doctor|status|lark-preflight|source-resolve>"
+        return "Usage: hermes coding <doctor|status|lark-preflight|project-mcp-preflight|source-resolve>"
 
     def command_coding_doctor(self) -> str:
         lark = self.tool_lark_preflight({})
@@ -415,6 +1037,68 @@ class CodingOrchestrator:
         recovery = result.get("recovery_action") or ""
         if recovery:
             lines.append(f"恢复动作：{recovery}")
+        return "\n".join(lines)
+
+    def _format_project_mcp_preflight(self) -> str:
+        adapter = self._project_mcp_adapter()
+        config = adapter.config
+        lines = [
+            "飞书项目 MCP 检查",
+            f"启用：{'是' if bool(config.enabled) else '否'}",
+            f"传输：{config.transport}",
+            f"域名：{config.domain}",
+        ]
+        if not config.enabled:
+            lines.extend(
+                [
+                    "状态：disabled",
+                    "可用：否",
+                    "恢复动作：设置 FEISHU_PROJECT_MCP_ENABLED=1 后再配置 token_ref。",
+                ]
+            )
+            return "\n".join(lines)
+        if not str(config.token_ref or "").strip():
+            lines.extend(
+                [
+                    "状态：invalid_config",
+                    "可用：否",
+                    "错误：FEISHU_PROJECT_MCP_TOKEN_REF 缺失。",
+                    "恢复动作：设置 FEISHU_PROJECT_MCP_TOKEN_REF=env:FEISHU_PROJECT_MCP_TOKEN，token 值只放在进程环境中。",
+                ]
+            )
+            return "\n".join(lines)
+        if not str(config.token_ref).startswith(("env:", "keychain:")):
+            lines.extend(
+                [
+                    "状态：invalid_config",
+                    "可用：否",
+                    "错误：FEISHU_PROJECT_MCP_TOKEN_REF 只能引用 env: 或 keychain:，不能写入明文 token。",
+                ]
+            )
+            return "\n".join(lines)
+        if config.transport == "stdio":
+            command = config.command[0] if config.command else "npx"
+            if shutil.which(command) is None:
+                lines.extend(
+                    [
+                        "状态：invalid_runtime",
+                        "可用：否",
+                        f"错误：找不到 stdio MCP 命令：{command}",
+                        "恢复动作：安装 Node.js 18+ 并确认 npx 可用，或设置 FEISHU_PROJECT_MCP_COMMAND。",
+                    ]
+                )
+                return "\n".join(lines)
+        result = self.tool_project_mcp_preflight({"include_tools": True})
+        lines.extend(
+            [
+                f"状态：{result.get('status') or 'unknown'}",
+                f"可用：{'是' if bool(result.get('ok')) else '否'}",
+            ]
+        )
+        if result.get("allowed_tools"):
+            lines.append(f"工具白名单：{', '.join(str(tool) for tool in result.get('allowed_tools') or [])}")
+        if result.get("error"):
+            lines.append(f"错误：{result.get('error')}")
         return "\n".join(lines)
 
     def _format_source_resolve(self, text: str) -> str:
@@ -5071,6 +5755,20 @@ class CodingOrchestrator:
             report=report,
             summary=summary,
         )
+        project_writeback = (
+            self._writeback_project_bugfix_completion(
+                task_id,
+                {
+                    "run_id": run_id,
+                    "status": status,
+                    "task_status": task_status.value,
+                    "report": report,
+                },
+                mode=mode,
+            )
+            if not stale_completion
+            else {"ok": False, "status": "skipped_stale_completion"}
+        )
         return {
             "task_id": task_id,
             "run_id": run_id,
@@ -5083,6 +5781,7 @@ class CodingOrchestrator:
             "observed_active_run_id": observed_active_run_id if stale_completion else "",
             "artifacts": artifact_record,
             "report": report,
+            "project_writeback": project_writeback,
         }
 
     @staticmethod

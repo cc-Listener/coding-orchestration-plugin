@@ -49,6 +49,34 @@ class FakeOrchestrator:
         self.tool_calls.append(("coding_lark_preflight", args))
         return {"ok": True}
 
+    def tool_project_mcp_preflight(self, args):
+        self.tool_calls.append(("coding_project_mcp_preflight", args))
+        return {"ok": True}
+
+    def tool_project_workitem_search(self, args):
+        self.tool_calls.append(("coding_project_workitem_search", args))
+        return {"ok": True}
+
+    def tool_project_workitem_create(self, args):
+        self.tool_calls.append(("coding_project_workitem_create", args))
+        return {"ok": True}
+
+    def tool_project_intake_sync(self, args):
+        self.tool_calls.append(("coding_project_intake_sync", args))
+        return {"ok": True}
+
+    def tool_project_wbs_update(self, args):
+        self.tool_calls.append(("coding_project_wbs_update", args))
+        return {"ok": True}
+
+    def tool_project_state_transition(self, args):
+        self.tool_calls.append(("coding_project_state_transition", args))
+        return {"ok": True}
+
+    def tool_project_bugfix_intake(self, args):
+        self.tool_calls.append(("coding_project_bugfix_intake", args))
+        return {"ok": True}
+
 
 class FakeContext:
     def __init__(self):
@@ -117,6 +145,13 @@ class PluginRegistrationTest(unittest.TestCase):
         self.assertIn("coding_task_run", ctx.tools)
         self.assertIn("coding_source_resolve", ctx.tools)
         self.assertIn("coding_lark_preflight", ctx.tools)
+        self.assertIn("coding_project_mcp_preflight", ctx.tools)
+        self.assertIn("coding_project_workitem_search", ctx.tools)
+        self.assertIn("coding_project_workitem_create", ctx.tools)
+        self.assertIn("coding_project_intake_sync", ctx.tools)
+        self.assertIn("coding_project_wbs_update", ctx.tools)
+        self.assertIn("coding_project_state_transition", ctx.tools)
+        self.assertIn("coding_project_bugfix_intake", ctx.tools)
         for tool in ctx.tools.values():
             self.assertEqual(tool["toolset"], "coding_orchestration")
             self.assertIn("parameters", tool["schema"])

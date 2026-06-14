@@ -16,6 +16,9 @@
 | 项目识别 | `from coding_orchestration.project_resolver import ProjectResolver` | `coding_orchestration/project_resolver.py` | `coding_orchestration/project_resolver.py`、`project_knowledge_resolver.py` | `ProjectResolver`、`ProjectKnowledgeResolver` |
 | 项目知识初始化 | `from coding_orchestration.project_knowledge_initializer import ProjectKnowledgeInitializer` | `coding_orchestration/project_knowledge_initializer.py` | `coding_orchestration/project_knowledge_initializer.py` | `ProjectKnowledgeInitializer` |
 | 外部来源解析 | `from coding_orchestration.source_resolver import SourceResolver` | `coding_orchestration/source_resolver.py` | `coding_orchestration/source_resolver.py`、`feishu_project_reader.py`、`meegle_reader.py` | `SourceResolver`、`FeishuProjectReader`、`MeegleReader` |
+| 飞书项目 MCP | `from coding_orchestration.feishu_project_mcp import FeishuProjectMcpAdapter` | `coding_orchestration/feishu_project_mcp.py` | `coding_orchestration/feishu_project_mcp.py`、`orchestrator.py` | `FeishuProjectMcpAdapter`、`FeishuProjectMcpConfig` |
+| 飞书项目 intake 规则与编排 | `from coding_orchestration.project_intake import ProjectIntakeRule` | `coding_orchestration/project_intake.py` | `coding_orchestration/project_intake.py`、`orchestrator.py` | `ProjectIntakeRule` |
+| 飞书项目工作项绑定 | `from coding_orchestration.project_workitem_binding import ProjectWorkitemIdentity` | `coding_orchestration/project_workitem_binding.py` | `coding_orchestration/project_workitem_binding.py`、`ledger.py` | `ProjectWorkitemIdentity`、`project_workitem_bindings` |
 | Prompt 构建 | `from coding_orchestration.prompt_builder import PromptBuilder` | `coding_orchestration/prompt_builder.py` | `coding_orchestration/prompt_builder.py` | `PromptBuilder` |
 | 上下文组装 | `from coding_orchestration.context_assembler import ContextAssembler` | `coding_orchestration/context_assembler.py` | `coding_orchestration/context_assembler.py` | `ContextAssembler` |
 | Runner 选择 | `from coding_orchestration.runner_router import RunnerRouter` | `coding_orchestration/runner_router.py` | `coding_orchestration/runner_router.py` | `RunnerRouter` |
@@ -41,6 +44,9 @@
 | `validate_codex_semantic_report` | `coding_orchestration/report_contract.py` |
 | `merge_readiness`、`materialization_allowed` | `coding_orchestration/report_contract.py`、`coding_orchestration/report_admission.py` |
 | `SourceResolver.preflight_lark` | `coding_orchestration/source_resolver.py` |
+| `FeishuProjectMcpAdapter`、`MCP_USER_TOKEN`、`coding_project_*` | `coding_orchestration/feishu_project_mcp.py`、`coding_orchestration/orchestrator.py`、`coding_orchestration/plugin_tools.py` |
+| `project_workitem_bindings`、`source_workitem_key`、`branch_policy=inherit_root_branch` | `coding_orchestration/ledger.py`、`coding_orchestration/project_workitem_binding.py` |
+| `ProjectIntakeRule`、`coding_project_intake_sync`、`dry_run` | `coding_orchestration/project_intake.py`、`coding_orchestration/orchestrator.py` |
 | `lark_cli_command`、`deferred_source_resolution` | `coding_orchestration/source_resolver.py`、`coding_orchestration/prompt_builder.py` |
 | `CODEX_CLI_COMMAND`、`--dangerously-bypass-approvals-and-sandbox` | `coding_orchestration/install.py`、`coding_orchestration/runners/codex_cli.py` |
 | `run_install_preflight` | `coding_orchestration/install.py` |
@@ -53,6 +59,10 @@
 - 不要在 orchestrator 外部直接写 Task Ledger 状态；通过 `TaskLedger` 方法和现有状态流维护 task/run/artifact。
 - 不要在 runner 外部手写 Codex CLI flag；通过 `CodexCliRunner.build_command` 和 manifest 字段维护 sandbox 与 resume 语义。
 - 不要在 prompt 中猜测飞书/Meegle 正文；通过 `SourceResolver`、reader 和 `lark_cli_command` 传递可恢复读取路径。
+- 不要绕过 `FeishuProjectMcpAdapter` 直接调用飞书项目内部接口；Story / Issue / WBS / 状态流转读写统一走插件内私有 MCP adapter。
+- 不要用标题、URL 文本或临时字段推断飞书工作项和 Hermes task 关系；通过 `ProjectWorkitemIdentity` 和 `project_workitem_bindings` 落库，bugfix 归属用 `source_workitem_key`。
+- 不要在 intake 中按标题去重或直接创建裸 task；飞书项目 Story / Issue 必须先规范化为 `ProjectWorkitemIdentity`，再通过 `ProjectIntakeRule` 和 binding 表保证幂等。
+- 不要把 `MCP_USER_TOKEN`、`X-Mcp-Token`、Bearer token 或 `.env*` 内容写入仓库、LLM Wiki、run artifacts、prompt 或测试 fixture。
 - 不要用裸 dict 替代 `TaskStatus`、`TaskPhase`、`RunMode` 的公共 contract；状态和阶段需要和测试保持一致。
 - 不要跳过 `validate_codex_semantic_report` 或 `admit_report` 直接推进任务阶段。
 - 不要把项目初始化事实直接写入 LLM Wiki 当作仓库事实；仓库事实以 `AGENTS.md`、`docs/`、`contracts/` 为源，LLM Wiki 消费这些事实。

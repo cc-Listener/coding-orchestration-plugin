@@ -211,8 +211,24 @@ rtk proxy curl -sS http://127.0.0.1:8642/health
 | `coding_task_run` | 通过 Hermes runtime 启动或续接 plan / implementation / merge-test |
 | `coding_source_resolve` | 解析飞书 Wiki/Docx、Meegle/飞书 Project 等来源链接 |
 | `coding_lark_preflight` | 检查 `lark-cli` appId、授权和文档读取 readiness |
+| `coding_project_mcp_preflight` | 检查插件私有飞书项目 MCP 配置、transport 和 token 引用 |
+| `coding_project_workitem_search` | 通过飞书项目 MCP 只读查询 Story / Issue / WBS 信息 |
+| `coding_project_intake_sync` | 将飞书项目需求幂等同步为 Hermes root task |
+| `coding_project_wbs_update` | 通过 WBS draft 更新拆解任务和工时承载 |
+| `coding_project_state_transition` | 先检查必填项和可流转状态，再执行工作项状态流转 |
+| `coding_project_bugfix_intake` | 将飞书项目 Issue / Bug 同步为 Hermes bugfix task |
 
-当前方案不引入 MCP，也不新增独立 Lark/Meegle server。来源和权限诊断走插件内 `SourceResolver`、`MeegleReader` 和文档 reader；`blocked` 只表示 hard human-blocked。
+飞书项目 Story / Issue / WBS / 状态流转读写通过插件内私有 `FeishuProjectMcpAdapter` 完成。Hermes 管理 MCP transport、`FEISHU_PROJECT_MCP_TOKEN_REF`、工具白名单、写操作确认、审计和脱敏；Codex / Claude / Gemini runner 不直接配置飞书项目 MCP，不持有 `MCP_USER_TOKEN`，也不直接写飞书项目。
+
+飞书 Wiki/Docx 来源和普通 Lark 权限诊断仍走插件内 `SourceResolver`、`MeegleReader` 和文档 reader；`blocked` 只表示 hard human-blocked。飞书项目工作项与 Hermes task 的对应关系写入 `project_workitem_bindings`：Story 绑定 root task，WBS 行绑定 child task，Issue / Bug 绑定 bugfix task。已关联需求的 bugfix 默认继承需求 root task 的 `source_branch`，使用 `branch_policy=inherit_root_branch`，merge-test / PR 由需求 root task 统一推进。
+
+飞书项目 MCP 是可选能力，不是 `install_symlink.py` 的安装硬门禁。需要启用自动 intake、WBS 更新、状态流转或 bugfix intake 时，先配置 token 引用并运行：
+
+```bash
+rtk node --version
+rtk npx --version
+rtk hermes coding project-mcp-preflight
+```
 
 ## 5. 飞书来源读取口径
 

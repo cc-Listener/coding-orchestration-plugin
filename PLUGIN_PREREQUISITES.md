@@ -42,7 +42,25 @@ API_SERVER_PORT=8642
 
 ```bash
 rtk hermes coding doctor
+rtk hermes coding project-mcp-preflight
 rtk proxy curl -sS http://127.0.0.1:8642/health
+```
+
+飞书项目 MCP 是插件内私有能力，不是 `install_symlink.py` 的安装硬门禁。需要自动 intake Story、编辑 WBS、流转 Issue 状态或创建 bugfix task 时，再配置：
+
+```text
+FEISHU_PROJECT_MCP_ENABLED=1
+FEISHU_PROJECT_MCP_DOMAIN=https://project.feishu.cn
+FEISHU_PROJECT_MCP_TRANSPORT=stdio
+FEISHU_PROJECT_MCP_TOKEN_REF=env:FEISHU_PROJECT_MCP_TOKEN
+```
+
+实际 token 只放在 Hermes Gateway 或本地验证进程环境中，不写入 `.env`、文档、LLM Wiki、测试 fixture 或 prompt。stdio 模式需要 Node.js 18+ 和 `npx` 可用：
+
+```bash
+rtk node --version
+rtk npx --version
+rtk hermes coding project-mcp-preflight
 ```
 
 ## 2. 插件安装与更新

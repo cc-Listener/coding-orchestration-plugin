@@ -27,9 +27,11 @@
 
 MVP 的判断标准不是功能完整，而是 workflow 可用、任务可追踪、run 可审计、知识能沉淀、Hermes 主 agent 不再抢 coding 上下文。
 
-当前仓库已经是 Hermes plugin，本轮重点不是“再做 plugin 化”，而是深度使用 Hermes 原生能力。插件注册 `pre_gateway_dispatch` 和 `pre_llm_call`，并通过 `ctx.register_tool` 暴露 Hermes native tools：`coding_task_create`、`coding_task_status`、`coding_task_run`、`coding_source_resolve`、`coding_lark_preflight`。Hermes 主 agent 优先调用这些结构化 tools；`/coding <action>` 是人工入口和 fallback。
+当前仓库已经是 Hermes plugin，本轮重点不是“再做 plugin 化”，而是深度使用 Hermes 原生能力。插件注册 `pre_gateway_dispatch` 和 `pre_llm_call`，并通过 `ctx.register_tool` 暴露 Hermes native tools：`coding_task_create`、`coding_task_status`、`coding_task_run`、`coding_source_resolve`、`coding_lark_preflight`、`coding_project_mcp_preflight`、`coding_project_intake_sync`、`coding_project_wbs_update`、`coding_project_state_transition` 和 `coding_project_bugfix_intake`。Hermes 主 agent 优先调用这些结构化 tools；`/coding <action>` 是人工入口和 fallback。
 
-当前方案明确 **不引入 MCP**，也不新增独立 Lark/Meegle server。Lark/Meegle 来源解析走插件内 `SourceResolver`，Project work item 由 `MeegleReader` 路由，Wiki/Docx 由 Feishu/Lark 文档 reader 路由。Source/auth/permission 问题统一投影为 TaskStatus 主状态 `needs_human`，具体原因放在 `source_status` / `source_recovery_action`；blocked 只表示 hard human-blocked。
+飞书项目 Story / Issue / WBS / 状态流转读写通过插件内私有 `FeishuProjectMcpAdapter` 完成。Hermes 管理 MCP transport、`FEISHU_PROJECT_MCP_TOKEN_REF`、工具白名单、写操作确认、审计和脱敏；runner 不直接配置飞书项目 MCP，不持有 `MCP_USER_TOKEN`，也不直接写飞书项目。Lark Wiki/Docx 来源解析仍走插件内 `SourceResolver` 和 Feishu/Lark 文档 reader。Source/auth/permission 问题统一投影为 TaskStatus 主状态 `needs_human`，具体原因放在 `source_status` / `source_recovery_action`；blocked 只表示 hard human-blocked。
+
+飞书项目工作项关系写入 `project_workitem_bindings`：Story / 需求绑定 Hermes root task，WBS 行绑定 child task，Issue / Bug 绑定 bugfix task；Issue 可通过 `source_workitem_key` 归属到原需求 root task。已关联需求的 bugfix 使用 `branch_policy=inherit_root_branch` 并继承 root task 的 `source_branch`，merge-test / PR 由需求 root task 统一推进，避免每个 bugfix 长期分支再反复合并。
 
 Hermes Codex 能力也被复用但边界清晰：Hermes `openai-codex` provider/OAuth 是模型能力，使用 `~/.hermes/auth.json`；standalone Codex CLI workspace edit 仍通过 Hermes terminal/process runtime 运行，可使用 `~/.codex/auth.json`。插件不会复制、导入或共享这两个 auth 文件。
 

@@ -6,6 +6,7 @@
 - 所有 shell 命令必须带 `rtk` 前缀。需要原始输出时使用 `rtk proxy <cmd>`。
 - 优先修改现有模块，不新建平行实现；插件边界已经集中在 `coding_orchestration/`。
 - 不把运行根、token、auth、`.env*`、本地 LLM Wiki 内容或 Task Ledger 数据提交到仓库。
+- 飞书项目 MCP 密钥只允许通过 `FEISHU_PROJECT_MCP_TOKEN_REF` 引用，不允许把 `MCP_USER_TOKEN`、`X-Mcp-Token` 或 Bearer token 写入仓库、LLM Wiki、run artifacts、prompt 或测试 fixture。
 
 ## 开发入口
 

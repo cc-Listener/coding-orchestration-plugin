@@ -6,9 +6,59 @@
 
 正式使用前先按 [PLUGIN_PREREQUISITES.md](PLUGIN_PREREQUISITES.md) 完成前置检查：Hermes `.env`、Codex CLI 绝对路径、终端默认 `lark-cli` appId、飞书 user scope / bot 权限、项目 LLM Wiki 初始化和 Kanban/Dashboard 可用性。
 
-当前仓库已经是 Hermes plugin；使用时重点是让 Hermes 主 agent 直接复用插件暴露的 Hermes native tools，而不是继续依赖不可控的 skill 建议或自然语言 rewrite。插件注册 `pre_llm_call` 注入 active task/source health/next actions，并注册 `coding_task_create`、`coding_task_status`、`coding_task_run`、`coding_source_resolve`、`coding_lark_preflight`。`/coding <action>` 仍是人工入口和 fallback。
+当前仓库已经是 Hermes plugin；使用时重点是让 Hermes 主 agent 直接复用插件暴露的 Hermes native tools，而不是继续依赖不可控的 skill 建议或自然语言 rewrite。插件注册 `pre_llm_call` 注入 active task/source health/next actions，并注册 `coding_task_create`、`coding_task_status`、`coding_task_run`、`coding_source_resolve`、`coding_lark_preflight`、`coding_project_intake_sync`、`coding_project_wbs_update`、`coding_project_state_transition` 和 `coding_project_bugfix_intake`。`/coding <action>` 仍是人工入口和 fallback。
 
-当前方案不引入 MCP。飞书 Wiki/Docx、Meegle/飞书 Project 的读取和权限诊断由插件内 `SourceResolver`、`MeegleReader` 和文档 reader 处理；Lark/Meegle 权限问题会回到结构化 source 状态与 recovery action。blocked 只表示 hard human-blocked，`needs_refresh`、scope 缺失、source deferred 和 runner unstructured output 不再默认变成 blocked。
+飞书项目 Story / Issue / WBS / 状态流转读写通过插件内私有 `FeishuProjectMcpAdapter` 完成；飞书 Wiki/Docx 来源和普通 Lark 权限诊断仍由 `SourceResolver` 和文档 reader 处理。飞书项目 MCP token 只允许通过 `FEISHU_PROJECT_MCP_TOKEN_REF` 引用，实际 token 只注入 MCP 子进程环境，不写入仓库、prompt、日志、LLM Wiki 或测试 fixture。blocked 只表示 hard human-blocked，`needs_refresh`、scope 缺失、source deferred 和 runner unstructured output 不再默认变成 blocked。
+
+飞书项目工作项与 Hermes task 通过 `project_workitem_bindings` 对应：Story 绑定 root task，WBS 行绑定 child task，Issue/Bug 绑定 bugfix task。已关联需求的 bugfix 默认继承需求 root task 的 `source_branch`，使用 `branch_policy=inherit_root_branch`；未关联需求的 bugfix 会作为独立 root task，并在 binding metadata 写入 `needs_story_link=true`。
+
+## 飞书项目 MCP 沙盒验证
+
+先使用非生产飞书项目空间验证。只开启读取权限时，预期 Hermes 只能查询 Story / Issue / WBS 信息；开启写权限后，创建工作项、WBS 草稿发布、状态流转和评论回写仍必须经过插件 tool schema、策略校验和显式写确认。
+
+在飞书项目页面完成 MCP 配置后，本地只写 token 引用，不写 token 值：
+
+```text
+FEISHU_PROJECT_MCP_ENABLED=1
+FEISHU_PROJECT_MCP_DOMAIN=https://project.feishu.cn
+FEISHU_PROJECT_MCP_TRANSPORT=stdio
+FEISHU_PROJECT_MCP_TOKEN_REF=env:FEISHU_PROJECT_MCP_TOKEN
+```
+
+实际 token 只放在启动 Hermes Gateway 或本地验证进程的环境变量中。不要把 token 写入 `.env`、仓库、文档、LLM Wiki、prompt、测试 fixture 或 run artifacts。
+
+验证 Node / npx 与插件私有 MCP 配置：
+
+```bash
+rtk node --version
+rtk npx --version
+rtk hermes coding project-mcp-preflight
+```
+
+在 Hermes 对话中验证只读查询：
+
+```text
+检查飞书项目 MCP 状态
+查询测试空间中状态为待开发的需求，最多 3 条
+```
+
+预期：Hermes 调用 `coding_project_mcp_preflight` 和 `coding_project_workitem_search`，只返回标题、状态、类型和 URL，不输出 token。
+
+验证写操作门禁：
+
+```text
+在测试空间创建一个需求，标题为 MCP 集成测试
+```
+
+预期：未显式确认时返回需要确认，不发生写入。确认后才允许调用 `coding_project_workitem_create`，返回飞书项目工作项 URL 和审计信息。
+
+验证 bugfix intake 时，先用 dry-run：
+
+```text
+从测试空间拉取状态为待处理的 Bug，最多 3 条，先 dry-run
+```
+
+预期：已关联 Story 的 Bug 会显示将创建 `branch_policy=inherit_root_branch` 的 bugfix task；未关联 Story 的 Bug 会显示 `needs_story_link=true`，用于人工补链后再执行。
 
 ## 本地软链接安装
 

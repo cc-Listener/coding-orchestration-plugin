@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
@@ -94,6 +95,24 @@ class CodingCliTest(unittest.TestCase):
             self.assertIn("恢复动作", output)
             self.assertNotIn("source_status:", output)
             self.assertNotIn("recovery_action:", output)
+
+    def test_coding_cli_project_mcp_preflight_reports_missing_token_ref(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch.dict(
+                "os.environ",
+                {
+                    "FEISHU_PROJECT_MCP_ENABLED": "1",
+                    "FEISHU_PROJECT_MCP_TOKEN_REF": "",
+                },
+                clear=False,
+            ):
+                orchestrator = make_orchestrator(Path(tmp))
+
+            output = orchestrator.command_coding_cli(["project-mcp-preflight"])
+
+            self.assertIn("飞书项目 MCP 检查", output)
+            self.assertIn("FEISHU_PROJECT_MCP_TOKEN_REF", output)
+            self.assertIn("invalid_config", output)
 
     def test_coding_gateway_doctor_command_reports_dependencies(self):
         with tempfile.TemporaryDirectory() as tmp:
