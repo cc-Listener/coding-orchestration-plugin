@@ -92,6 +92,8 @@ project_map:
       reason: "Run status transition host service，维护状态机、status/phase/Kanban callback、run start/completion/reconcile transition 和 active run cleanup；不写 report/manifest/summary、不启动 runner、不执行 diff guard、不收集 QA evidence。"
     - path: coding_orchestration/run_evidence_observation_service.py
       reason: "Run evidence observation host service，维护 QA artifacts、tested commit 和 implementation dirty-check observation；只调用注入 callback，不写 ledger/report/manifest/summary、不创建 checkpoint、不启动 runner、不推进状态。"
+    - path: coding_orchestration/run_checkpoint_preparation_service.py
+      reason: "Run checkpoint preparation host service，维护 QA/merge-test checkpoint callback 选择、调用和 manifest update payload；只调用注入 callback，不直接 mutate manifest、不写 artifact/ledger/report/summary、不启动 runner、不推进状态。"
     - path: coding_orchestration/run_start_selection_projection.py
       reason: "Run start selection projection helper，维护 context source、checkpoint selection、QA evidence observation、source branch recording、project path requirement、workspace selection 和 manifest checkpoint preparation selection 纯规则，不读取 workspace、不准备 checkpoint、不写 manifest 或 ledger。"
     - path: coding_orchestration/run_session_projection.py
@@ -203,6 +205,9 @@ component_contract:
       preferred: true
     - name: run_evidence_observation_service
       path: coding_orchestration/run_evidence_observation_service.py
+      preferred: true
+    - name: run_checkpoint_preparation_service
+      path: coding_orchestration/run_checkpoint_preparation_service.py
       preferred: true
     - name: run_start_selection_projection
       path: coding_orchestration/run_start_selection_projection.py
@@ -337,6 +342,10 @@ component_contract:
       path: coding_orchestration/run_evidence_observation_service.py
       use_instead_of:
         - "在 orchestrator 中继续新增 QA artifact/tested commit observation 或 implementation dirty-check observation callback 调用逻辑。"
+    - name: run_checkpoint_preparation_service
+      path: coding_orchestration/run_checkpoint_preparation_service.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 QA/merge-test checkpoint preparation callback 选择、调用或 checkpoint payload 到 manifest update 的映射逻辑。"
     - name: run_background_orchestration
       path: coding_orchestration/run_background_orchestration.py
       use_instead_of:

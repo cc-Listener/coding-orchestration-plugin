@@ -435,6 +435,8 @@ coding_orchestration plugin
 | Task 35. Legacy test final cleanup | Test governance | Planned | 旧私有 helper / 旧文件形态测试全部有保留、改写或删除记录 |
 | Task 36. Release readiness and operating contract | 文档合同 + 运行治理 | Planned | 完整单测、architecture guard、diff check、敏感扫描和最小 Hermes smoke 形成发布 gate |
 
+Task 30 最新补充：`run_checkpoint_preparation_service.py` 已承接 QA / merge-test checkpoint preparation callback 选择、调用和 manifest update payload 构造；它只调用注入 callback 并返回 `manifest_updates`，不直接 mutate manifest、不写 artifact/ledger/report/summary、不启动 runner、不推进状态。mode 到 checkpoint kind/target branch 选择仍归 `run_start_selection_projection.py`，manifest 文件写入仍归 artifact service，implementation dirty-check 后置 manifest 写回仍是后续切片。
+
 大文件和 hard code 是专项治理对象，不作为“顺手优化”处理：
 
 - `orchestrator.py` 目前仍是唯一核心大文件债务，当前约 4777 行；短期目标是继续迁出 run orchestration 副作用，先降到 3000 行以内。

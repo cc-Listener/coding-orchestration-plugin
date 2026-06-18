@@ -2,6 +2,35 @@
 
 ## 会话：2026-06-16
 
+### 阶段 180：解耦架构 run checkpoint preparation service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 179 后 QA evidence 和 implementation dirty-check observation 已迁出，但 `CodingOrchestrator.start_run()` 仍内联 QA / merge-test checkpoint preparation callback 选择和 manifest field 写入规则。
+  - 本切片只迁 checkpoint preparation 调用与 manifest update payload 构造；mode 到 checkpoint kind/target branch 选择、manifest 文件写入、runner dispatch、状态 transition、report refinement 和 WorkItemService 业务写回不属于本切片。
+- 当前边界：
+  - `run_checkpoint_preparation_service.prepare_run_checkpoint()` 根据 `RunManifestCheckpointPreparation.checkpoint_kind` 选择 QA 或 merge-test callback。
+  - service 返回 `RunCheckpointPreparationResult(manifest_updates=...)`，由 orchestrator 通用 apply 到 manifest。
+  - callback 返回 `None` 或 checkpoint kind 为 none 时，不生成 manifest update。
+  - service 不直接 mutate manifest，不写 artifact/ledger/report/summary，不启动 runner，不执行 diff guard，不推进 task/run 状态，不调用 MCP/WorkItemService。
+- 执行的操作：
+  - 新增 `tests/test_run_checkpoint_preparation_service.py`，覆盖 none/QA/merge-test checkpoint preparation、空 payload 不写 manifest update 和 `start_run()` 委托。
+  - 新增 `coding_orchestration/run_checkpoint_preparation_service.py`。
+  - `CodingOrchestrator.start_run()` 的 QA / merge-test checkpoint preparation 调用改为委托 service；manifest artifact 写入仍由 `run_start_artifact_service.write_run_start_artifacts()` 负责。
+  - 已同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`findings.md` 和 `task_plan.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4777 行。
+  - `coding_orchestration/run_checkpoint_preparation_service.py`：40 行。
+  - `tests/test_run_checkpoint_preparation_service.py`：202 行。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_run_checkpoint_preparation_service tests.test_run_start_selection_projection tests.test_workspace_checkpoint_service tests.test_run_manifest_service tests.test_run_start_artifact_service tests.test_run_manifest_artifact_service tests.test_run_dispatch_service -v`：46 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow tests.test_implementation_workspace_flow tests.test_run_orchestration_start_rules -v`：54 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4777 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：810 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：implementation dirty-check 后置 manifest checkpoint 写回、completion finalization、report/ledger/summary/project writeback 仍留在 orchestrator host / WorkItemService 边界。
+
 ### 阶段 179：解耦架构 run evidence observation service 拆分
 - **状态：** complete
 - 背景：

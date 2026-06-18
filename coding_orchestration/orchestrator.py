@@ -84,6 +84,7 @@ from . import (
     merge_test_presenter,
     run_background_orchestration,
     run_artifact_paths,
+    run_checkpoint_preparation_service,
     run_diff_guard_service,
     run_dispatch_service,
     run_evidence_observation_service,
@@ -3460,16 +3461,15 @@ class CodingOrchestrator:
             checkpoint_target_branch=checkpoint_preparation.target_branch,
         ).items():
             setattr(manifest, field, value)
-        checkpoint_payload = None
-        if (
-            checkpoint_preparation.checkpoint_kind
-            == run_orchestration_service.RUN_MANIFEST_CHECKPOINT_MERGE_TEST
-        ):
-            checkpoint_payload = self._prepare_merge_test_checkpoint(workspace_path, task_id)
-        elif checkpoint_preparation.checkpoint_kind == run_orchestration_service.RUN_MANIFEST_CHECKPOINT_QA:
-            checkpoint_payload = self._prepare_qa_checkpoint(workspace_path, task_id)
-        if checkpoint_payload is not None and checkpoint_preparation.manifest_field:
-            setattr(manifest, checkpoint_preparation.manifest_field, checkpoint_payload)
+        prepared_checkpoint = run_checkpoint_preparation_service.prepare_run_checkpoint(
+            checkpoint_preparation=checkpoint_preparation,
+            workspace_path=workspace_path,
+            task_id=task_id,
+            prepare_qa_checkpoint_callback=self._prepare_qa_checkpoint,
+            prepare_merge_test_checkpoint_callback=self._prepare_merge_test_checkpoint,
+        )
+        for field, value in prepared_checkpoint.manifest_updates.items():
+            setattr(manifest, field, value)
         run_start_artifact_service.write_run_start_artifacts(
             run_dir=run_dir,
             prompt=prompt,
