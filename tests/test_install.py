@@ -42,11 +42,11 @@ def _preflight_runner(*, codex_path: str, lark_scopes: str | None = None):
             )
         if command == ["rtk", "lark-cli", "config", "show"]:
             return subprocess.CompletedProcess(command, returncode=0, stdout='{"appId": "cli_hermes"}', stderr="")
-        if command == ["rtk", "lark-cli", "auth", "status"]:
+        if command == ["rtk", "lark-cli", "auth", "status", "--verify"]:
             return subprocess.CompletedProcess(
                 command,
                 returncode=0,
-                stdout=f'{{"scope": "{scopes}"}}',
+                stdout=f'{{"verified": true, "identities": {{"user": {{"status": "ready", "scope": "{scopes}"}}}}}}',
                 stderr="",
             )
         raise AssertionError(f"unexpected command: {command}")

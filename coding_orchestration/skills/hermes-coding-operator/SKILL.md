@@ -9,6 +9,10 @@ description: Use when Hermes Coding Mode handoff is low-confidence and the main 
 
 English anchors for host tests: project-first workflow, intent triage.
 
+Required core skill: `../coding-operator-core/SKILL.md`
+
+本 skill 是 Hermes host binding。使用时先遵守 core skill 的通用 project-first workflow 和 intent triage，再将 core intent 映射到 Hermes `/coding` 命令、Hermes native tools 或普通回复。host binding 只处理 Hermes 命令语法、可用工具和用户可见措辞，不承载新的通用业务规则。
+
 ## 硬规则
 
 - 低置信度不创建开发任务、不启动执行、不写长期记忆。

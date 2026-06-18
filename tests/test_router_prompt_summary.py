@@ -4,6 +4,7 @@ from unittest.mock import patch
 from pathlib import Path
 
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
+from coding_orchestration.knowledge_adapter import LocalKnowledgeAdapter
 from coding_orchestration.models import RunMode
 from coding_orchestration.prompt_builder import PromptBuilder
 from coding_orchestration.run_summary_writer import RunSummaryWriter
@@ -393,8 +394,8 @@ class RouterPromptSummaryTest(unittest.TestCase):
 
     def test_run_summary_writer_upserts_to_wiki(self):
         with tempfile.TemporaryDirectory() as tmp:
-            wiki = LocalLlmWikiAdapter(Path(tmp))
-            writer = RunSummaryWriter(wiki)
+            knowledge = LocalKnowledgeAdapter.from_root(Path(tmp))
+            writer = RunSummaryWriter(knowledge)
             ref = writer.write_run_summary(
                 task_id="task_1",
                 run_id="run_1",
@@ -409,7 +410,7 @@ class RouterPromptSummaryTest(unittest.TestCase):
                 summary="修复完成",
             )
 
-            loaded = wiki.read(ref["id"])
+            loaded = knowledge.read(ref["id"])
             self.assertEqual(loaded["kind"], "run_summary")
             self.assertIn("修复完成", loaded["body"])
             self.assertEqual(loaded["project"], "order-system")

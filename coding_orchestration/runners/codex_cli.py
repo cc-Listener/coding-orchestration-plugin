@@ -1,64 +1,42 @@
 from __future__ import annotations
 
 import json
-import os
-import signal
 import shlex
-import subprocess
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .base import CodingAgentRunner, RunResult
+from .codex_artifacts import collect_codex_artifacts
+from .codex_command import (
+    CodexCommandBuilder,
+    build_resume_command,
+    manifest_dangerous_bypass,
+    resume_session_id,
+)
+from .codex_process import CodexProcessRunner
+from .codex_report import (
+    fallback_limitation_reason,
+    normalize_report_status,
+    report_contract_fields,
+    report_requires_limitation,
+    report_status_details,
+    run_details_require_limitation,
+    runner_failure_from_stdout,
+    semantic_report_fields,
+    status_requires_limitation,
+    thread_id_from_stdout as report_thread_id_from_stdout,
+    try_parse_json,
+    verification_limitation,
+)
+from .codex_report_loader import CodexReportLoader, report_has_required_fields
+from .codex_report_writer import CodexReportWriter
 from ..models import (
     AgentRunStatus,
     ArtifactSet,
     RunMode,
     RunnerCapabilities,
     agent_run_status_details,
-    apply_failure_type_to_run_details,
-    normalize_agent_run_status,
-)
-from ..report_contract import validate_codex_semantic_report
-from ..report_admission import admit_report
-from ..run_log_compactor import compact_run_logs
-
-
-REPORT_CONTRACT_FIELDS = (
-    "runner",
-    "status",
-    "raw_status",
-    "status_detail",
-    "failure_type",
-    "known_gaps",
-    "structured",
-    "mode",
-    "summary_markdown",
-    "modified_files",
-    "test_commands",
-    "test_results",
-    "risks",
-    "verification_limitations",
-    "human_required",
-    "next_actions",
-    "qa_artifacts",
-    "tested_commit",
-    "user_facing_summary",
-    "technical_summary",
-    "implementation_landed",
-    "commit_sha",
-    "changed_files_summary",
-    "branch_slug_candidate",
-    "execution_policy_decision",
-    "merge_readiness",
-    "classification",
-    "reason",
-    "delivery_units",
-    "execution_tasks",
-    "dependencies",
-    "acceptance_plan",
-    "open_questions",
-    "materialization_allowed",
 )
 
 
@@ -68,7 +46,8 @@ class CodexCliRunner(CodingAgentRunner):
     def __init__(self, command: str = "codex", hermes_runtime: Any | None = None):
         self.command = command
         self.hermes_runtime = hermes_runtime
-        self._processes: dict[str, subprocess.Popen] = {}
+        self.process_runner = CodexProcessRunner(self)
+        self.report_writer = CodexReportWriter(runner_name=self.name)
 
     def set_hermes_runtime(self, hermes_runtime: Any) -> None:
         self.hermes_runtime = hermes_runtime
@@ -93,57 +72,12 @@ class CodexCliRunner(CodingAgentRunner):
         workspace_path: Path | None,
         mode: RunMode,
     ) -> list[str]:
-        session_id = self._resume_session_id(run_dir)
-        dangerous_bypass = self._manifest_dangerous_bypass(run_dir)
-        if session_id:
-            return self._build_resume_command(
-                run_dir=run_dir,
-                mode=mode,
-                session_id=session_id,
-                dangerous_bypass=dangerous_bypass,
-            )
-        if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST} or dangerous_bypass:
-            cwd = workspace_path or project_path
-            command = [
-                self.command,
-                "exec",
-                "--json",
-                "--dangerously-bypass-approvals-and-sandbox",
-            ]
-            if mode != RunMode.MERGE_TEST:
-                command.extend(
-                    [
-                        "--output-schema",
-                        str(run_dir / "report.schema.json"),
-                    ]
-                )
-            command.extend(
-                [
-                    "--output-last-message",
-                    str(run_dir / "report.json"),
-                    "-C",
-                    str(cwd),
-                    "-",
-                ]
-            )
-            return command
-
-        return [
-            self.command,
-            "exec",
-            "--json",
-            "--output-schema",
-            str(run_dir / "report.schema.json"),
-            "--output-last-message",
-            str(run_dir / "report.json"),
-            "--sandbox",
-            "read-only",
-            "-c",
-            'approval_policy="never"',
-            "-C",
-            str(project_path),
-            "-",
-        ]
+        return CodexCommandBuilder(command=self.command).build(
+            run_dir=run_dir,
+            project_path=project_path,
+            workspace_path=workspace_path,
+            mode=mode,
+        )
 
     def _build_resume_command(
         self,
@@ -153,32 +87,13 @@ class CodexCliRunner(CodingAgentRunner):
         session_id: str,
         dangerous_bypass: bool = False,
     ) -> list[str]:
-        command = [
-            self.command,
-            "exec",
-            "resume",
-            "--json",
-        ]
-        if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST} or dangerous_bypass:
-            command.append("--dangerously-bypass-approvals-and-sandbox")
-        else:
-            command.extend(
-                [
-                    "-c",
-                    'sandbox_mode="read-only"',
-                    "-c",
-                    'approval_policy="never"',
-                ]
-            )
-        command.extend(
-            [
-                "--output-last-message",
-                str(run_dir / "report.json"),
-                session_id,
-                "-",
-            ]
+        return build_resume_command(
+            command=self.command,
+            run_dir=run_dir,
+            mode=mode,
+            session_id=session_id,
+            dangerous_bypass=dangerous_bypass,
         )
-        return command
 
     def run(
         self,
@@ -308,71 +223,18 @@ class CodexCliRunner(CodingAgentRunner):
         mode: RunMode = RunMode.PLAN_ONLY,
         cwd: Path | None = None,
     ) -> RunResult:
-        run_dir.mkdir(parents=True, exist_ok=True)
-        stdout_path = run_dir / "stdout.log"
-        stderr_path = run_dir / "stderr.log"
-        started_at = datetime.now(timezone.utc)
-        try:
-            with stdin_path.open("rb") as stdin, stdout_path.open("wb") as stdout, stderr_path.open("wb") as stderr:
-                proc = subprocess.Popen(
-                    command,
-                    stdin=stdin,
-                    stdout=stdout,
-                    stderr=stderr,
-                    cwd=str(cwd) if cwd else None,
-                    start_new_session=True,
-                )
-                self._processes[run_id] = proc
-                try:
-                    exit_code = proc.wait(timeout=timeout_seconds)
-                except subprocess.TimeoutExpired:
-                    self.cancel(run_id)
-                    exit_code = proc.wait(timeout=5)
-                    self._update_run_manifest_timing(
-                        run_dir,
-                        started_at=started_at,
-                        completed_at=datetime.now(timezone.utc),
-                    )
-                    report = self.build_fallback_report(run_dir, mode, status="timeout")
-                    return RunResult(report["status"], exit_code, self.collect_artifacts(run_dir), report)
-                finally:
-                    self._processes.pop(run_id, None)
-        except Exception as exc:
-            self._update_run_manifest_timing(
-                run_dir,
-                started_at=started_at,
-                completed_at=datetime.now(timezone.utc),
-            )
-            stderr_path.write_text(str(exc), encoding="utf-8")
-            report = self.build_fallback_report(
-                run_dir,
-                mode,
-                status="runner_failed",
-                limitation_reason="process_start_failed",
-                limitation_impact="Codex runner did not start, so no implementation or verification ran.",
-                limitation_recovery_action="Verify the Codex CLI command/path and rerun this task.",
-                limitation_fallback_evidence=str(stderr_path),
-            )
-            return RunResult(report["status"], None, self.collect_artifacts(run_dir), report)
-
-        self._update_run_manifest_timing(
-            run_dir,
-            started_at=started_at,
-            completed_at=datetime.now(timezone.utc),
+        return self.process_runner.run_subprocess(
+            run_id=run_id,
+            command=command,
+            run_dir=run_dir,
+            stdin_path=stdin_path,
+            timeout_seconds=timeout_seconds,
+            mode=mode,
+            cwd=cwd,
         )
-        report = self.load_or_build_report(run_dir=run_dir, mode=mode)
-        status = self._normalize_report_status(report.get("status", AgentRunStatus.FAILED.value), mode)
-        return RunResult(status, exit_code, self.collect_artifacts(run_dir), report)
 
     def cancel(self, run_id: str) -> bool:
-        proc = self._processes.get(run_id)
-        if proc is None or proc.poll() is not None:
-            return False
-        try:
-            os.killpg(proc.pid, signal.SIGTERM)
-            return True
-        except ProcessLookupError:
-            return False
+        return self.process_runner.cancel(run_id)
 
     @staticmethod
     def _update_run_manifest_timing(
@@ -381,101 +243,20 @@ class CodexCliRunner(CodingAgentRunner):
         started_at: datetime,
         completed_at: datetime,
     ) -> None:
-        manifest_path = run_dir / "run-manifest.json"
-        manifest: dict[str, Any] = {}
-        if manifest_path.exists():
-            try:
-                loaded = json.loads(manifest_path.read_text(encoding="utf-8", errors="replace"))
-                if isinstance(loaded, dict):
-                    manifest = loaded
-            except Exception:
-                manifest = {}
-        duration_ms = max(0, int((completed_at - started_at).total_seconds() * 1000))
-        manifest.update(
-            {
-                "started_at": started_at.isoformat(),
-                "completed_at": completed_at.isoformat(),
-                "duration_ms": duration_ms,
-            }
+        CodexProcessRunner.update_run_manifest_timing(
+            run_dir,
+            started_at=started_at,
+            completed_at=completed_at,
         )
-        manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def collect_artifacts(self, run_dir: Path) -> ArtifactSet:
-        return ArtifactSet(
-            run_dir=run_dir,
-            input_prompt=run_dir / "input-prompt.md",
-            manifest=run_dir / "run-manifest.json",
-            stdout=run_dir / "stdout.log",
-            stderr=run_dir / "stderr.log",
-            events=run_dir / "events.jsonl",
-            report=run_dir / "report.json",
-            summary=run_dir / "summary.md",
-            diff=run_dir / "diff.patch",
-            operator_log=run_dir / "run-log.md",
-            execution_policy=run_dir / "execution-policy.json",
-            context_manifest=run_dir / "context-manifest.json",
-        )
+        return collect_codex_artifacts(run_dir)
 
     def load_or_build_report(self, run_dir: Path, mode: RunMode) -> dict[str, Any]:
-        report_path = run_dir / "report.json"
-        raw_report = ""
-        if report_path.exists():
-            try:
-                raw_report = report_path.read_text(encoding="utf-8")
-                report = json.loads(raw_report)
-                if self._is_valid_report(report):
-                    completeness = validate_codex_semantic_report(report, mode)
-                    if not completeness.ok:
-                        return self.build_report_incomplete_report(run_dir, mode, completeness.missing)
-                    report = self.ensure_report_contract(run_dir, mode, report)
-                    admission = admit_report(report, mode)
-                    if not admission.accepted:
-                        return self.build_report_admission_rejected_report(
-                            run_dir,
-                            mode,
-                            admission.reason,
-                            admission.errors,
-                        )
-                    self.ensure_summary(run_dir, report)
-                    return report
-            except json.JSONDecodeError:
-                pass
-        runner_failure = self._runner_failure_from_stdout(run_dir / "stdout.log")
-        if runner_failure:
-            return self.build_fallback_report(
-                run_dir=run_dir,
-                mode=mode,
-                status="runner_failed",
-                limitation_reason=runner_failure["reason"],
-                limitation_impact=runner_failure["impact"],
-                limitation_recovery_action=runner_failure["recovery_action"],
-                limitation_fallback_evidence=runner_failure["fallback_evidence"],
-            )
-        return self.build_fallback_report(
-            run_dir=run_dir,
-            mode=mode,
-            status="runner_failed",
-            limitation_reason="structured_report_missing",
-            limitation_impact="Codex did not produce a valid structured report. Hermes will not infer semantic completion from stdout/stderr.",
-            limitation_recovery_action="Resume the same Codex session and ask it to write the complete structured report.",
-            limitation_fallback_evidence=f"{run_dir / 'stdout.log'}; {run_dir / 'stderr.log'}",
-        )
+        return CodexReportLoader(self).load_or_build(run_dir, mode)
 
     def ensure_summary(self, run_dir: Path, report: dict[str, Any]) -> None:
-        summary = str(report.get("summary_markdown") or "").strip()
-        if not summary:
-            next_actions = "\n".join(f"- {item}" for item in report.get("next_actions") or [])
-            risks = "\n".join(f"- {item}" for item in report.get("risks") or [])
-            parts = [
-                f"Status: {report.get('status', 'unknown')}",
-                "",
-                "Next actions:",
-                next_actions or "- none",
-            ]
-            if risks:
-                parts.extend(["", "Risks:", risks])
-            summary = "\n".join(parts)
-        (run_dir / "summary.md").write_text(summary, encoding="utf-8")
+        self.report_writer.ensure_summary(run_dir, report)
 
     def build_fallback_report(
         self,
@@ -488,47 +269,16 @@ class CodexCliRunner(CodingAgentRunner):
         limitation_recovery_action: str = "",
         limitation_fallback_evidence: str = "",
     ) -> dict[str, Any]:
-        details = agent_run_status_details(status, mode)
-        if details.get("failure_type") == "timeout" or details.get("raw_status") == "timeout":
-            risks = ["Codex runner reached the configured timeout before producing the final structured report."]
-            next_actions = [
-                "Review stdout/stderr to confirm the latest implementation and verification state.",
-                "If code changes are present, continue the same task or proceed with known verification gaps.",
-            ]
-            default_impact = "The runner may have completed useful implementation work, but Hermes cannot trust the final state without reviewing partial output."
-            default_recovery_action = "Resume the same Codex session or rerun the task with a longer timeout after reviewing stdout/stderr."
-        else:
-            risks = ["Structured report was not produced or failed schema validation."]
-            next_actions = ["Review stdout/stderr and decide whether to rerun or continue manually."]
-            default_impact = "Hermes cannot fully trust this run result because Python semantic fallback from stdout/stderr is disabled."
-            default_recovery_action = "Rerun or resume Codex so it writes a complete structured report; Hermes will not infer semantic completion from stdout/stderr."
-        if recovered_summary:
-            (run_dir / "summary.md").write_text(recovered_summary, encoding="utf-8")
-            risks.append("已记录非结构化摘要，但缺少完整结构化 report，不能据此推进流程。")
-        limitation = self._verification_limitation(
-            reason=limitation_reason or self._fallback_limitation_reason(status),
-            impact=limitation_impact or default_impact,
-            recovery_action=limitation_recovery_action or default_recovery_action,
-            fallback_evidence=limitation_fallback_evidence or f"{run_dir / 'stdout.log'}; {run_dir / 'stderr.log'}",
+        return self.report_writer.build_fallback_report(
+            run_dir=run_dir,
+            mode=mode,
+            status=status,
+            recovered_summary=recovered_summary,
+            limitation_reason=limitation_reason,
+            limitation_impact=limitation_impact,
+            limitation_recovery_action=limitation_recovery_action,
+            limitation_fallback_evidence=limitation_fallback_evidence,
         )
-        report = {
-            "runner": self.name,
-            **details,
-            "mode": mode.value,
-            "summary_markdown": recovered_summary,
-            "modified_files": [],
-            "test_commands": [],
-            "test_results": [],
-            "risks": risks,
-            "verification_limitations": [limitation],
-            "human_required": True,
-            "next_actions": next_actions,
-            "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
-            "tested_commit": "",
-            **self._semantic_report_fields({}),
-        }
-        (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-        return self._attach_operator_log_refs(run_dir, report)
 
     def build_report_incomplete_report(
         self,
@@ -536,40 +286,7 @@ class CodexCliRunner(CodingAgentRunner):
         mode: RunMode,
         missing: list[str],
     ) -> dict[str, Any]:
-        missing_text = ", ".join(missing)
-        limitation = self._verification_limitation(
-            reason="codex_report_incomplete",
-            impact="Codex 输出的结构化 report 缺少 Hermes 必须消费的语义字段。",
-            recovery_action="续接 Codex，让它补齐完整结构化 report。",
-            fallback_evidence=str(run_dir / "report.json"),
-        )
-        report = {
-            "runner": self.name,
-            **agent_run_status_details(AgentRunStatus.BLOCKED.value, mode),
-            "failure_type": "report_incomplete",
-            "mode": mode.value,
-            "summary_markdown": "Codex 输出缺少必要结构化字段，Hermes 不会用 Python 猜测结果。",
-            "modified_files": [],
-            "test_commands": [],
-            "test_results": [],
-            "risks": ["Codex report incomplete; Python semantic fallback is disabled."],
-            "verification_limitations": [limitation],
-            "human_required": True,
-            "next_actions": ["续接 Codex，让它补齐完整结构化 report。"],
-            "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
-            "tested_commit": "",
-            "user_facing_summary": "Codex 结果不完整，需要续接补齐。",
-            "technical_summary": f"缺少字段：{missing_text}",
-            "implementation_landed": False,
-            "commit_sha": "",
-            "changed_files_summary": [],
-            "branch_slug_candidate": "",
-            "execution_policy_decision": {},
-            "merge_readiness": {},
-        }
-        report = self._report_contract_fields(report)
-        (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-        return self._attach_operator_log_refs(run_dir, report)
+        return self.report_writer.build_report_incomplete_report(run_dir, mode, missing)
 
     def build_report_admission_rejected_report(
         self,
@@ -578,172 +295,45 @@ class CodexCliRunner(CodingAgentRunner):
         reason: str,
         errors: list[str],
     ) -> dict[str, Any]:
-        limitation = self._verification_limitation(
-            reason=reason,
-            impact="Codex 输出的结构化 report 未通过 Hermes admission gate，不能驱动状态推进或任务物化。",
-            recovery_action="续接 Codex，让它修复 report 中列出的结构化问题。",
-            fallback_evidence=str(run_dir / "report.json"),
-        )
-        report = {
-            "runner": self.name,
-            **agent_run_status_details(AgentRunStatus.BLOCKED.value, mode),
-            "failure_type": "report_admission_rejected",
-            "mode": mode.value,
-            "summary_markdown": "Codex report 未通过 admission gate，Hermes 已阻止流程推进。",
-            "modified_files": [],
-            "test_commands": [],
-            "test_results": [],
-            "risks": [f"{reason}: {'; '.join(errors)}"],
-            "verification_limitations": [limitation],
-            "human_required": True,
-            "next_actions": ["续接 Codex 修复结构化 report，或人工补充缺失信息后重跑。"],
-            "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
-            "tested_commit": "",
-            **self._semantic_report_fields({}),
-        }
-        report = self._report_contract_fields(report)
-        (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-        return self._attach_operator_log_refs(run_dir, report)
+        return self.report_writer.build_report_admission_rejected_report(run_dir, mode, reason, errors)
 
     @staticmethod
     def _semantic_report_fields(report: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "user_facing_summary": str(report.get("user_facing_summary") or ""),
-            "technical_summary": str(report.get("technical_summary") or ""),
-            "implementation_landed": report.get("implementation_landed")
-            if isinstance(report.get("implementation_landed"), bool)
-            else False,
-            "commit_sha": str(report.get("commit_sha") or ""),
-            "changed_files_summary": report.get("changed_files_summary")
-            if isinstance(report.get("changed_files_summary"), list)
-            else [],
-            "branch_slug_candidate": str(report.get("branch_slug_candidate") or ""),
-            "execution_policy_decision": report.get("execution_policy_decision")
-            if isinstance(report.get("execution_policy_decision"), dict)
-            else {},
-            "merge_readiness": report.get("merge_readiness")
-            if isinstance(report.get("merge_readiness"), dict)
-            else {},
-            "classification": str(report.get("classification") or ""),
-            "reason": str(report.get("reason") or ""),
-            "delivery_units": report.get("delivery_units")
-            if isinstance(report.get("delivery_units"), list)
-            else [],
-            "execution_tasks": report.get("execution_tasks")
-            if isinstance(report.get("execution_tasks"), list)
-            else [],
-            "dependencies": report.get("dependencies")
-            if isinstance(report.get("dependencies"), list)
-            else [],
-            "acceptance_plan": report.get("acceptance_plan")
-            if isinstance(report.get("acceptance_plan"), list)
-            else [],
-            "open_questions": report.get("open_questions")
-            if isinstance(report.get("open_questions"), list)
-            else [],
-            "materialization_allowed": bool(report.get("materialization_allowed")),
-        }
+        return semantic_report_fields(report)
 
     def ensure_report_contract(self, run_dir: Path, mode: RunMode, report: dict[str, Any]) -> dict[str, Any]:
-        report = dict(report)
-        report.setdefault("mode", mode.value)
-        report.update(self._report_status_details(report, mode))
-        report.setdefault("summary_markdown", "")
-        report.setdefault("verification_limitations", [])
-        report.setdefault("qa_artifacts", {"report": "", "baseline": "", "screenshots_dir": ""})
-        report.setdefault("tested_commit", "")
-        report.update(self._semantic_report_fields(report))
-        if self._report_requires_limitation(report) and not report["verification_limitations"]:
-            report["verification_limitations"] = [
-                self._verification_limitation(
-                    reason="blocked_or_partial_without_details",
-                    impact="The runner reported a blocked or partial result without structured recovery details.",
-                    recovery_action="Review risks, stdout/stderr, and rerun with explicit recovery instructions.",
-                    fallback_evidence=f"{run_dir / 'stdout.log'}; {run_dir / 'stderr.log'}",
-                )
-            ]
-        report = self._report_contract_fields(report)
-        (run_dir / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
-        return self._attach_operator_log_refs(run_dir, report)
+        return self.report_writer.ensure_report_contract(run_dir, mode, report)
 
     def _attach_operator_log_refs(self, run_dir: Path, report: dict[str, Any]) -> dict[str, Any]:
-        report = dict(report)
-        try:
-            compact_run_logs(run_dir)
-        except Exception:
-            return report
-        return report
+        return self.report_writer.attach_operator_log_refs(run_dir, report)
 
     @staticmethod
     def _report_contract_fields(report: dict[str, Any]) -> dict[str, Any]:
-        return {key: report[key] for key in REPORT_CONTRACT_FIELDS if key in report}
+        return report_contract_fields(report)
 
     @staticmethod
     def _normalize_report_status(status: Any, mode: RunMode) -> str:
-        return normalize_agent_run_status(status, mode)
+        return normalize_report_status(status, mode)
 
     @staticmethod
     def _report_status_details(report: dict[str, Any], mode: RunMode) -> dict[str, Any]:
-        source_status = (
-            report.get("raw_status")
-            or report.get("status_detail")
-            or report.get("status")
-            or "completed_unstructured"
-        )
-        details = agent_run_status_details(source_status, mode)
-        status_detail = str(report.get("status_detail") or "").strip()
-        failure_type = str(report.get("failure_type") or "").strip()
-        if status_detail:
-            details["status_detail"] = status_detail
-        if failure_type:
-            details = apply_failure_type_to_run_details(details, failure_type)
-        if "known_gaps" in report:
-            details["known_gaps"] = bool(report.get("known_gaps"))
-        if "structured" in report:
-            details["structured"] = bool(report.get("structured"))
-        if details["known_gaps"] and not details["status_detail"]:
-            details["status_detail"] = "ready_for_merge_test_with_known_gaps"
-        if details["structured"] is False and not details["status_detail"]:
-            details["status_detail"] = "completed_unstructured"
-        return details
+        return report_status_details(report, mode)
 
     @staticmethod
     def _status_requires_limitation(status: Any) -> bool:
-        details = agent_run_status_details(status)
-        return CodexCliRunner._detail_requires_limitation(details)
+        return status_requires_limitation(status)
 
     @staticmethod
     def _report_requires_limitation(report: dict[str, Any]) -> bool:
-        return CodexCliRunner._detail_requires_limitation(
-            {
-                "status": str(report.get("status") or ""),
-                "status_detail": str(report.get("status_detail") or ""),
-                "failure_type": str(report.get("failure_type") or ""),
-                "known_gaps": bool(report.get("known_gaps")),
-                "structured": bool(report.get("structured", True)),
-            }
-        )
+        return report_requires_limitation(report)
 
     @staticmethod
     def _detail_requires_limitation(details: dict[str, Any]) -> bool:
-        status = str(details.get("status") or "")
-        return bool(
-            status in {AgentRunStatus.BLOCKED.value, AgentRunStatus.FAILED.value}
-            or details.get("known_gaps")
-            or details.get("failure_type")
-            or details.get("status_detail") in {"completed_unstructured", "ready_for_merge_test_with_known_gaps"}
-            or details.get("structured") is False
-        )
+        return run_details_require_limitation(details)
 
     @staticmethod
     def _fallback_limitation_reason(status: Any) -> str:
-        details = agent_run_status_details(status)
-        failure_type = str(details.get("failure_type") or "")
-        if failure_type == "timeout" or details.get("raw_status") == "timeout":
-            return "runner_timeout"
-        if failure_type == "runner_failed" or details.get("raw_status") == "runner_failed":
-            return "runner_failed"
-        return "structured_report_missing"
+        return fallback_limitation_reason(status)
 
     @staticmethod
     def _verification_limitation(
@@ -753,81 +343,33 @@ class CodexCliRunner(CodingAgentRunner):
         recovery_action: str,
         fallback_evidence: str,
     ) -> dict[str, str]:
-        return {
-            "reason": reason,
-            "impact": impact,
-            "recovery_action": recovery_action,
-            "fallback_evidence": fallback_evidence,
-        }
+        return verification_limitation(
+            reason=reason,
+            impact=impact,
+            recovery_action=recovery_action,
+            fallback_evidence=fallback_evidence,
+        )
 
     @staticmethod
     def _try_parse_json(text: str) -> Any:
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            return None
+        return try_parse_json(text)
 
     @staticmethod
     def _runner_failure_from_stdout(path: Path) -> dict[str, str] | None:
-        if not path.exists():
-            return None
-        text = path.read_text(encoding="utf-8", errors="replace")
-        if "invalid_json_schema" in text or "Invalid schema for response_format" in text:
-            return {
-                "reason": "codex_invalid_output_schema",
-                "impact": "Codex rejected Hermes' report.schema.json before running the planning turn, so no plan or verification result was produced.",
-                "recovery_action": "Fix report.schema.json generation so every object property is listed in required, then rerun the same task.",
-                "fallback_evidence": str(path),
-            }
-        return None
+        return runner_failure_from_stdout(path)
 
     @staticmethod
     def _is_valid_report(report: dict[str, Any]) -> bool:
-        required = {
-            "runner",
-            "status",
-            "mode",
-            "summary_markdown",
-            "modified_files",
-            "test_commands",
-            "test_results",
-            "risks",
-            "human_required",
-            "next_actions",
-            "verification_limitations",
-        }
-        return required.issubset(report.keys())
+        return report_has_required_fields(report)
 
     @staticmethod
     def thread_id_from_stdout(path: Path) -> str:
-        if not path.exists():
-            return ""
-        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-            parsed = CodexCliRunner._try_parse_json(line.strip())
-            if not isinstance(parsed, dict):
-                continue
-            if parsed.get("type") == "thread.started" and parsed.get("thread_id"):
-                return str(parsed["thread_id"])
-        return ""
+        return report_thread_id_from_stdout(path)
 
     @staticmethod
     def _resume_session_id(run_dir: Path) -> str:
-        manifest_path = run_dir / "run-manifest.json"
-        if not manifest_path.exists():
-            return ""
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception:
-            return ""
-        return str(manifest.get("resume_session_id") or "").strip()
+        return resume_session_id(run_dir)
 
     @staticmethod
     def _manifest_dangerous_bypass(run_dir: Path) -> bool:
-        manifest_path = run_dir / "run-manifest.json"
-        if not manifest_path.exists():
-            return False
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception:
-            return False
-        return bool(manifest.get("dangerous_bypass"))
+        return manifest_dangerous_bypass(run_dir)
