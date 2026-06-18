@@ -38,7 +38,7 @@
 | `coding_orchestration/run_start_artifact_service.py` | Run start artifact service：写入 `report.schema.json`、`input-prompt.md` 和 `run-manifest.json`；只写 run_dir 下启动 artifact，不准备 checkpoint、不写 ledger/report/summary、不启动 runner 或推进状态。 |
 | `coding_orchestration/run_manifest_artifact_service.py` | Run manifest artifact service：写入指定 `run-manifest.json`；只负责 manifest artifact 写回，不写 report/summary/ledger，不启动 runner 或推进状态。 |
 | `coding_orchestration/run_stderr_artifact_service.py` | Run stderr artifact service：写入指定 `stderr.log`；只负责 stderr artifact 落盘，不写 report/summary/manifest/ledger，不启动 runner 或推进状态。 |
-| `coding_orchestration/run_report_artifact_service.py` | Run report artifact service：读写指定 `report.json`；只负责 report artifact 文件边界，缺失或无效读取返回空 dict，不生成 report，不写 manifest/summary/ledger，不启动 runner 或推进状态。 |
+| `coding_orchestration/run_report_artifact_service.py` | Run report artifact service：读写指定 `report.json`，并读取 `summary_markdown` 摘要 excerpt；只负责 report artifact 文件边界，缺失或无效读取返回空 dict / 空摘要，不生成 report，不写 manifest/summary/ledger，不启动 runner 或推进状态。 |
 | `coding_orchestration/run_summary_artifact_service.py` | Run summary artifact service：读写指定 `summary.md`；只负责 summary artifact 文件边界，不生成 summary，不写 report/manifest/ledger，不启动 runner 或推进状态。 |
 | `coding_orchestration/run_ledger_projection.py` | Run ledger writeback projection：构造 start_run 与 active run reconcile 的 artifact / agent_run / merge-test record 写回 payload；只返回纯数据，不调用 ledger、不写 artifact、不启动 runner 或推进状态。 |
 | `coding_orchestration/run_summary_projection.py` | Run summary writeback projection：构造 completed run 与 active run reconcile 写入 LLM Wiki run summary 的 writer payload；只返回纯数据，不读取 summary artifact、不调用 summary writer、不写 LLM Wiki、不写 ledger 或推进状态。 |
@@ -68,7 +68,7 @@
 | `tests/test_run_start_artifact_service.py` | Run start artifact service contract：覆盖 `report.schema.json`、`input-prompt.md` 和 `run-manifest.json` 启动 artifact 写入边界，确保不写 `report.json` 或 `summary.md`。 |
 | `tests/test_run_manifest_artifact_service.py` | Run manifest artifact service contract：覆盖 `run-manifest.json` 写回边界、返回路径和不写 report/summary 的约束。 |
 | `tests/test_run_stderr_artifact_service.py` | Run stderr artifact service contract：覆盖 `stderr.log` 写回边界、返回路径和不写 report/summary/manifest 的约束。 |
-| `tests/test_run_report_artifact_service.py` | Run report artifact service contract：覆盖 `report.json` 读取、写回、返回路径和不写 manifest/summary 的约束。 |
+| `tests/test_run_report_artifact_service.py` | Run report artifact service contract：覆盖 `report.json` 读取、summary excerpt、写回、返回路径和不写 manifest/summary 的约束。 |
 | `tests/test_run_summary_artifact_service.py` | Run summary artifact service contract：覆盖 `summary.md` 读取、写回、返回路径和不写 report/manifest 的约束。 |
 | `tests/test_run_ledger_projection.py` | Run ledger writeback projection contract：覆盖 start_run 与 active run reconcile 的 artifact / agent_run / merge-test record 写回 payload 聚合边界，确保模块只返回 payload、不调用 ledger。 |
 | `tests/test_run_summary_projection.py` | Run summary writeback projection contract：覆盖 completed run 与 active run reconcile 写入 LLM Wiki run summary 的 writer payload 聚合边界，确保模块只返回 payload、不读取 summary artifact、不调用 summary writer。 |
@@ -105,7 +105,7 @@ Feishu / Hermes Gateway
 | `coding_orchestration/run_start_artifact_service.py` | run_dir 启动 artifact 写入边界；只允许写 `report.schema.json`、`input-prompt.md` 和 `run-manifest.json`，不得准备 checkpoint、写 ledger/report/summary、启动 runner 或推进状态。 |
 | `coding_orchestration/run_manifest_artifact_service.py` | run_dir manifest artifact 写回边界；只允许写指定 `run-manifest.json`，不得写 report/summary/ledger，不得启动 runner 或推进状态。 |
 | `coding_orchestration/run_stderr_artifact_service.py` | run_dir stderr artifact 写回边界；只允许写指定 `stderr.log`，不得写 report/summary/manifest/ledger，不得启动 runner 或推进状态。 |
-| `coding_orchestration/run_report_artifact_service.py` | run_dir report artifact 读写边界；只允许读写指定 `report.json`，不得生成 report 内容、写 manifest/summary/ledger，不得启动 runner 或推进状态。 |
+| `coding_orchestration/run_report_artifact_service.py` | run_dir report artifact 读写边界；只允许读写指定 `report.json` 和 summary excerpt，不得生成 report 内容、写 manifest/summary/ledger，不得启动 runner 或推进状态。 |
 | `coding_orchestration/run_summary_artifact_service.py` | run_dir summary artifact 读写边界；只允许读写指定 `summary.md`，不得生成 summary 内容、写 report/manifest/ledger，不得启动 runner 或推进状态。 |
 | `coding_orchestration/run_ledger_projection.py` | run ledger 写回 payload 边界；只允许构造 start_run 与 active run reconcile 的 artifact、agent_run 和 merge-test record payload，不得调用 ledger、不写 artifact、不启动 runner 或推进状态。 |
 | `coding_orchestration/run_summary_projection.py` | run summary writer payload 边界；只允许构造 completed run 与 active run reconcile 的 LLM Wiki run summary 写回参数，不得读取 summary artifact、调用 summary writer、写 LLM Wiki、写 ledger 或推进状态。 |

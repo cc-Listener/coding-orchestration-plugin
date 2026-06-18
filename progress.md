@@ -2,6 +2,38 @@
 
 ## 会话：2026-06-16
 
+### 阶段 170：解耦架构 run report summary excerpt service 扩展
+- **状态：** complete
+- 背景：
+  - 阶段 169 后 active run report artifact 读取已迁出，但 `CodingOrchestrator._report_summary_markdown()` 仍直接用 `Path` 和 `json.loads()` 解析 `report.json`。
+  - `_report_summary_markdown()` 被 confirmed plan context 和 merge-test context fallback 使用，是 run report artifact 摘要读取边界，不应继续由 orchestrator 解析 artifact 文件。
+- 当前边界：
+  - `run_report_artifact_service.read_run_report_summary_markdown()` 只读取指定 `report.json` 中的 `summary_markdown`，按传入 limit 截断，缺失、无效 JSON 或无 summary 时返回空字符串。
+  - helper 复用 `read_run_report_artifact()`，不生成 report、不写 manifest/summary/ledger、不启动 runner、不推进 task/run 状态。
+- 执行的操作：
+  - 扩展 `tests/test_run_report_artifact_service.py`，覆盖 `summary_markdown` 读取、截断、空 summary 和无效 JSON。
+  - RED 已确认：首次运行时因 `read_run_report_summary_markdown` 缺失出现预期 `ImportError`。
+  - 增加 `CodingOrchestrator._report_summary_markdown()` 委托 service 的边界测试，防止 wrapper 重新内联 JSON 解析。
+  - 扩展 `coding_orchestration/run_report_artifact_service.py`，新增 `read_run_report_summary_markdown()`。
+  - `CodingOrchestrator._report_summary_markdown()` 改为兼容 wrapper 并委托 report artifact service；confirmed plan / merge-test context 的调用路径不变。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4808 行。
+  - `coding_orchestration/run_report_artifact_service.py`：35 行。
+  - `tests/test_run_report_artifact_service.py`：104 行。
+  - `coding_orchestration/run_orchestration_service.py`：419 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_report_artifact_service -v`：预期 `ImportError`。
+  - `rtk proxy python3 -m unittest tests.test_run_report_artifact_service -v`：5 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_report_artifact_service.py coding_orchestration/orchestrator.py tests/test_run_report_artifact_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_report_artifact_service tests.test_plan_run_flow tests.test_status_reconcile_flow -v`：18 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4808 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：763 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：run lifecycle 仍保留 runner 调度、状态 transition、ledger append/upsert、summary writer 调用、project writeback 等 host 副作用闭环。
+  - 下一切片可继续拆 execution policy artifact 读取、summary writer host façade、runner result finalization projection 或 project writeback host façade；仍不得把 ledger mutation、subprocess、workspace/git mutation 或 Gateway 发送塞进 artifact service。
+
 ### 阶段 169：解耦架构 active run report artifact read service 扩展
 - **状态：** complete
 - 背景：

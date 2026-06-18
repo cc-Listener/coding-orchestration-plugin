@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 169：解耦架构 active run report artifact read service 扩展（complete，Task 30 继续）
+阶段 170：解耦架构 run report summary excerpt service 扩展（complete，Task 30 继续）
 
 ## 各阶段
 
@@ -1306,6 +1306,15 @@
 - [x] 迁移：`CodingOrchestrator._reconcile_completed_active_run()` 的 `report.json` 读取改为消费 report artifact service；task status presenter 的读取 wrapper 继续保留给 presentation/status 展示路径。
 - [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
 - [x] 验证：运行 run report artifact service contract、active run reconcile flow、status/plan/run summary projection 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 170：解耦架构 run report summary excerpt service 扩展
+- [x] TDD：扩展 `tests/test_run_report_artifact_service.py`，要求 report artifact service 能从 `report.json` 读取 `summary_markdown` 并按 limit 截断，无 summary 或无效 JSON 时返回空字符串，并确认 helper 缺失时先出现预期 `ImportError`。
+- [x] TDD：覆盖 `CodingOrchestrator._report_summary_markdown()` 只委托 report artifact service，不再自行解析 `report.json`。
+- [x] 实现：扩展 `coding_orchestration/run_report_artifact_service.py`，新增 `read_run_report_summary_markdown()`；该 helper 复用 report artifact reader，只返回摘要文本。
+- [x] 迁移：`CodingOrchestrator._report_summary_markdown()` 改为兼容 wrapper 并委托 service；plan context / merge-test context 保留原调用名，但不再在 orchestrator 里解析 report JSON。
+- [x] 文档：同步项目地图、组件合同、约定、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run report artifact service contract、plan/status 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
 - **状态：** complete
 
 ## 关键问题

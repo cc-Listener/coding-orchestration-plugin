@@ -4324,19 +4324,7 @@ class CodingOrchestrator:
     def _report_summary_markdown(path_value: Any) -> str:
         if not path_value:
             return ""
-        path = Path(str(path_value))
-        if not path.exists():
-            return ""
-        try:
-            import json
-
-            report = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-        except Exception:
-            return ""
-        summary = str(report.get("summary_markdown") or "").strip()
-        if len(summary) > 5000:
-            return summary[:5000].rstrip() + "\n...（已截断，完整内容见 artifact）"
-        return summary
+        return run_report_artifact_service.read_run_report_summary_markdown(report_path=Path(str(path_value)))
 
     @staticmethod
     def _wiki_ref(doc: dict[str, Any]) -> dict[str, Any]:
