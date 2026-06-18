@@ -17,6 +17,7 @@ from .plugin_tools import register_coding_tools
 
 _REGISTRY_FLAG = "_hermes_coding_orchestration_registered"
 _BUILTIN_TOOLS_REGISTERED = False
+_SKILLS_DIR = Path(__file__).parent / "skills"
 
 
 def register(ctx: Any) -> None:
@@ -57,11 +58,20 @@ def _register_once(ctx: Any) -> None:
     register_coding_tools(ctx, orchestrator)
     register_cli(ctx, orchestrator)
     if hasattr(ctx, "register_skill"):
-        ctx.register_skill(
-            "hermes-coding-operator",
-            Path(__file__).parent / "skills" / "hermes-coding-operator" / "SKILL.md",
-            description="Handle low-confidence Hermes Coding Mode handoff.",
-        )
+        _register_hermes_skills(ctx)
+
+
+def _register_hermes_skills(ctx: Any) -> None:
+    ctx.register_skill(
+        "hermes-coding-operator",
+        _SKILLS_DIR / "hermes-coding-operator" / "SKILL.md",
+        description="Handle low-confidence Hermes Coding Mode handoff.",
+    )
+    ctx.register_skill(
+        "hermes-coding-health-check",
+        _SKILLS_DIR / "hermes-coding-health-check" / "SKILL.md",
+        description="Format Hermes coding health check results for user-facing repair guidance.",
+    )
 
 
 def _wrap_dispatch_tool(dispatch_tool: Any):

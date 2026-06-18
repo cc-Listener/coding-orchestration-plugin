@@ -161,7 +161,11 @@ class PluginRegistrationTest(unittest.TestCase):
         self.assertTrue(callable(ctx.cli_commands["coding"]["setup_fn"]))
         self.assertTrue(callable(ctx.cli_commands["coding"]["handler_fn"]))
         self.assertIn("hermes-coding-operator", ctx.skills)
+        self.assertIn("hermes-coding-health-check", ctx.skills)
+        self.assertNotIn("coding-operator-core", ctx.skills)
+        self.assertNotIn("coding-health-core", ctx.skills)
         self.assertTrue(str(ctx.skills["hermes-coding-operator"]["path"]).endswith("SKILL.md"))
+        self.assertTrue(str(ctx.skills["hermes-coding-health-check"]["path"]).endswith("SKILL.md"))
         self.assertTrue(callable(orchestrator.dispatch_tool))
 
     def test_register_wraps_dispatch_tool_to_initialize_builtin_tools_lazily(self):
@@ -231,6 +235,7 @@ class PluginRegistrationTest(unittest.TestCase):
         self.assertIn("coding_task_create", first_ctx.tools)
         self.assertIn("coding", first_ctx.cli_commands)
         self.assertIn("hermes-coding-operator", first_ctx.skills)
+        self.assertIn("hermes-coding-health-check", first_ctx.skills)
         self.assertEqual(second_ctx.hooks, {})
         self.assertEqual(second_ctx.commands, {})
         self.assertEqual(second_ctx.skills, {})
@@ -246,6 +251,71 @@ class PluginRegistrationTest(unittest.TestCase):
         self.assertIn("intent triage", text)
         self.assertIn("不默认使用插件仓库", text)
         self.assertIn("低置信度不创建开发任务", text)
+
+    def test_core_skill_files_are_host_agnostic(self):
+        skill_root = Path(coding_orchestration.__file__).parent / "skills"
+        operator_core_path = skill_root / "coding-operator-core" / "SKILL.md"
+        health_core_path = skill_root / "coding-health-core" / "SKILL.md"
+
+        self.assertTrue(operator_core_path.exists())
+        self.assertTrue(health_core_path.exists())
+
+        operator_core = operator_core_path.read_text(encoding="utf-8")
+        health_core = health_core_path.read_text(encoding="utf-8")
+
+        self.assertIn("project-first workflow", operator_core)
+        self.assertIn("intent triage", operator_core)
+        self.assertIn("低置信度不创建开发任务", operator_core)
+        self.assertIn("health check", health_core)
+        self.assertIn("每个系统单独分区", health_core)
+        self.assertIn("修复命令：", health_core)
+        self.assertIn("验证命令：", health_core)
+
+        forbidden_terms = (
+            "/coding",
+            "Hermes Gateway",
+            "Task Ledger",
+            "LLM Wiki",
+            "~/.hermes",
+            "ledger.db",
+        )
+        for text in (operator_core, health_core):
+            for term in forbidden_terms:
+                self.assertNotIn(term, text)
+
+    def test_hermes_binding_skills_reference_core_contracts(self):
+        skill_root = Path(coding_orchestration.__file__).parent / "skills"
+        operator_binding = (skill_root / "hermes-coding-operator" / "SKILL.md").read_text(encoding="utf-8")
+        health_binding = (
+            skill_root / "hermes-coding-health-check" / "SKILL.md"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("../coding-operator-core/SKILL.md", operator_binding)
+        self.assertIn("将 core intent 映射到 Hermes `/coding`", operator_binding)
+        self.assertIn("/coding task", operator_binding)
+        self.assertIn("../coding-health-core/SKILL.md", health_binding)
+        self.assertIn("将 core health check 输出映射到 Hermes", health_binding)
+        self.assertIn("/coding doctor", health_binding)
+
+    def test_health_check_skill_contains_user_facing_doctor_rules(self):
+        skill_path = (
+            Path(coding_orchestration.__file__).parent
+            / "skills"
+            / "hermes-coding-health-check"
+            / "SKILL.md"
+        )
+
+        text = skill_path.read_text(encoding="utf-8")
+
+        self.assertIn("health check", text)
+        self.assertIn("每个系统单独分区", text)
+        self.assertIn("状态：✅ 可用", text)
+        self.assertIn("状态：❌ 不可用", text)
+        self.assertIn("修复命令：", text)
+        self.assertIn("验证命令：", text)
+        self.assertIn("lark-cli auth status --verify", text)
+        self.assertIn("tokenStatus=needs_refresh", text)
+        self.assertIn("不要输出 Task Ledger、ledger.db 或定时检查建议", text)
 
 
 if __name__ == "__main__":
