@@ -88,6 +88,7 @@ from . import (
     run_diff_guard_service,
     run_dispatch_service,
     run_evidence_observation_service,
+    run_implementation_checkpoint_service,
     run_ledger_projection,
     run_ledger_writeback_service,
     run_orchestration_service,
@@ -3572,12 +3573,15 @@ class CodingOrchestrator:
             workspace_path=workspace_path,
             workspace_has_uncommitted_changes_callback=self._workspace_has_uncommitted_changes,
         )
+        run_implementation_checkpoint_service.write_implementation_checkpoint_if_dirty(
+            implementation_dirty=implementation_dirty,
+            workspace_path=workspace_path,
+            manifest=manifest,
+            manifest_path=result.artifacts.manifest,
+            workspace_clean_checkpoint_callback=self._workspace_clean_checkpoint,
+            write_manifest_artifact_callback=run_manifest_artifact_service.write_run_manifest_artifact,
+        )
         if implementation_dirty:
-            manifest.implementation_checkpoint = self._workspace_clean_checkpoint(workspace_path)
-            run_manifest_artifact_service.write_run_manifest_artifact(
-                manifest_path=result.artifacts.manifest,
-                manifest=manifest,
-            )
             refinement = run_orchestration_service.refine_run_report_projection(
                 report,
                 mode=mode,
