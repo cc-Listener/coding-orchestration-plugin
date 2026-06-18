@@ -11,6 +11,7 @@ from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.command_rewriter import HermesCommandRewriter
 from coding_orchestration.models import AgentRunStatus, ArtifactSet, RunMode, TaskKind, TaskPhase, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
+from coding_orchestration import task_status_presenter
 from coding_orchestration.project_knowledge_resolver import ProjectKnowledgeResolver
 from coding_orchestration.project_workitem_binding import ProjectWorkitemIdentity
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
@@ -195,7 +196,14 @@ class StatusReconcileFlowTest(unittest.TestCase):
                 runner_router=FakeRouter(FakeRunner()),
             )
 
-            message = orchestrator._status_for_event(task_id, FakeGatewayEvent(""))
+            original_reader = task_status_presenter.read_report_json
+            task_status_presenter.read_report_json = lambda _path: (_ for _ in ()).throw(
+                AssertionError("active run reconcile must not use task status presenter to read report artifacts")
+            )
+            try:
+                message = orchestrator._status_for_event(task_id, FakeGatewayEvent(""))
+            finally:
+                task_status_presenter.read_report_json = original_reader
             task = ledger.get_task(task_id)
 
             self.assertIn("已自动回收后台执行：run_done", message)
@@ -492,4 +500,3 @@ class StatusReconcileFlowTest(unittest.TestCase):
             self.assertEqual(policy["verification"], "standard")
             self.assertEqual(policy["reasons"], ["codex_decision_missing"])
             self.assertEqual(context_index["execution_policy"]["planning"], "plan_only")
-

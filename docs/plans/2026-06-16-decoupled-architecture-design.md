@@ -55,7 +55,7 @@
 | `coding_orchestration/run_start_artifact_service.py` | 41 | Run start artifact service，承接 `report.schema.json`、`input-prompt.md` 和 `run-manifest.json` 启动 artifact 写入；只写 run_dir 下启动 artifact，不准备 checkpoint、不写 ledger/report/summary、不启动 runner、不推进状态 |
 | `coding_orchestration/run_manifest_artifact_service.py` | 24 | Run manifest artifact service，承接指定 `run-manifest.json` 写回；不写 report/summary/ledger，不启动 runner、不推进状态 |
 | `coding_orchestration/run_stderr_artifact_service.py` | 11 | Run stderr artifact service，承接指定 `stderr.log` 写回；不写 report/summary/manifest/ledger，不启动 runner、不推进状态 |
-| `coding_orchestration/run_report_artifact_service.py` | 17 | Run report artifact service，承接指定 `report.json` 写回；不写 manifest/summary/ledger，不启动 runner、不推进状态 |
+| `coding_orchestration/run_report_artifact_service.py` | 27 | Run report artifact service，承接指定 `report.json` 读写；缺失或无效读取返回空 dict，不写 manifest/summary/ledger，不启动 runner、不推进状态 |
 | `coding_orchestration/run_summary_artifact_service.py` | 17 | Run summary artifact service，承接指定 `summary.md` 读写；不生成 summary，不写 report/manifest/ledger，不启动 runner、不推进状态 |
 | `coding_orchestration/run_ledger_projection.py` | 103 | Run ledger writeback projection，承接 start_run 与 active run reconcile 的 artifact / agent_run / fresh merge-test record 写回 payload 聚合；只返回纯数据，不调用 ledger、不写 artifact、不启动 runner、不推进状态 |
 | `coding_orchestration/run_summary_projection.py` | 65 | Run summary writeback projection，承接 completed run 与 active run reconcile 的 LLM Wiki run summary writer payload 聚合；只返回纯数据，不读取 summary artifact、不调用 summary writer、不写 LLM Wiki、不写 ledger、不推进状态 |
@@ -283,7 +283,7 @@ Skill 分两层：
    - `gateway_command_executor.py` 已拆出 task/run/delivery/implementation/QA/prepare/merge-test custom route host shell 分发，orchestrator 只委托 executor；runner/ledger 副作用仍通过 façade/callback 保持兼容。
    - `gateway_pending_action_executor.py` 已拆出 pending action 确认/取消、latest human_required fallback、取消任务 gate 和确认后显式命令续接，orchestrator 只保留兼容 wrapper。
    - `gateway_active_context.py` 已拆出 active project 应用到缺项目 task 的回填逻辑，orchestrator 只保留兼容 wrapper。
-   - `run_session_projection.py` 已拆出 plan report session fields 白名单、plan report session update、run start base/workspace session update、active run session update、runner session update 和 completion session update 纯 payload，`run_prompt_projection.py` 已拆出首次/增量 prompt 构造选择，`run_context_artifact_service.py` 已拆出 run context artifact 文件写入，`run_start_artifact_service.py` 已拆出 `report.schema.json`、`input-prompt.md` 和 `run-manifest.json` 启动 artifact 写入，`run_manifest_artifact_service.py` 已拆出 `run-manifest.json` artifact 写回，`run_stderr_artifact_service.py` 已拆出 `stderr.log` artifact 写回，`run_report_artifact_service.py` 已拆出 `report.json` artifact 写回，`run_summary_artifact_service.py` 已拆出 `summary.md` artifact 读写，`run_orchestration_service.py` 只保留兼容 re-export。
+   - `run_session_projection.py` 已拆出 plan report session fields 白名单、plan report session update、run start base/workspace session update、active run session update、runner session update 和 completion session update 纯 payload，`run_prompt_projection.py` 已拆出首次/增量 prompt 构造选择，`run_context_artifact_service.py` 已拆出 run context artifact 文件写入，`run_start_artifact_service.py` 已拆出 `report.schema.json`、`input-prompt.md` 和 `run-manifest.json` 启动 artifact 写入，`run_manifest_artifact_service.py` 已拆出 `run-manifest.json` artifact 写回，`run_stderr_artifact_service.py` 已拆出 `stderr.log` artifact 写回，`run_report_artifact_service.py` 已拆出 `report.json` artifact 读写，`run_summary_artifact_service.py` 已拆出 `summary.md` artifact 读写，`run_orchestration_service.py` 只保留兼容 re-export。
 
 ## Hard Code 治理
 

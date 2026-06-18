@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 168：解耦架构 completed run summary artifact read service 扩展（complete，Task 30 继续）
+阶段 169：解耦架构 active run report artifact read service 扩展（complete，Task 30 继续）
 
 ## 各阶段
 
@@ -1297,6 +1297,15 @@
 - [x] 迁移：`CodingOrchestrator.start_run()` completed path 的 `summary.md` 读取改为消费 summary artifact service；summary writer payload projection 和实际 `summary_writer.write_run_summary()` 边界不变。
 - [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
 - [x] 验证：运行 run summary artifact service contract、plan/status/run summary projection 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 169：解耦架构 active run report artifact read service 扩展
+- [x] TDD：扩展 `tests/test_run_report_artifact_service.py`，要求 report artifact service 能读取存在的 `report.json`，缺失、无效 JSON 或非 dict 时返回空 dict，并确认 helper 缺失时先出现预期 `ImportError`。
+- [x] TDD：增强 `tests/test_status_reconcile_flow.py`，在 active run reconcile 时禁用 task status presenter 的 report reader，确认 run lifecycle 不再依赖 presentation 读取 wrapper。
+- [x] 实现：扩展 `coding_orchestration/run_report_artifact_service.py`，新增 `read_run_report_artifact()`；service 只读写指定 report artifact，不生成 report、不写 manifest/summary/ledger、不启动 runner、不推进状态。
+- [x] 迁移：`CodingOrchestrator._reconcile_completed_active_run()` 的 `report.json` 读取改为消费 report artifact service；task status presenter 的读取 wrapper 继续保留给 presentation/status 展示路径。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run report artifact service contract、active run reconcile flow、status/plan/run summary projection 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
 - **状态：** complete
 
 ## 关键问题

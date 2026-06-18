@@ -2,6 +2,41 @@
 
 ## 会话：2026-06-16
 
+### 阶段 169：解耦架构 active run report artifact read service 扩展
+- **状态：** complete
+- 背景：
+  - 阶段 168 后 summary artifact 读取已迁出，但 `_reconcile_completed_active_run()` 仍通过 `CodingOrchestrator._read_report_json()` 间接调用 task status presenter 来读取 active run 的 `report.json`。
+  - active run reconcile 属于 run lifecycle；presentation reader 不应成为 run artifact 文件读取边界。
+- 当前边界：
+  - `run_report_artifact_service.read_run_report_artifact()` 只读取指定 `report.json`，缺失、无效 JSON 或非 dict 时返回空 dict。
+  - `run_report_artifact_service.write_run_report_artifact()` 继续只写指定 `report.json`。
+  - service 不生成 report 内容、不写 manifest/summary/ledger、不启动 runner、不推进 task/run 状态。
+- 执行的操作：
+  - 扩展 `tests/test_run_report_artifact_service.py`，覆盖 report artifact 读取存在、缺失、非 dict 和无效 JSON。
+  - RED 已确认：首次运行时因 `read_run_report_artifact` 缺失出现预期 `ImportError`。
+  - 增强 `tests/test_status_reconcile_flow.py`，在 active run reconcile 时禁用 task status presenter 的 report reader，确认 run lifecycle 不再依赖 presentation 读取 wrapper。
+  - 扩展 `coding_orchestration/run_report_artifact_service.py`，新增 `read_run_report_artifact()`。
+  - `CodingOrchestrator._reconcile_completed_active_run()` 的 `report.json` 读取改为调用 service；task status presenter 的 `_read_report_json()` 兼容 wrapper 继续保留给 status/QA 展示路径。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4820 行。
+  - `coding_orchestration/run_report_artifact_service.py`：27 行。
+  - `tests/test_run_report_artifact_service.py`：61 行。
+  - `coding_orchestration/run_orchestration_service.py`：419 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_report_artifact_service -v`：预期 `ImportError`。
+  - RED：`rtk proxy python3 -m unittest tests.test_status_reconcile_flow.StatusReconcileFlowTest.test_coding_status_reconciles_completed_active_background_plan_only -v`：预期断言 active run reconcile 不得使用 task status presenter 读取 report artifact。
+  - `rtk proxy python3 -m unittest tests.test_run_report_artifact_service -v`：3 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_status_reconcile_flow.StatusReconcileFlowTest.test_coding_status_reconciles_completed_active_background_plan_only -v`：1 test passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_report_artifact_service.py coding_orchestration/orchestrator.py tests/test_run_report_artifact_service.py tests/test_status_reconcile_flow.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_report_artifact_service tests.test_status_reconcile_flow tests.test_plan_run_flow tests.test_run_summary_projection -v`：20 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4820 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：761 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：run lifecycle 仍保留 runner 调用、diff guard、状态 transition、ledger append/upsert、summary writer 调用、project writeback 等 host 副作用闭环。
+  - 下一切片可继续拆 summary writer host façade、runner result finalization projection、project writeback host façade，或把 merge-test/QA 风险读取路径继续从 presentation wrapper 迁到更明确的 run artifact/report boundary；仍不得把 ledger mutation、subprocess、workspace/git mutation 或 Gateway 发送塞进 artifact service。
+
 ### 阶段 168：解耦架构 completed run summary artifact read service 扩展
 - **状态：** complete
 - 背景：

@@ -257,7 +257,7 @@ component_contract:
     - name: run_report_artifact_service
       path: coding_orchestration/run_report_artifact_service.py
       use_instead_of:
-        - "在 orchestrator 中继续新增 report.json artifact 写回逻辑。"
+        - "在 orchestrator 中继续新增 report.json artifact 读取或写回逻辑。"
     - name: run_summary_artifact_service
       path: coding_orchestration/run_summary_artifact_service.py
       use_instead_of:

@@ -3177,7 +3177,7 @@ class CodingOrchestrator:
             return None
         run = self._agent_run_for_id(task, run_id) or {}
         artifacts = self._artifact_set_for_existing_run(task_id, run_id, run)
-        report = self._read_report_json(artifacts.report)
+        report = run_report_artifact_service.read_run_report_artifact(report_path=artifacts.report)
         if not report:
             return None
         mode = run_orchestration_service.run_mode_for_existing_run(task, run, report)

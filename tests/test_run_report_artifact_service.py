@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.run_report_artifact_service import write_run_report_artifact
+from coding_orchestration.run_report_artifact_service import read_run_report_artifact, write_run_report_artifact
 
 
 class RunReportArtifactServiceTest(unittest.TestCase):
@@ -34,6 +34,27 @@ class RunReportArtifactServiceTest(unittest.TestCase):
                     report_path=Path(tmp) / "report.json",
                     report=["not", "a", "report"],
                 )
+
+    def test_read_run_report_artifact_returns_dict_or_empty_dict(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            report_path = Path(tmp) / "report.json"
+
+            self.assertEqual(read_run_report_artifact(report_path=report_path), {})
+
+            report_path.write_text(
+                json.dumps({"status": "blocked", "summary_markdown": "需要补充上下文。"}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                read_run_report_artifact(report_path=report_path),
+                {"status": "blocked", "summary_markdown": "需要补充上下文。"},
+            )
+
+            report_path.write_text("[\"not\", \"a\", \"report\"]", encoding="utf-8")
+            self.assertEqual(read_run_report_artifact(report_path=report_path), {})
+
+            report_path.write_text("{invalid json", encoding="utf-8")
+            self.assertEqual(read_run_report_artifact(report_path=report_path), {})
 
 
 if __name__ == "__main__":
