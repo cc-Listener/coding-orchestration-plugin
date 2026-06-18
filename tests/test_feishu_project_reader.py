@@ -1,6 +1,4 @@
 import unittest
-from subprocess import CompletedProcess
-from unittest.mock import patch
 
 from coding_orchestration.feishu_project_reader import FeishuProjectReader
 
@@ -36,176 +34,68 @@ class FeishuProjectReaderTest(unittest.TestCase):
         self.assertEqual(link.document_token, "YNU8wYMwBiJv5AkYQIJcQ4donsh")
         self.assertEqual(link.url, "https://bestfulfill.feishu.cn/wiki/YNU8wYMwBiJv5AkYQIJcQ4donsh")
 
-    def test_normalizes_work_item_payload_to_codex_context(self):
-        reader = FeishuProjectReader()
-        link = FeishuProjectReader.extract_first_link(
-            "https://project.feishu.cn/z9b9t3/story/detail/6983769492"
-        )
+    def test_work_item_source_read_delegates_to_work_item_reader(self):
+        class StubWorkItemReader:
+            def __init__(self):
+                self.gateway_calls = []
+                self.openapi_calls = []
 
-        context = reader.normalize_payload(
-            link,
-            {
-                "data": {
-                    "name": "BPS 订单列表新增店铺筛选",
-                    "field_value_pairs": [
-                        {"field_name": "需求描述", "value": "订单列表需要支持按店铺筛选。"},
-                        {"field_name": "状态", "value": "待开发"},
-                    ],
+            def read_via_gateway(self, link, gateway):
+                self.gateway_calls.append((link, gateway))
+                return None
+
+            def read_via_open_api_env(self, link):
+                self.openapi_calls.append(link)
+                return {
+                    "read_status": "success",
+                    "source_type": "feishu_project_story",
+                    "url": link.url,
+                    "project_key": link.project_key,
+                    "work_item_type_key": link.work_item_type_key,
+                    "work_item_id": link.work_item_id,
+                    "summary_markdown": "Project 正文",
                 }
-            },
-        )
+
+        work_item_reader = StubWorkItemReader()
+        reader = FeishuProjectReader(work_item_reader=work_item_reader)
+
+        context = reader.read_from_text("需求：https://project.feishu.cn/foo/story/detail/123")
 
         self.assertEqual(context["read_status"], "success")
-        self.assertEqual(context["source_type"], "feishu_project_story")
-        self.assertEqual(context["raw_fields"][0]["name"], "需求描述")
-        self.assertEqual(context["raw_fields"][1]["name"], "状态")
-        self.assertNotIn("description", context)
-        self.assertNotIn("fields", context)
-        self.assertIn("BPS 订单列表新增店铺筛选", context["summary_markdown"])
-        self.assertIn("### 原始字段", context["summary_markdown"])
-        self.assertIn("订单列表需要支持按店铺筛选", context["summary_markdown"])
-        self.assertIn("状态", context["summary_markdown"])
-        self.assertIn("请在 plan 阶段从 raw_fields 中提取需求", context["summary_markdown"])
+        self.assertEqual(context["work_item_id"], "123")
+        self.assertEqual(len(work_item_reader.gateway_calls), 1)
+        self.assertEqual(len(work_item_reader.openapi_calls), 1)
 
-    def test_feishu_reader_preserves_raw_fields_without_guessing_description(self):
-        reader = FeishuProjectReader()
-        link = FeishuProjectReader.extract_first_link(
-            "https://project.feishu.cn/foo/story/detail/123"
-        )
-        payload = {
-            "data": {
-                "work_item": {
-                    "name": "订单状态优化",
-                    "fields": [
-                        {"field_name": "需求描述", "field_value": "优化订单状态展示"},
-                        {"field_name": "验收标准", "field_value": "状态准确"},
-                    ],
+    def test_document_source_read_delegates_to_document_reader(self):
+        class StubDocumentReader:
+            def __init__(self):
+                self.gateway_calls = []
+                self.cli_calls = []
+
+            def read_via_gateway(self, link, gateway):
+                self.gateway_calls.append((link, gateway))
+                return None
+
+            def read_via_lark_cli(self, link):
+                self.cli_calls.append(link)
+                return {
+                    "read_status": "success",
+                    "source_type": "feishu_docx",
+                    "url": link.url,
+                    "document_kind": link.document_kind,
+                    "document_token": link.document_token,
+                    "summary_markdown": "文档正文",
                 }
-            }
-        }
 
-        context = reader.normalize_payload(link, payload)
+        document_reader = StubDocumentReader()
+        reader = FeishuProjectReader(document_reader=document_reader)
 
-        self.assertEqual(context["raw_fields"][0]["name"], "需求描述")
-        self.assertEqual(context["raw_fields"][1]["name"], "验收标准")
-        self.assertNotIn("description", context)
-        self.assertNotIn("fields", context)
-        self.assertIn("### 原始字段", context["summary_markdown"])
-        self.assertIn("请在 plan 阶段从 raw_fields 中提取需求", context["summary_markdown"])
-
-    def test_feishu_reader_empty_raw_fields_summary_is_explicit(self):
-        reader = FeishuProjectReader()
-        link = FeishuProjectReader.extract_first_link(
-            "https://project.feishu.cn/foo/story/detail/123"
-        )
-
-        context = reader.normalize_payload(
-            link,
-            {"data": {"work_item": {"name": "订单状态优化", "fields": []}}},
-        )
-
-        self.assertEqual(context["raw_fields"], [])
-        self.assertIn("### 原始字段", context["summary_markdown"])
-        self.assertIn("未返回可用字段", context["summary_markdown"])
-
-    def test_normalizes_lark_doc_payload_to_codex_context(self):
-        reader = FeishuProjectReader()
-        link = FeishuProjectReader.extract_first_document_link(
-            "https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe"
-        )
-
-        context = reader._coerce_document_context(
-            link,
-            {
-                "ok": True,
-                "data": {
-                    "document": {
-                        "document_id": "Amt4d85oXoHvVTxqkiqcmmLTnBe",
-                        "revision_id": 212,
-                        "content": "## 店铺列表查询接口\n\n## 更新店铺接口(新增)",
-                    }
-                },
-            },
-        )
+        context = reader.read_from_text("需求文档：https://bestfulfill.feishu.cn/docx/DocxToken123")
 
         self.assertEqual(context["read_status"], "success")
-        self.assertEqual(context["source_type"], "feishu_wiki")
-        self.assertEqual(context["document_id"], "Amt4d85oXoHvVTxqkiqcmmLTnBe")
-        self.assertIn("更新店铺接口", context["summary_markdown"])
-
-    def test_lark_cli_document_failure_is_deferred_to_codex(self):
-        reader = FeishuProjectReader()
-
-        with patch("coding_orchestration.feishu_project_reader.subprocess.run") as run:
-            run.return_value = CompletedProcess(
-                args=["lark-cli"],
-                returncode=3,
-                stdout='{"ok": false, "error": {"type": "hermes", "message": "hermes context detected but lark-cli is not bound to it"}}',
-                stderr="",
-            )
-
-            context = reader.read_from_text(
-                "接口文档：https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe"
-            )
-
-        self.assertEqual(context["read_status"], "failed")
-        self.assertEqual(context["source_type"], "feishu_wiki")
-        self.assertFalse(context["requires_human_context"])
-        self.assertTrue(context["codex_resolvable"])
-        self.assertTrue(context["deferred_source_resolution"])
-        self.assertEqual(context["resolution_owner"], "codex")
-        self.assertIn("lark-cli docs +fetch", context["lark_cli_command"])
-        self.assertIn("not bound", context["error"])
-
-    def test_lark_cli_proxy_failure_has_specific_recovery_action(self):
-        reader = FeishuProjectReader()
-
-        with patch("coding_orchestration.feishu_project_reader.subprocess.run") as run:
-            run.return_value = CompletedProcess(
-                args=["lark-cli"],
-                returncode=1,
-                stdout=(
-                    "[lark-cli] [WARN] proxy detected: https_proxy=http://127.0.0.1:7890\n"
-                    '{"ok": false, "error": {"message": "API call failed: proxyconnect tcp: '
-                    'dial tcp 127.0.0.1:7890: connect: operation not permitted"}}'
-                ),
-                stderr="",
-            )
-
-            context = reader.read_from_text(
-                "接口文档：https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe"
-            )
-
-        self.assertEqual(context["read_status"], "failed")
-        self.assertTrue(context["deferred_source_resolution"])
-        self.assertIn("127.0.0.1:7890", context["error"])
-        self.assertIn("LARK_CLI_NO_PROXY=1", context["recovery_action"])
-        self.assertIn("代理", context["recovery_action"])
-
-    def test_gateway_failed_document_context_is_deferred_to_codex(self):
-        reader = FeishuProjectReader()
-        link = FeishuProjectReader.extract_first_document_link(
-            "需求文档：https://bestfulfill.feishu.cn/docx/DocxToken123"
-        )
-
-        context = reader._coerce_document_context(
-            link,
-            {
-                "read_status": "failed",
-                "source_type": "feishu_docx",
-                "error": "need_user_authorization, current command requires scope(s): docx:document:readonly",
-                "requires_human_context": True,
-            },
-        )
-
-        self.assertEqual(context["read_status"], "failed")
-        self.assertEqual(context["source_type"], "feishu_docx")
-        self.assertFalse(context["requires_human_context"])
-        self.assertTrue(context["codex_resolvable"])
-        self.assertTrue(context["deferred_source_resolution"])
-        self.assertEqual(context["resolution_owner"], "codex")
         self.assertEqual(context["document_token"], "DocxToken123")
-        self.assertIn("lark-cli docs +fetch", context["lark_cli_command"])
+        self.assertEqual(len(document_reader.gateway_calls), 1)
+        self.assertEqual(len(document_reader.cli_calls), 1)
 
 
 if __name__ == "__main__":

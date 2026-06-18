@@ -3,29 +3,25 @@ from __future__ import annotations
 import inspect
 import json
 import os
-import re
 import shlex
 import subprocess
-from dataclasses import dataclass
 from typing import Any, Callable
 
-
-CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]
-
-_PROJECT_LINK_RE = re.compile(
-    r"(?P<url>https?://project\.feishu\.cn/"
-    r"(?P<project_key>[^/\s]+)/"
-    r"(?P<work_item_type_key>[^/\s]+)/detail/"
-    r"(?P<work_item_id>[A-Za-z0-9_-]+))"
+from .source_links import MeegleLink, extract_meegle_link
+from .source_recovery import meegle_cli_command, meegle_failed_context
+from .source_work_item_context import (
+    coerce_work_item_context,
+    extract_fields,
+    first_string,
+    format_summary,
+    normalize_work_item_payload,
+    payload_data,
+    text,
+    truncate,
 )
 
 
-@dataclass(frozen=True)
-class MeegleLink:
-    url: str
-    project_key: str
-    work_item_type_key: str
-    work_item_id: str
+CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]
 
 
 class MeegleReader:
@@ -49,32 +45,10 @@ class MeegleReader:
 
     @staticmethod
     def extract_first_link(text: str) -> MeegleLink | None:
-        match = _PROJECT_LINK_RE.search(text or "")
-        if not match:
-            return None
-        return MeegleLink(
-            url=match.group("url"),
-            project_key=match.group("project_key"),
-            work_item_type_key=match.group("work_item_type_key"),
-            work_item_id=match.group("work_item_id"),
-        )
+        return extract_meegle_link(text)
 
     def normalize_payload(self, link: MeegleLink, payload: dict[str, Any]) -> dict[str, Any]:
-        data = self._payload_data(payload)
-        title = self._first_string(data, ("name", "title", "summary")) or f"{link.work_item_type_key} {link.work_item_id}"
-        fields = self._extract_fields(data)
-        summary = self._format_summary(link, title, fields)
-        return {
-            "read_status": "success",
-            "source_type": f"feishu_project_{link.work_item_type_key}",
-            "url": link.url,
-            "project_key": link.project_key,
-            "work_item_type_key": link.work_item_type_key,
-            "work_item_id": link.work_item_id,
-            "title": title,
-            "raw_fields": fields,
-            "summary_markdown": summary,
-        }
+        return normalize_work_item_payload(link, payload, heading="Meegle / 飞书 Project 需求")
 
     def _read_via_gateway(self, link: MeegleLink, gateway: Any) -> dict[str, Any] | None:
         if gateway is None:
@@ -128,66 +102,21 @@ class MeegleReader:
         return self._coerce_context(link, payload)
 
     def _coerce_context(self, link: MeegleLink, value: Any) -> dict[str, Any] | None:
-        if not value:
-            return None
-        if isinstance(value, str):
-            return {
-                "read_status": "success",
-                "source_type": f"feishu_project_{link.work_item_type_key}",
-                "url": link.url,
-                "project_key": link.project_key,
-                "work_item_type_key": link.work_item_type_key,
-                "work_item_id": link.work_item_id,
-                "title": value.strip().splitlines()[0][:120] if value.strip() else link.work_item_id,
-                "summary_markdown": value.strip(),
-            }
-        if not isinstance(value, dict):
-            return None
-        if value.get("read_status") == "success" and value.get("summary_markdown"):
-            return {
-                "source_type": f"feishu_project_{link.work_item_type_key}",
-                "url": link.url,
-                "project_key": link.project_key,
-                "work_item_type_key": link.work_item_type_key,
-                "work_item_id": link.work_item_id,
-                **value,
-            }
-        if value.get("read_status") == "failed":
-            return self._failed_context(link, self._text(value.get("error")) or "Meegle read failed.")
-        code = value.get("code")
-        if code not in (None, 0):
-            return self._failed_context(link, f"Meegle API returned code={code}: {value.get('msg') or value.get('message') or 'unknown error'}")
-        return self.normalize_payload(link, value)
+        return coerce_work_item_context(
+            link,
+            value,
+            normalize_payload=self.normalize_payload,
+            failed_context=self._failed_context,
+            api_label="Meegle API",
+            failed_status_error="Meegle read failed.",
+        )
 
     @staticmethod
     def _payload_data(payload: dict[str, Any]) -> dict[str, Any]:
-        data = payload.get("data") if isinstance(payload.get("data"), dict) else payload
-        for key in ("work_item", "workItem", "detail"):
-            if isinstance(data.get(key), dict):
-                return data[key]
-        return data
+        return payload_data(payload)
 
     def _extract_fields(self, data: dict[str, Any]) -> list[dict[str, str]]:
-        fields: list[dict[str, str]] = []
-        for container_key in ("field_value_pairs", "fieldValuePairs", "fields", "template_field_values"):
-            container = data.get(container_key)
-            if isinstance(container, dict):
-                for key, value in container.items():
-                    fields.append({"name": str(key), "value": self._text(value)})
-            elif isinstance(container, list):
-                for item in container:
-                    if not isinstance(item, dict):
-                        continue
-                    name = self._first_string(
-                        item,
-                        ("field_name", "fieldName", "field_alias", "fieldAlias", "name", "key"),
-                    )
-                    value = item.get("value")
-                    if value is None:
-                        value = item.get("field_value") or item.get("fieldValue")
-                    if name:
-                        fields.append({"name": name, "value": self._text(value)})
-        return [field for field in fields if field["name"] and field["value"]]
+        return extract_fields(data)
 
     def _format_summary(
         self,
@@ -195,93 +124,27 @@ class MeegleReader:
         title: str,
         fields: list[dict[str, str]],
     ) -> str:
-        parts = [
-            "## Meegle / 飞书 Project 需求",
-            "",
-            f"- 链接：{link.url}",
-            f"- 项目：{link.project_key}",
-            f"- 类型：{link.work_item_type_key}",
-            f"- ID：{link.work_item_id}",
-            f"- 标题：{title}",
-        ]
-        parts.extend(["", "### 原始字段"])
-        if fields:
-            for field in fields[:50]:
-                parts.append(f"- {field.get('name')}: {self._truncate(field.get('value') or '', 2000)}")
-        else:
-            parts.append("- 未返回可用字段。")
-        parts.extend(["", "请在 plan 阶段从 raw_fields 中提取需求、验收标准、风险和缺口。"])
-        return "\n".join(parts).strip()
+        return format_summary(link, title, fields, heading="Meegle / 飞书 Project 需求")
 
     def _first_string(self, value: Any, keys: tuple[str, ...]) -> str:
-        if not isinstance(value, dict):
-            return ""
-        for key in keys:
-            text = self._text(value.get(key)).strip()
-            if text:
-                return text
-        return ""
+        return first_string(value, keys)
 
     def _text(self, value: Any) -> str:
-        if value is None:
-            return ""
-        if isinstance(value, str):
-            return value.strip()
-        if isinstance(value, (int, float, bool)):
-            return str(value)
-        if isinstance(value, list):
-            return "、".join(filter(None, (self._text(item) for item in value)))
-        if isinstance(value, dict):
-            for key in ("text", "content", "name", "value", "label", "title"):
-                text = self._text(value.get(key))
-                if text:
-                    return text
-            return "、".join(filter(None, (self._text(item) for item in value.values())))
-        return str(value)
+        return text(value)
 
     @staticmethod
     def _truncate(value: str, limit: int) -> str:
-        text = value.strip()
-        if len(text) <= limit:
-            return text
-        return text[:limit].rstrip() + "\n...（已截断）"
+        return truncate(value, limit)
 
     @staticmethod
     def _failed_context(link: MeegleLink, error: str) -> dict[str, Any]:
-        command = " ".join(MeegleReader._cli_command(link))
-        return {
-            "read_status": "failed",
-            "source_type": f"feishu_project_{link.work_item_type_key}",
-            "url": link.url,
-            "project_key": link.project_key,
-            "work_item_type_key": link.work_item_type_key,
-            "work_item_id": link.work_item_id,
-            "error": error,
-            "requires_human_context": False,
-            "codex_resolvable": False,
-            "deferred_source_resolution": True,
-            "resolution_owner": "hermes_or_human",
-            "meegle_cli_command": command,
-            "recovery_action": "Authorize or configure Meegle/Feishu Project access in the Hermes user context, then retry source resolution.",
-        }
+        command_prefix = shlex.split(os.getenv("MEEGLE_CLI", "rtk lark-cli"))
+        return meegle_failed_context(link, error, command_prefix=command_prefix)
 
     @staticmethod
     def _cli_command(link: MeegleLink) -> list[str]:
         command_prefix = shlex.split(os.getenv("MEEGLE_CLI", "rtk lark-cli"))
-        return [
-            *command_prefix,
-            "meegle",
-            "work-item",
-            "get",
-            "--project-key",
-            link.project_key,
-            "--work-item-type-key",
-            link.work_item_type_key,
-            "--work-item-id",
-            link.work_item_id,
-            "--format",
-            "json",
-        ]
+        return meegle_cli_command(link, command_prefix=command_prefix)
 
     @staticmethod
     def _run(command: list[str]) -> subprocess.CompletedProcess[str]:

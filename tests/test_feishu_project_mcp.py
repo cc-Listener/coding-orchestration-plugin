@@ -1,54 +1,86 @@
-import os
+import tempfile
 import unittest
-from unittest.mock import Mock, patch
+import json
+from pathlib import Path
+from unittest.mock import Mock
 
 from coding_orchestration.feishu_project_mcp import (
     FeishuProjectMcpAdapter,
     FeishuProjectMcpConfig,
     McpJsonRpcClient,
-    SecretResolver,
     build_stdio_client_factory,
     redact_secrets,
 )
 
 
 class FeishuProjectMcpConfigTest(unittest.TestCase):
-    def test_config_reads_domain_transport_and_token_ref_without_secret_value(self):
-        env = {
-            "FEISHU_PROJECT_MCP_ENABLED": "1",
-            "FEISHU_PROJECT_MCP_DOMAIN": "https://project.feishu.cn",
-            "FEISHU_PROJECT_MCP_TRANSPORT": "stdio",
-            "FEISHU_PROJECT_MCP_TOKEN_REF": "env:TEST_FEISHU_PROJECT_MCP_TOKEN",
-        }
+    def test_config_is_disabled_when_mcp_json_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            config = FeishuProjectMcpConfig.from_sources(runtime_root=Path(tmp))
 
-        with patch.dict(os.environ, env, clear=False):
-            config = FeishuProjectMcpConfig.from_env()
+        self.assertFalse(config.enabled)
+
+    def test_config_reads_plugin_mcp_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_root = Path(tmp)
+            token = "fake_value_for_unit_test"
+            (runtime_root / "mcp.json").write_text(
+                json.dumps(
+                    {
+                        "mcpServers": {
+                            "feishu-project": {
+                                "enabled": True,
+                                "command": "npx",
+                                "args": ["-y", "@lark-project/mcp"],
+                                "domain": "https://project.feishu.cn",
+                                "env": {"MCP_USER_TOKEN": token},
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            config = FeishuProjectMcpConfig.from_sources(runtime_root=runtime_root)
 
         self.assertTrue(config.enabled)
         self.assertEqual(config.domain, "https://project.feishu.cn")
         self.assertEqual(config.transport, "stdio")
-        self.assertEqual(config.token_ref, "env:TEST_FEISHU_PROJECT_MCP_TOKEN")
-        self.assertNotIn("TOKEN_VALUE", repr(config))
+        self.assertEqual(config.command, ("npx", "-y", "@lark-project/mcp"))
+        self.assertEqual(config.token, token)
+        self.assertNotIn(token, repr(config))
+
+    def test_config_requires_token_in_mcp_json_env(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_root = Path(tmp)
+            (runtime_root / "mcp.json").write_text(
+                json.dumps(
+                    {
+                        "mcpServers": {
+                            "feishu-project": {
+                                "enabled": True,
+                                "token": "fake_value_for_unit_test",
+                                "env": {},
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            config = FeishuProjectMcpConfig.from_sources(runtime_root=runtime_root)
+
+        self.assertTrue(config.enabled)
+        self.assertEqual(config.token, "")
 
 
-class SecretResolverTest(unittest.TestCase):
-    def test_env_secret_ref_is_resolved_but_redacted_from_logs(self):
-        with patch.dict(os.environ, {"TEST_FEISHU_PROJECT_MCP_TOKEN": "fake_value_for_unit_test"}, clear=False):
-            resolver = SecretResolver()
-
-            secret = resolver.resolve("env:TEST_FEISHU_PROJECT_MCP_TOKEN")
-
-        self.assertEqual(secret, "fake_value_for_unit_test")
+class RedactionTest(unittest.TestCase):
+    def test_secret_is_redacted_from_logs(self):
+        secret = "fake_value_for_unit_test"
         self.assertEqual(
             redact_secrets(f"Authorization: Bearer {secret}\nX-Mcp-Token: {secret}", [secret]),
             "Authorization: Bearer [REDACTED]\nX-Mcp-Token: [REDACTED]",
         )
-
-    def test_raw_token_ref_is_rejected(self):
-        resolver = SecretResolver()
-
-        with self.assertRaises(ValueError):
-            resolver.resolve("inline-token-value")
 
 
 class FakeMcpProcess:
@@ -128,7 +160,7 @@ class FeishuProjectMcpAdapterTest(unittest.TestCase):
 
 
 class StdioFactoryTest(unittest.TestCase):
-    def test_stdio_factory_injects_token_only_in_child_env(self):
+    def test_stdio_factory_injects_token_from_mcp_json_config(self):
         popen = Mock()
         fake_process = Mock()
         popen.return_value = fake_process
@@ -136,14 +168,11 @@ class StdioFactoryTest(unittest.TestCase):
             enabled=True,
             domain="https://project.feishu.cn",
             transport="stdio",
-            token_ref="env:TEST_FEISHU_PROJECT_MCP_TOKEN",
+            token="fake_value_for_unit_test",
         )
 
-        with patch.dict(os.environ, {"TEST_FEISHU_PROJECT_MCP_TOKEN": "fake_value_for_unit_test"}, clear=False):
-            factory = build_stdio_client_factory(config, popen=popen)
-            factory()
-            self.assertEqual(os.environ["TEST_FEISHU_PROJECT_MCP_TOKEN"], "fake_value_for_unit_test")
-            self.assertNotIn("MCP_USER_TOKEN", os.environ)
+        factory = build_stdio_client_factory(config, popen=popen)
+        factory()
 
         args, kwargs = popen.call_args
         self.assertEqual(args[0], ["npx", "-y", "@lark-project/mcp", "--domain", "https://project.feishu.cn"])

@@ -4,8 +4,10 @@ import itertools
 import json
 import os
 import re
+import shlex
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -14,7 +16,7 @@ class FeishuProjectMcpConfig:
     enabled: bool = False
     domain: str = "https://project.feishu.cn"
     transport: str = "stdio"
-    token_ref: str = ""
+    token: str = field(default="", repr=False)
     command: tuple[str, ...] = ("npx", "-y", "@lark-project/mcp")
     request_timeout_seconds: float = 30.0
 
@@ -24,42 +26,82 @@ class FeishuProjectMcpConfig:
         if self.transport == "stdio" and not self.command:
             raise ValueError("stdio transport requires command")
 
+    @property
+    def config_file_hint(self) -> str:
+        return "~/.hermes/coding-orchestration/mcp.json"
+
+    @property
+    def server_config_ref(self) -> str:
+        return "mcpServers.feishu-project"
+
+    @property
+    def token_config_ref(self) -> str:
+        return "mcpServers.feishu-project.env.MCP_USER_TOKEN"
+
     @classmethod
-    def from_env(cls) -> "FeishuProjectMcpConfig":
-        enabled = os.getenv("FEISHU_PROJECT_MCP_ENABLED", "").strip().lower() in {
-            "1",
-            "true",
-            "yes",
-            "on",
-        }
-        domain = os.getenv("FEISHU_PROJECT_MCP_DOMAIN", "https://project.feishu.cn").strip()
-        transport = os.getenv("FEISHU_PROJECT_MCP_TRANSPORT", "stdio").strip().lower()
-        token_ref = os.getenv("FEISHU_PROJECT_MCP_TOKEN_REF", "").strip()
-        command = tuple(os.getenv("FEISHU_PROJECT_MCP_COMMAND", "npx -y @lark-project/mcp").split())
-        timeout = float(os.getenv("FEISHU_PROJECT_MCP_TIMEOUT_SECONDS", "30"))
+    def from_sources(cls, runtime_root: Path | str | None = None) -> "FeishuProjectMcpConfig":
+        if runtime_root is None:
+            return cls()
+        root = Path(runtime_root).expanduser()
+        mcp_config = cls._read_mcp_json(root / "mcp.json")
+        return mcp_config or cls()
+
+    @classmethod
+    def _read_mcp_json(cls, path: Path) -> "FeishuProjectMcpConfig | None":
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        servers = payload.get("mcpServers")
+        if not isinstance(servers, dict):
+            return None
+        raw_server = servers.get("feishu-project")
+        if not isinstance(raw_server, dict):
+            return None
+        enabled = bool(raw_server.get("enabled"))
+        env = raw_server.get("env") if isinstance(raw_server.get("env"), dict) else {}
+        token = str(env.get("MCP_USER_TOKEN") or "").strip()
+        domain = str(raw_server.get("domain") or "https://project.feishu.cn").strip()
+        transport = str(raw_server.get("transport") or "stdio").strip().lower()
+        timeout = float(
+            str(
+                raw_server.get("request_timeout_seconds")
+                or raw_server.get("timeout_seconds")
+                or raw_server.get("timeout")
+                or "30"
+            ).strip()
+            or "30"
+        )
         return cls(
             enabled=enabled,
             domain=domain.rstrip("/"),
             transport=transport,
-            token_ref=token_ref,
-            command=command,
+            token=token,
+            command=cls._mcp_json_command(raw_server),
             request_timeout_seconds=timeout,
         )
 
-
-class SecretResolver:
-    def resolve(self, token_ref: str) -> str:
-        if not token_ref:
-            return ""
-        if token_ref.startswith("env:"):
-            key = token_ref.removeprefix("env:")
-            value = os.getenv(key, "")
-            if not value:
-                raise ValueError(f"missing environment secret for {key}")
-            return value
-        if token_ref.startswith("keychain:"):
-            raise ValueError("keychain secret resolver is not implemented yet")
-        raise ValueError("MCP token must be referenced by env: or keychain:, never stored inline")
+    @staticmethod
+    def _mcp_json_command(server: dict[str, Any]) -> tuple[str, ...]:
+        command_value = server.get("command")
+        args_value = server.get("args")
+        if command_value is None:
+            parts = ["npx"]
+        elif isinstance(command_value, list):
+            parts = [str(item) for item in command_value if str(item).strip()]
+        else:
+            parts = shlex.split(str(command_value).strip())
+        if not parts:
+            parts = ["npx"]
+        if args_value is None and command_value is None:
+            parts.extend(["-y", "@lark-project/mcp"])
+        elif isinstance(args_value, list):
+            parts.extend(str(item) for item in args_value if str(item).strip())
+        elif isinstance(args_value, str) and args_value.strip():
+            parts.extend(shlex.split(args_value.strip()))
+        return tuple(parts)
 
 
 def redact_secrets(text: str, secrets: list[str] | tuple[str, ...] = ()) -> str:
@@ -179,11 +221,10 @@ class FeishuProjectMcpAdapter:
 
 def build_stdio_client_factory(config: FeishuProjectMcpConfig, popen: Any = subprocess.Popen) -> Any:
     def factory() -> McpJsonRpcClient:
-        token = SecretResolver().resolve(config.token_ref)
         command = [*config.command, "--domain", config.domain]
         env = os.environ.copy()
-        if token:
-            env["MCP_USER_TOKEN"] = token
+        if config.token:
+            env["MCP_USER_TOKEN"] = config.token
         process = popen(
             command,
             stdin=subprocess.PIPE,

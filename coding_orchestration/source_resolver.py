@@ -11,6 +11,7 @@ from typing import Any, Callable
 
 from .feishu_project_reader import FeishuProjectReader
 from .meegle_reader import MeegleReader
+from .ports import SourceResult
 
 
 CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]
@@ -35,6 +36,13 @@ class SourceResolver:
             self.feishu_reader = FeishuProjectReader()
 
     def resolve_source(self, args: dict[str, Any] | None = None, gateway: Any = None) -> dict[str, Any] | None:
+        result = self.resolve_source_result(args, gateway=gateway)
+        return result.context or None
+
+    def resolve_source_result(self, args: dict[str, Any] | None = None, gateway: Any = None) -> SourceResult:
+        return SourceResult.from_context(self._resolve_source_context(args, gateway=gateway))
+
+    def _resolve_source_context(self, args: dict[str, Any] | None = None, gateway: Any = None) -> dict[str, Any] | None:
         args = args or {}
         text = str(args.get("url") or args.get("text") or "").strip()
         if not text:
@@ -98,7 +106,7 @@ class SourceResolver:
                 }
 
         try:
-            result = runner(["rtk", "lark-cli", "auth", "status"])
+            result = runner(["rtk", "lark-cli", "auth", "status", "--verify"])
         except (OSError, subprocess.SubprocessError, TimeoutError) as exc:
             return {
                 "ok": False,
@@ -127,11 +135,14 @@ class SourceResolver:
                 "actual_app_id": actual_app_id,
             }
 
-        needs_refresh = "needs_refresh" in output
+        auth_payload = self._extract_lark_json(output)
+        user_payload = self._lark_user_payload(auth_payload)
+        needs_refresh = self._lark_needs_refresh(output, user_payload)
+        verified = self._lark_auth_verified(auth_payload, user_payload)
         has_docx = "docx:document:readonly" in output
         has_wiki = "wiki:node:read" in output or "wiki:node:retrieve" in output
         has_sheets = any(scope in output for scope in SHEET_READ_SCOPE_ALIASES)
-        if needs_refresh:
+        if needs_refresh and not verified:
             return {
                 "ok": False,
                 "status": "auth_needed",
@@ -143,6 +154,21 @@ class SourceResolver:
                     'rtk lark-cli auth login --scope "docx:document:readonly wiki:node:read '
                     'wiki:node:retrieve sheets:spreadsheet:read"；完成授权后重新执行安装脚本。'
                 ),
+                "raw": output,
+                "expected_app_id": expected_app_id,
+                "actual_app_id": actual_app_id,
+            }
+
+        verify_problem = self._lark_verify_problem(auth_payload, user_payload)
+        if verify_problem:
+            error = self._lark_verify_error(auth_payload, user_payload, verify_problem)
+            return {
+                "ok": False,
+                "status": "verify_failed",
+                "needs_refresh": False,
+                "missing_scopes": [],
+                "error": error,
+                "recovery_action": self._lark_verify_recovery(error),
                 "raw": output,
                 "expected_app_id": expected_app_id,
                 "actual_app_id": actual_app_id,
@@ -175,10 +201,15 @@ class SourceResolver:
         return {
             "ok": True,
             "status": "ok",
-            "needs_refresh": False,
+            "needs_refresh": needs_refresh,
             "missing_scopes": [],
             "error": "",
             "recovery_action": "",
+            "warning": (
+                "lark-cli user tokenStatus=needs_refresh，但 --verify 已确认可自动刷新。"
+                if needs_refresh
+                else ""
+            ),
             "raw": output,
             "expected_app_id": expected_app_id,
             "actual_app_id": actual_app_id,
@@ -240,14 +271,9 @@ class SourceResolver:
     @staticmethod
     def _extract_lark_app_id(output: str) -> str:
         text = output or ""
-        match = re.search(r"\{.*\}", text, flags=re.S)
-        if match:
-            try:
-                payload = json.loads(match.group(0))
-            except json.JSONDecodeError:
-                payload = None
-            if isinstance(payload, dict):
-                return str(payload.get("appId") or payload.get("app_id") or "").strip()
+        payload = SourceResolver._extract_lark_json(text)
+        if isinstance(payload, dict):
+            return str(payload.get("appId") or payload.get("app_id") or "").strip()
         patterns = (
             r'"appId"\s*:\s*"([^"]+)"',
             r"\bappId\s*[:=]\s*([A-Za-z0-9_:-]+)",
@@ -258,6 +284,79 @@ class SourceResolver:
             if found:
                 return found.group(1).strip()
         return ""
+
+    @staticmethod
+    def _extract_lark_json(output: str) -> dict[str, Any]:
+        match = re.search(r"\{.*\}", output or "", flags=re.S)
+        if not match:
+            return {}
+        try:
+            payload = json.loads(match.group(0))
+        except json.JSONDecodeError:
+            return {}
+        return payload if isinstance(payload, dict) else {}
+
+    @staticmethod
+    def _lark_user_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        identities = payload.get("identities") if isinstance(payload, dict) else {}
+        user = identities.get("user") if isinstance(identities, dict) else {}
+        return user if isinstance(user, dict) else {}
+
+    @staticmethod
+    def _lark_needs_refresh(output: str, user_payload: dict[str, Any]) -> bool:
+        token_status = str(user_payload.get("tokenStatus") or user_payload.get("token_status") or "").strip()
+        user_status = str(user_payload.get("status") or "").strip()
+        return token_status == "needs_refresh" or user_status == "needs_refresh" or "needs_refresh" in (output or "")
+
+    @staticmethod
+    def _lark_auth_verified(payload: dict[str, Any], user_payload: dict[str, Any]) -> bool:
+        return bool(payload.get("verified")) or bool(user_payload.get("verified"))
+
+    @staticmethod
+    def _lark_verify_problem(payload: dict[str, Any], user_payload: dict[str, Any]) -> str:
+        if not payload or not user_payload:
+            return ""
+        user_status = str(user_payload.get("status") or "").strip()
+        identity = str(payload.get("identity") or "").strip()
+        if user_status == "verify_failed":
+            return user_status
+        if user_payload.get("available") is False:
+            return user_status or "unavailable"
+        if user_payload.get("verified") is False or payload.get("verified") is False:
+            return user_status or "verify_failed"
+        user_is_usable = user_payload.get("available") is True or user_payload.get("verified") is True
+        if identity == "none" and not user_is_usable:
+            return user_status or "no_usable_identity"
+        return ""
+
+    @staticmethod
+    def _lark_verify_error(payload: dict[str, Any], user_payload: dict[str, Any], problem: str) -> str:
+        message = (
+            str(user_payload.get("message") or "").strip()
+            or str(payload.get("note") or "").strip()
+            or str(user_payload.get("hint") or "").strip()
+        )
+        message = message.replace("`lark-cli ", "`rtk lark-cli ").replace("run: lark-cli ", "run: rtk lark-cli ")
+        label_by_problem = {
+            "verify_failed": "lark-cli 用户身份校验失败（verify_failed）",
+            "no_usable_identity": "lark-cli 当前没有可用用户身份",
+            "unavailable": "lark-cli 用户身份不可用",
+        }
+        label = label_by_problem.get(problem, f"lark-cli 用户身份不可用（{problem}）")
+        if message:
+            return f"{label}：{message}"
+        return label
+
+    @staticmethod
+    def _lark_verify_recovery(error: str) -> str:
+        lowered = error.lower()
+        if any(marker in lowered for marker in ("no such host", "dial tcp", "timeout", "network")):
+            return "请先修复当前终端访问 open.feishu.cn 的网络、DNS 或代理问题。"
+        return (
+            "请重新执行 lark-cli 用户授权："
+            'rtk lark-cli auth login --scope "docx:document:readonly wiki:node:read '
+            'wiki:node:retrieve sheets:spreadsheet:read"。'
+        )
 
     @staticmethod
     def _expected_lark_app_id(args: dict[str, Any]) -> str:

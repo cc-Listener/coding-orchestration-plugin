@@ -17,7 +17,7 @@ def _lark_runner(config_stdout="", auth_stdout="", config_returncode=0, auth_ret
     def run(command):
         if command == ["rtk", "lark-cli", "config", "show"]:
             return subprocess.CompletedProcess(command, returncode=config_returncode, stdout=config_stdout, stderr="")
-        if command == ["rtk", "lark-cli", "auth", "status"]:
+        if command == ["rtk", "lark-cli", "auth", "status", "--verify"]:
             return subprocess.CompletedProcess(command, returncode=auth_returncode, stdout=auth_stdout, stderr="")
         raise AssertionError(f"unexpected command: {command}")
 
@@ -25,6 +25,46 @@ def _lark_runner(config_stdout="", auth_stdout="", config_returncode=0, auth_ret
 
 
 class SourceResolverTest(unittest.TestCase):
+    def test_resolve_source_result_returns_stable_result_and_keeps_legacy_context_compatible(self):
+        class StubFeishuReader:
+            def __init__(self):
+                self.calls = []
+
+            def read_from_text(self, text, gateway=None):
+                self.calls.append((text, gateway))
+                return {
+                    "read_status": "success",
+                    "source_type": "feishu_docx",
+                    "url": "https://example.feishu.cn/docx/DocxToken",
+                    "title": "接口文档",
+                    "summary_markdown": "文档正文",
+                }
+
+        feishu_reader = StubFeishuReader()
+        resolver = SourceResolver(feishu_reader=feishu_reader)
+
+        result = resolver.resolve_source_result({"text": "需求 https://example.feishu.cn/docx/DocxToken"})
+        legacy_context = resolver.resolve_source({"text": "需求 https://example.feishu.cn/docx/DocxToken"})
+
+        self.assertTrue(result.ok)
+        self.assertEqual(result.status, "ok")
+        self.assertEqual(result.source_type, "feishu_docx")
+        self.assertEqual(result.title, "接口文档")
+        self.assertEqual(legacy_context, result.context)
+
+    def test_resolve_source_result_maps_empty_reader_response_to_missing(self):
+        class EmptyFeishuReader:
+            def read_from_text(self, text, gateway=None):
+                return None
+
+        resolver = SourceResolver(feishu_reader=EmptyFeishuReader())
+
+        result = resolver.resolve_source_result({"text": "需求 https://example.feishu.cn/docx/Missing"})
+
+        self.assertFalse(result.ok)
+        self.assertEqual(result.status, "missing")
+        self.assertEqual(result.context, {})
+
     def test_lark_preflight_detects_needs_refresh(self):
         resolver = SourceResolver(
             command_runner=_runner(
@@ -111,6 +151,74 @@ scopes:
         self.assertEqual(result["status"], "ok")
         self.assertEqual(result["expected_app_id"], "cli_hermes")
         self.assertEqual(result["actual_app_id"], "cli_hermes")
+
+    def test_lark_preflight_accepts_verified_needs_refresh_when_scopes_are_complete(self):
+        resolver = SourceResolver(
+            command_runner=_lark_runner(
+                config_stdout='{"appId": "cli_hermes"}',
+                auth_stdout="""
+{
+  "appId": "cli_hermes",
+  "identities": {
+    "user": {
+      "status": "needs_refresh",
+      "available": true,
+      "verified": true,
+      "message": "User identity: needs refresh (server verification succeeded after refresh)",
+      "tokenStatus": "needs_refresh",
+      "scope": "docx:document:readonly wiki:node:read wiki:node:retrieve sheets:spreadsheet:read"
+    }
+  },
+  "identity": "user",
+  "note": "User identity needs refresh and will be refreshed automatically on the next user API call.",
+  "verified": true
+}
+""",
+            )
+        )
+
+        result = resolver.preflight_lark({"expected_app_id": "cli_hermes"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["status"], "ok")
+        self.assertTrue(result["needs_refresh"])
+        self.assertFalse(result["missing_scopes"])
+        self.assertIn("tokenStatus=needs_refresh", result["warning"])
+        self.assertNotIn("缺失 scope", result.get("warning", ""))
+
+    def test_lark_preflight_reports_verify_failed_even_when_scopes_are_complete(self):
+        resolver = SourceResolver(
+            command_runner=_lark_runner(
+                config_stdout='{"appId": "cli_hermes"}',
+                auth_stdout="""
+{
+  "appId": "cli_hermes",
+  "identities": {
+    "user": {
+      "status": "verify_failed",
+      "available": false,
+      "verified": false,
+      "message": "User identity: verify failed: server rejected token: Get \\"https://open.feishu.cn/open-apis/authen/v1/user_info\\": dial tcp: lookup open.feishu.cn: no such host",
+      "tokenStatus": "valid",
+      "scope": "docx:document:readonly wiki:node:read wiki:node:retrieve sheets:spreadsheet:read"
+    }
+  },
+  "identity": "none",
+  "note": "No usable identity is available. Configure bot credentials or run `lark-cli auth login`."
+}
+""",
+            )
+        )
+
+        result = resolver.preflight_lark({"expected_app_id": "cli_hermes"})
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"], "verify_failed")
+        self.assertFalse(result["needs_refresh"])
+        self.assertFalse(result["missing_scopes"])
+        self.assertIn("verify failed", result["error"])
+        self.assertIn("open.feishu.cn", result["error"])
+        self.assertIn("网络", result["recovery_action"])
 
     def test_lark_preflight_reports_missing_scopes(self):
         resolver = SourceResolver(

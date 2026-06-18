@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .llm_wiki_adapter import LocalLlmWikiAdapter
 from .models import MatchEvidence, ProjectResolveResult
+from .ports import KnowledgePort
 from .project_knowledge_initializer import ProjectKnowledgeInitializer
 from .project_resolver import Project, ProjectRegistry, ProjectResolver
 
@@ -17,7 +17,7 @@ class ProjectKnowledgeResolver:
     documents.
     """
 
-    def __init__(self, *, wiki: LocalLlmWikiAdapter, fallback: ProjectResolver):
+    def __init__(self, *, wiki: KnowledgePort, fallback: ProjectResolver):
         self.wiki = wiki
         self.fallback = fallback
 
@@ -40,12 +40,12 @@ class ProjectKnowledgeResolver:
         return ProjectRegistry(projects)
 
     @classmethod
-    def from_registry(cls, *, wiki: LocalLlmWikiAdapter, registry: ProjectRegistry) -> "ProjectKnowledgeResolver":
+    def from_registry(cls, *, wiki: KnowledgePort, registry: ProjectRegistry) -> "ProjectKnowledgeResolver":
         cls.bootstrap_registry(wiki, registry)
         return cls(wiki=wiki, fallback=ProjectResolver(registry))
 
     @staticmethod
-    def bootstrap_registry(wiki: LocalLlmWikiAdapter, registry: ProjectRegistry) -> None:
+    def bootstrap_registry(wiki: KnowledgePort, registry: ProjectRegistry) -> None:
         initializer = ProjectKnowledgeInitializer()
         for project in registry.projects:
             if project.path and Path(project.path).expanduser().is_dir():

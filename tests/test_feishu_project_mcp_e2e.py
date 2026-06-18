@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import os
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from coding_orchestration.feishu_project_mcp import (
     FeishuProjectMcpAdapter,
@@ -20,7 +18,7 @@ class FeishuProjectMcpE2ETest(unittest.TestCase):
             enabled=True,
             domain="https://project.feishu.cn",
             transport="stdio",
-            token_ref="env:TEST_FEISHU_PROJECT_MCP_TOKEN",
+            token="unit_test_value",
             command=(sys.executable, str(server)),
         )
         adapter = FeishuProjectMcpAdapter(
@@ -30,8 +28,7 @@ class FeishuProjectMcpE2ETest(unittest.TestCase):
         )
 
         try:
-            with patch.dict(os.environ, {"TEST_FEISHU_PROJECT_MCP_TOKEN": "unit_test_value"}, clear=False):
-                result = adapter.call_tool("search_by_mql", {"space": "测试空间"})
+            result = adapter.call_tool("search_by_mql", {"space": "测试空间"})
 
             self.assertTrue(result["ok"])
             self.assertEqual(result["result"]["items"][0]["title"], "fake story")
