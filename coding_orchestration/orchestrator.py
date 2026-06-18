@@ -85,6 +85,7 @@ from . import (
     run_background_orchestration,
     run_artifact_paths,
     run_ledger_projection,
+    run_ledger_writeback_service,
     run_orchestration_service,
     run_context_artifact_service,
     run_manifest_artifact_service,
@@ -3234,8 +3235,12 @@ class CodingOrchestrator:
         )
         artifact_record = ledger_records.artifact_record
         merged_run = ledger_records.agent_run_record
-        self.ledger.upsert_artifact(task_id, artifact_record)
-        self.ledger.upsert_agent_run(task_id, merged_run)
+        run_ledger_writeback_service.write_reconciled_run_ledger(
+            task_id=task_id,
+            records=ledger_records,
+            upsert_artifact_callback=self.ledger.upsert_artifact,
+            upsert_agent_run_callback=self.ledger.upsert_agent_run,
+        )
 
         session_id = self._thread_id_from_artifact(artifacts.stdout) or self._codex_resume_session_id_for_task(task)
         runner_update = run_orchestration_service.build_runner_session_update(
@@ -3657,8 +3662,13 @@ class CodingOrchestrator:
             ),
         )
         artifact_record = ledger_records.artifact_record
-        self.ledger.append_artifact(task_id, artifact_record)
-        self.ledger.append_agent_run(task_id, ledger_records.agent_run_record)
+        run_ledger_writeback_service.write_run_ledger_completion(
+            task_id=task_id,
+            records=ledger_records,
+            append_artifact_callback=self.ledger.append_artifact,
+            append_agent_run_callback=self.ledger.append_agent_run,
+            append_merge_record_callback=self.ledger.append_merge_record,
+        )
         if not stale_completion:
             completion_session_update = run_orchestration_service.build_completion_session_update(
                 mode=mode,
@@ -3673,8 +3683,6 @@ class CodingOrchestrator:
             )
             if completion_session_update:
                 self.ledger.update_task_session(task_id, completion_session_update)
-        if ledger_records.merge_test_record is not None:
-            self.ledger.append_merge_record(task_id, ledger_records.merge_test_record)
         summary = run_summary_artifact_service.read_run_summary_artifact(summary_path=result.artifacts.summary)
         run_summary_writeback_service.write_completed_run_summary(
             task_id=task_id,

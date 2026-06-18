@@ -2,6 +2,41 @@
 
 ## 会话：2026-06-16
 
+### 阶段 174：解耦架构 run ledger writeback host service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 173 后 summary writer host callback 已迁出，但 `CodingOrchestrator.start_run()` 和 `_reconcile_completed_active_run()` 仍直接调用 run lifecycle 的 `append_artifact()`、`append_agent_run()`、`append_merge_record()`、`upsert_artifact()` 和 `upsert_agent_run()`。
+  - Ledger 写回 payload 构造已归属 `run_ledger_projection.py`，实际 ledger mutation 仍应收口到独立 host service，orchestrator 只负责构造 records、注入 callback 和继续完成状态/session/summary/writeback 编排。
+- 当前边界：
+  - `run_ledger_writeback_service.write_run_ledger_completion()` 消费 `RunLedgerWritebackRecords`，依次调用注入的 artifact、agent_run 和可选 merge_test append callback。
+  - `run_ledger_writeback_service.write_reconciled_run_ledger()` 消费 `ReconciledRunLedgerWritebackRecords`，调用注入的 artifact/agent_run upsert callback。
+  - service 不构造 ledger payload，不直接 import `TaskLedger` 或 storage repository，不写 artifact 文件，不启动 runner，不推进 task/run 状态。
+- 执行的操作：
+  - 新增 `tests/test_run_ledger_writeback_service.py`，覆盖 completed append、缺失 merge record skip、reconciled upsert、`start_run()` 委托和 active run reconcile 委托。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_ledger_writeback_service` 缺失出现预期 `ModuleNotFoundError`。
+  - RED 已确认：service 创建后，orchestrator 尚未导入/委托 service 时出现预期 `AttributeError`。
+  - 新增 `coding_orchestration/run_ledger_writeback_service.py`。
+  - `CodingOrchestrator.start_run()` 与 `_reconcile_completed_active_run()` 改为调用 ledger writeback service；ledger records projection、task status transition、session update、summary writeback 和 project writeback 边界保持不变。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4793 行。
+  - `coding_orchestration/run_ledger_writeback_service.py`：32 行。
+  - `tests/test_run_ledger_writeback_service.py`：254 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_ledger_writeback_service -v`：预期 `ModuleNotFoundError`。
+  - RED：`rtk proxy python3 -m unittest tests.test_run_ledger_writeback_service -v`：service contract 3 tests passed，orchestrator 未委托 service 的 2 个预期 `AttributeError`。
+  - `rtk proxy python3 -m unittest tests.test_run_ledger_writeback_service -v`：5 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_ledger_writeback_service tests.test_run_ledger_projection -v`：8 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_ledger_writeback_service tests.test_run_ledger_projection tests.test_plan_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow -v`：34 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4793 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_ledger_writeback_service.py coding_orchestration/orchestrator.py tests/test_run_ledger_writeback_service.py`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：780 tests passed。
+  - 只读 reviewer：代码边界 reviewer 未发现边界违规；文档 reviewer 指出的阶段状态、conventions 旧口径和技术方案行数问题已处理。
+- 剩余风险：
+  - Task 30 仍是 In Progress：run lifecycle 仍保留 runner 调度、状态 transition、artifact 文件写回、session update、summary/project writeback 和非核心 merge-test prepare/release ledger writes 等 host 副作用。
+  - 下一切片可继续拆 completion finalization host service、session update host service，或进一步收口 artifact writeback 调用顺序；仍不得把 payload projection、artifact 文件读写、subprocess、workspace/git mutation 或 Gateway 发送塞进 ledger writeback service。
+
 ### 阶段 173：解耦架构 run summary writeback host service 拆分
 - **状态：** complete
 - 背景：
