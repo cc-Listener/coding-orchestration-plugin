@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-import asyncio
-import inspect
 import json
 import re
 import shutil
-import subprocess
-import threading
-import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -15,14 +10,25 @@ from pathlib import Path
 from typing import Any
 
 from .diff_guard import DiffGuard
+from .doctor_presenter import (
+    doctor_codex_summary,
+    doctor_display_scope,
+    doctor_extract_rtk_command,
+    doctor_lark_summary,
+    doctor_project_mcp_summary,
+    doctor_runtime_summary,
+    doctor_scope_login_hint,
+    doctor_status_label,
+    format_lark_preflight,
+    format_project_mcp_preflight,
+    format_source_resolve,
+    render_doctor_summary,
+)
 from .execution_policy import control_policy_for_mode
 from .feishu_copy import render_user_update
 from .feishu_messages import (
     render_delivery_breakdown,
     render_delivery_status,
-    render_task_created,
-    render_task_needs_human,
-    render_task_needs_source_context,
     render_task_tree_status,
 )
 from .feishu_project_reader import FeishuProjectReader
@@ -32,12 +38,13 @@ from .feishu_project_mcp import (
     FeishuProjectMcpAdapter,
     FeishuProjectMcpConfig,
     build_stdio_client_factory,
-    redact_secrets,
 )
+from .gateway_binding_service import GatewayBindingService
+from .gateway_binding_service import event_source_for_ledger as gateway_event_source_for_ledger
 from .hermes_runtime import HermesRuntime
 from .kanban_bridge import KanbanBridge
+from .knowledge_adapter import LocalKnowledgeAdapter
 from .ledger import TaskLedger
-from .llm_wiki_adapter import LocalLlmWikiAdapter
 from .command_rewriter import HermesCommandRewriter
 from .command_catalog import (
     allowed_rewrite_commands,
@@ -58,16 +65,40 @@ from .models import (
     TaskPhase,
     TaskKind,
     TaskStatus,
-    agent_run_status_details,
-    apply_failure_type_to_run_details,
     canonical_task_status,
     normalize_agent_run_status,
     task_status_display,
     task_status_view,
 )
 from .pre_llm_context import build_pre_llm_context
+from .ports import KnowledgePort
 from .prompt_builder import PromptBuilder
-from .project_intake import ProjectIntakeRule
+from . import (
+    background_run_notifier,
+    feedback_presenter,
+    gateway_active_context,
+    gateway_command_controller,
+    gateway_command_executor,
+    gateway_pending_action_executor,
+    gateway_rewrite_presenter,
+    merge_test_presenter,
+    run_background_orchestration,
+    run_artifact_paths,
+    run_ledger_projection,
+    run_orchestration_service,
+    run_context_artifact_service,
+    run_manifest_artifact_service,
+    run_manifest_service,
+    run_report_artifact_service,
+    run_stderr_artifact_service,
+    run_summary_projection,
+    run_summary_artifact_service,
+    run_start_artifact_service,
+    run_completion_presenter,
+    run_start_presenter,
+    task_list_presenter,
+)
+from . import task_status_presenter
 from .project_workitem_binding import ProjectWorkitemIdentity
 from .project_initialization_quality import evaluate_project_initialization_quality
 from .project_knowledge_initializer import ProjectKnowledgeInitializer
@@ -76,59 +107,45 @@ from .project_resolver import Project, ProjectRegistry, ProjectResolver
 from .project_resolver import normalize_text as normalize_project_text
 from .run_summary_writer import RunSummaryWriter
 from .runner_router import RunnerRouter
+from .run_manifest_service import RunManifestService
+from .services import CreatedTask, DeliveryService, RunService, TaskService, WorkItemService
 from .source_resolver import SourceResolver
 from .state_machine import TaskStateMachine
+from . import status_policy
 from .runners.base import RunResult
+from .runners.codex_report_schema import write_report_schema
 from .symphony_compat.workflow_loader import WorkflowLoader, WorkflowSpec
 from .symphony_compat.workspace_manager import WorkspaceManager
+from . import workspace_checkpoint_service
+from .workspace_checkpoint_service import WorkspaceCheckpointService
 
 
-_CODING_COMMAND_RE = re.compile(r"^\s*/(coding)(?:\s+(.*)|\s*)$", re.I | re.S)
-_COMMANDS_COMMAND_RE = re.compile(r"^\s*/commands\b\s*(.*)$", re.I | re.S)
-_CODING_MODE_ENTER_RE = re.compile(r"^\s*进入\s*cod(?:e|ing)(?:\s*mode|模式)?\s*$", re.I)
-_CODING_MODE_EXIT_RE = re.compile(r"^\s*退出\s*cod(?:e|ing)(?:\s*mode|模式)?\s*$", re.I)
-_CODING_MODE_TASK_ID = "__coding_mode__"
-_PENDING_REWRITE_TASK_ID = "__coding_rewrite_pending__"
-_PENDING_ACTION_TASK_ID = "__coding_pending_action__"
-_ACTIVE_PROJECT_TASK_ID_PREFIX = "__coding_project__:"
+_CODING_COMMAND_RE = gateway_command_controller.CODING_COMMAND_RE
+_COMMANDS_COMMAND_RE = gateway_command_controller.COMMANDS_COMMAND_RE
+_CODING_MODE_ENTER_RE = gateway_command_controller.CODING_MODE_ENTER_RE
+_CODING_MODE_EXIT_RE = gateway_command_controller.CODING_MODE_EXIT_RE
 _RECOMMENDED_OPERATOR_SKILL = "coding_orchestration:hermes-coding-operator"
 _CODING_REWRITE_CONFIDENCE_THRESHOLD = 0.85
-_SOURCE_BRANCH_SLUG_MAX_LENGTH = 64
-_FEISHU_PROJECT_LINK_RE = re.compile(
-    r"(?P<url>https?://project\.feishu\.cn/"
-    r"(?P<project_key>[^/\s]+)/"
-    r"(?P<work_item_type_key>[^/\s]+)/detail/"
-    r"(?P<work_item_id>[A-Za-z0-9_-]+))"
-)
-_FEISHU_DOCUMENT_LINK_RE = re.compile(
-    r"(?P<url>https?://[^\s<>)\"'，。；、]+/"
-    r"(?P<document_kind>wiki|docx)/"
-    r"(?P<document_token>[A-Za-z0-9_-]+)"
-    r"(?:[^\s<>)\"'，。；、]*)?)"
-)
-
-
-@dataclass(frozen=True)
-class CreatedTask:
-    task_id: str
-    message: str
-    needs_human: bool
-    auto_plan_started: bool
-    auto_implementation_started: bool = False
-
-
 @dataclass
 class CodingOrchestrator:
     ledger: TaskLedger
     resolver: ProjectResolver
-    wiki: LocalLlmWikiAdapter
+    wiki: KnowledgePort
     run_root: Path | None = None
     workspace_root: Path | None = None
     runner_router: Any | None = None
     command_rewriter: Any | None = None
     feishu_project_reader: Any | None = None
     project_mcp_adapter: Any | None = None
+    task_service: Any | None = None
+    delivery_service: Any | None = None
+    run_service: Any | None = None
+    run_manifest_service: Any | None = None
+    workitem_service: Any | None = None
     source_resolver: Any | None = None
+    gateway_binding_service: Any | None = None
+    workspace_checkpoint_service: Any | None = None
+    knowledge: KnowledgePort | None = None
     dispatch_tool: Any | None = None
     kanban_bridge: Any | None = None
     workflow_loader: WorkflowLoader = field(default_factory=WorkflowLoader)
@@ -155,7 +172,7 @@ class CodingOrchestrator:
         if self.feishu_project_reader is None:
             self.feishu_project_reader = FeishuProjectReader()
         if self.project_mcp_adapter is None:
-            project_mcp_config = FeishuProjectMcpConfig.from_env()
+            project_mcp_config = FeishuProjectMcpConfig.from_sources(runtime_root=self.run_root.parent)
             self.project_mcp_adapter = FeishuProjectMcpAdapter(
                 config=project_mcp_config,
                 client_factory=build_stdio_client_factory(project_mcp_config),
@@ -165,8 +182,48 @@ class CodingOrchestrator:
             self.source_resolver = SourceResolver(feishu_reader=self.feishu_project_reader)
         if self.kanban_bridge is None:
             self.kanban_bridge = KanbanBridge(self.dispatch_tool)
+        if self.knowledge is None:
+            self.knowledge = self.wiki if hasattr(self.wiki, "write_run_summary") else LocalKnowledgeAdapter(self.wiki)
+        if self.gateway_binding_service is None:
+            self.gateway_binding_service = GatewayBindingService(self.ledger)
+        if self.task_service is None:
+            self.task_service = TaskService(
+                ledger=self.ledger,
+                resolver=self.resolver,
+                wiki=self.knowledge,
+                source_indexer=TaskService.index_external_source_context,
+                source_normalizer=TaskService.normalize_document_source_context_for_codex,
+                active_project_resolver=self._active_project_for_event,
+                bind_active_task=self._bind_active_task_for_event,
+                event_source_for_ledger=self._event_source_for_ledger,
+                event_media_for_ledger=self._event_media_for_ledger,
+                kanban_create=self._sync_task_to_kanban,
+                local_project_resolver=self._resolve_local_project_from_human_text,
+            )
+        if self.delivery_service is None:
+            self.delivery_service = DeliveryService()
+        if self.run_service is None:
+            self.run_service = RunService(
+                cancelled_task_message=self._cancelled_task_message,
+                active_run_message=self._active_run_already_running_message,
+                cannot_start_run_message=self._cannot_start_run_message,
+                default_timeout_seconds=self.default_timeout_seconds,
+                implementation_timeout_seconds=self.implementation_timeout_seconds,
+                qa_timeout_seconds=self.qa_timeout_seconds,
+                merge_test_timeout_seconds=self.merge_test_timeout_seconds,
+            )
+        if self.run_manifest_service is None:
+            self.run_manifest_service = RunManifestService()
+        if self.workitem_service is None:
+            self.workitem_service = WorkItemService(
+                project_mcp_adapter=self.project_mcp_adapter,
+                ledger=self.ledger,
+                create_task=self.tool_task_create,
+            )
         self.workspace_manager = WorkspaceManager(self.workspace_root)
-        self.summary_writer = RunSummaryWriter(self.wiki)
+        if self.workspace_checkpoint_service is None:
+            self.workspace_checkpoint_service = WorkspaceCheckpointService(self.workspace_manager)
+        self.summary_writer = RunSummaryWriter(self.knowledge)
 
     def set_dispatch_tool(self, dispatch_tool: Any) -> None:
         self.dispatch_tool = dispatch_tool
@@ -183,7 +240,7 @@ class CodingOrchestrator:
     def from_default_config(cls) -> "CodingOrchestrator":
         root = cls._default_runtime_root()
         registry = ProjectRegistry.from_file(root / "project-registry.json")
-        wiki = LocalLlmWikiAdapter(root / "llm-wiki")
+        wiki = LocalKnowledgeAdapter.from_root(root / "llm-wiki")
         return cls(
             ledger=TaskLedger(root / "ledger.db"),
             resolver=ProjectKnowledgeResolver.from_registry(wiki=wiki, registry=registry),
@@ -243,61 +300,10 @@ class CodingOrchestrator:
         return self.create_task_from_text(raw_args)
 
     def tool_task_create(self, args: dict[str, Any]) -> dict[str, Any]:
-        requirement = str(args.get("requirement") or args.get("text") or "").strip()
-        if not requirement:
-            return {"ok": False, "error": "requirement is required"}
-
-        project = str(args.get("project") or "").strip()
-        runner = str(args.get("runner") or "").strip()
-        source_url = str(args.get("source_url") or args.get("url") or "").strip()
-        parts: list[str] = []
-        if project:
-            parts.extend(["--project", project])
-        if runner:
-            parts.extend(["--runner", runner])
-        parts.append(requirement)
-
-        source_context = self._index_external_source_context(source_url) if source_url else None
-        created = self._create_task_from_text(" ".join(parts), source_context=source_context)
-        task_kind = str(args.get("task_kind") or ("bugfix" if args.get("action") == "bugfix" else "")).strip()
-        root_task_id = str(args.get("root_task_id") or "").strip()
-        parent_task_id = str(args.get("parent_task_id") or "").strip()
-        if task_kind or root_task_id or parent_task_id:
-            self.ledger.update_task_hierarchy(
-                created.task_id,
-                task_kind=task_kind or None,
-                root_task_id=root_task_id or None,
-                parent_task_id=parent_task_id or None,
-            )
-        session_updates = {}
-        if args.get("source_branch"):
-            session_updates["source_branch"] = str(args.get("source_branch"))
-        if args.get("branch_policy"):
-            session_updates["branch_policy"] = str(args.get("branch_policy"))
-        if args.get("action"):
-            session_updates["action"] = str(args.get("action"))
-        if session_updates:
-            self.ledger.update_task_session(created.task_id, session_updates)
-        task = self.ledger.get_task(created.task_id)
-        status_view = task_status_view(task.get("status") if task else None)
-        return {
-            "ok": True,
-            "task_id": created.task_id,
-            "status": status_view["status"],
-            "status_label_zh": status_view["status_label_zh"],
-            "status_display": status_view["status_display"],
-            "phase": task.get("phase") if task else None,
-            "needs_human": created.needs_human,
-            "auto_plan_started": created.auto_plan_started,
-            "auto_implementation_started": created.auto_implementation_started,
-            "message": created.message,
-        }
+        return self.task_service.tool_task_create(args)
 
     def tool_task_status(self, args: dict[str, Any]) -> dict[str, Any]:
-        task_id = str(args.get("task_id") or "").strip()
-        if not task_id:
-            return {"ok": False, "error": "task_id is required"}
-        return self._task_status_payload(task_id)
+        return self.task_service.tool_task_status(args)
 
     def tool_task_run(self, args: dict[str, Any]) -> dict[str, Any]:
         task_id = str(args.get("task_id") or "").strip()
@@ -325,11 +331,7 @@ class CodingOrchestrator:
         text = str(args.get("url") or args.get("text") or "").strip()
         if not text:
             return {"ok": False, "error": "url or text is required", "source_status": "failed"}
-        resolver = getattr(self, "source_resolver", None)
-        if resolver is not None and hasattr(resolver, "resolve_source"):
-            context = resolver.resolve_source({"text": text})
-        else:
-            context = self.feishu_project_reader.read_from_text(text)
+        context = self._resolve_source_context(text, gateway=None)
         return self._source_context_payload(context)
 
     def tool_lark_preflight(self, args: dict[str, Any]) -> dict[str, Any]:
@@ -344,103 +346,16 @@ class CodingOrchestrator:
         return resolver.preflight_lark(args)
 
     def tool_project_mcp_preflight(self, args: dict[str, Any]) -> dict[str, Any]:
-        adapter = self._project_mcp_adapter()
-        if not adapter.is_enabled():
-            return {
-                "ok": False,
-                "status": "disabled",
-                "transport": adapter.config.transport,
-                "domain": adapter.config.domain,
-                "allowed_tools": sorted(adapter.allowed_tools),
-                "recovery_action": "Set FEISHU_PROJECT_MCP_ENABLED=1 and configure FEISHU_PROJECT_MCP_TOKEN_REF.",
-            }
-        result = adapter.call_tool("search_project_info", {"query": "__preflight__"})
-        return {
-            "ok": bool(result.get("ok")),
-            "status": str(result.get("status") or "unknown"),
-            "transport": adapter.config.transport,
-            "domain": adapter.config.domain,
-            "allowed_tools": sorted(adapter.allowed_tools),
-            "error": result.get("error", ""),
-        }
+        return self.workitem_service.mcp_preflight(args)
 
     def tool_project_workitem_search(self, args: dict[str, Any]) -> dict[str, Any]:
-        space = str(args.get("space") or args.get("project") or "").strip()
-        if not space:
-            return {"ok": False, "status": "invalid_args", "error": "space is required"}
-        payload = {
-            "space": space,
-            "workitem_type": str(args.get("workitem_type") or args.get("type") or "").strip(),
-            "query": str(args.get("query") or "").strip(),
-            "limit": int(args.get("limit") or 20),
-        }
-        result = self._project_mcp_adapter().call_tool("search_by_mql", payload)
-        return self._project_mcp_tool_result(result)
+        return self.workitem_service.search_workitems(args)
 
     def tool_project_workitem_create(self, args: dict[str, Any]) -> dict[str, Any]:
-        if not args.get("confirm_write"):
-            return {
-                "ok": False,
-                "status": "confirmation_required",
-                "risk": "write",
-                "action": "create_workitem",
-                "preview": self._redacted_project_payload(args),
-            }
-        payload = {
-            "space": str(args.get("space") or "").strip(),
-            "workitem_type": str(args.get("workitem_type") or "").strip(),
-            "title": str(args.get("title") or "").strip(),
-            "fields": dict(args.get("fields") or {}),
-        }
-        missing = [key for key in ("space", "workitem_type", "title") if not payload[key]]
-        if missing:
-            return {"ok": False, "status": "invalid_args", "error": f"{', '.join(missing)} required"}
-        result = self._project_mcp_adapter().call_tool("create_workitem", payload)
-        self._record_project_mcp_audit("create_workitem", payload, result)
-        return self._project_mcp_tool_result(result)
+        return self.workitem_service.create_workitem(args)
 
     def tool_project_intake_sync(self, args: dict[str, Any]) -> dict[str, Any]:
-        rule_payload = args.get("rule") if isinstance(args.get("rule"), dict) else args
-        rule = ProjectIntakeRule.from_dict(rule_payload)
-        search_args = rule.search_args()
-        search_args["limit"] = int(args.get("max_items") or rule_payload.get("limit") or search_args["limit"])
-        search = self.tool_project_workitem_search(search_args)
-        if not search.get("ok"):
-            return {**search, "created_tasks": 0, "existing_tasks": 0, "tasks": []}
-        items = self._project_mcp_items(search.get("result") or {})
-        created_tasks = []
-        existing_tasks = []
-        skipped = []
-        dry_run = bool(args.get("dry_run"))
-        for item in items:
-            identity = ProjectWorkitemIdentity.from_mcp_item(item)
-            existing = self.ledger.find_task_by_project_workitem(identity.key)
-            if existing:
-                existing_tasks.append(existing["task_id"])
-                continue
-            if dry_run:
-                skipped.append(identity.url)
-                continue
-            task = self.tool_task_create({"requirement": identity.title or identity.workitem_id, "source_url": identity.url})
-            task_id = task["task_id"]
-            self.ledger.upsert_project_workitem_binding(
-                identity=identity,
-                hermes_task_id=task_id,
-                relation_kind="source_requirement",
-                root_task_id=task_id,
-                external_status=str(item.get("status") or ""),
-                metadata={"intake_rule": rule.name},
-            )
-            created_tasks.append(task_id)
-        return {
-            "ok": True,
-            "status": "ok",
-            "created_tasks": len(created_tasks),
-            "existing_tasks": len(existing_tasks),
-            "skipped": len(skipped),
-            "tasks": [{"task_id": task_id} for task_id in created_tasks],
-            "existing_task_ids": existing_tasks,
-        }
+        return self.workitem_service.intake_sync(args)
 
     def _create_project_bugfix_task(
         self,
@@ -448,123 +363,13 @@ class CodingOrchestrator:
         issue_identity: ProjectWorkitemIdentity,
         source_workitem_key: str | None,
     ) -> dict[str, Any]:
-        story_task = self.ledger.find_task_by_project_workitem(source_workitem_key) if source_workitem_key else None
-        if story_task:
-            root_task_id = story_task.get("root_task_id") or story_task["task_id"]
-            parent_task_id = root_task_id
-            source_branch = story_task.get("source_branch") or (story_task.get("task_session") or {}).get("source_branch")
-            branch_policy = "inherit_root_branch"
-            needs_story_link = False
-        else:
-            root_task_id = None
-            parent_task_id = None
-            source_branch = None
-            branch_policy = "own_branch"
-            needs_story_link = True
-        bugfix_task = self.tool_task_create(
-            {
-                "requirement": issue_identity.title or f"Bugfix {issue_identity.workitem_id}",
-                "source_url": issue_identity.url,
-                "action": "bugfix",
-                "task_kind": "bugfix",
-                "root_task_id": root_task_id,
-                "parent_task_id": parent_task_id,
-                "source_branch": source_branch,
-                "branch_policy": branch_policy,
-            }
-        )
-        if root_task_id is None:
-            root_task_id = bugfix_task["task_id"]
-            self.ledger.update_task_hierarchy(
-                bugfix_task["task_id"],
-                root_task_id=root_task_id,
-                parent_task_id=None,
-            )
-        self.ledger.upsert_project_workitem_binding(
-            identity=issue_identity,
-            hermes_task_id=bugfix_task["task_id"],
-            relation_kind="bugfix_source",
+        return self.workitem_service.create_project_bugfix_task(
+            issue_identity=issue_identity,
             source_workitem_key=source_workitem_key,
-            root_task_id=root_task_id,
-            parent_task_id=parent_task_id,
-            metadata={"branch_policy": branch_policy, "needs_story_link": needs_story_link},
         )
-        return {"ok": True, "task_id": bugfix_task["task_id"], "branch_policy": branch_policy}
 
     def tool_project_bugfix_intake(self, args: dict[str, Any]) -> dict[str, Any]:
-        space = str(args.get("space") or args.get("project") or "").strip()
-        if not space:
-            return {"ok": False, "status": "invalid_args", "error": "space is required"}
-        search = self.tool_project_workitem_search(
-            {
-                "space": space,
-                "workitem_type": str(args.get("workitem_type") or args.get("type") or "issue").strip(),
-                "query": str(args.get("query") or args.get("mql") or "").strip(),
-                "limit": int(args.get("max_items") or args.get("limit") or 20),
-            }
-        )
-        if not search.get("ok"):
-            return {**search, "created_tasks": 0, "existing_tasks": 0, "tasks": []}
-
-        created_tasks: list[dict[str, Any]] = []
-        existing_tasks: list[str] = []
-        skipped: list[str] = []
-        transition_results: list[dict[str, Any]] = []
-        dry_run = bool(args.get("dry_run"))
-        transition_to = str(args.get("transition_to") or "").strip()
-        for item in self._project_mcp_items(search.get("result") or {}):
-            issue_identity = ProjectWorkitemIdentity.from_mcp_item(item)
-            existing = self.ledger.find_task_by_project_workitem(issue_identity.key)
-            if existing:
-                existing_tasks.append(existing["task_id"])
-                continue
-            if dry_run:
-                skipped.append(issue_identity.url)
-                continue
-            source_workitem_key = self._project_related_story_key(item)
-            created = self._create_project_bugfix_task(
-                issue_identity=issue_identity,
-                source_workitem_key=source_workitem_key,
-            )
-            created_tasks.append(
-                {
-                    "task_id": created["task_id"],
-                    "project_workitem_key": issue_identity.key,
-                    "source_workitem_key": source_workitem_key,
-                    "branch_policy": created.get("branch_policy"),
-                }
-            )
-            if transition_to:
-                if not args.get("confirm_write"):
-                    transition_results.append(
-                        {
-                            "ok": False,
-                            "status": "confirmation_required",
-                            "task_id": created["task_id"],
-                            "workitem_url": issue_identity.url,
-                        }
-                    )
-                else:
-                    transition_results.append(
-                        self.tool_project_state_transition(
-                            {
-                                "workitem_url": issue_identity.url,
-                                "target_state": transition_to,
-                                "confirm_write": True,
-                            }
-                        )
-                    )
-
-        return {
-            "ok": True,
-            "status": "ok",
-            "created_tasks": len(created_tasks),
-            "existing_tasks": len(existing_tasks),
-            "skipped": len(skipped),
-            "tasks": created_tasks,
-            "existing_task_ids": existing_tasks,
-            "transition_results": transition_results,
-        }
+        return self.workitem_service.bugfix_intake(args)
 
     def _writeback_project_bugfix_completion(
         self,
@@ -573,358 +378,49 @@ class CodingOrchestrator:
         *,
         mode: RunMode,
     ) -> dict[str, Any]:
-        task = self.ledger.get_task(task_id)
-        if not task:
-            return {"ok": False, "status": "task_not_found"}
-        if str(task.get("task_kind") or "") != "bugfix":
-            return {"ok": False, "status": "skipped_not_bugfix"}
-        if mode not in {RunMode.IMPLEMENTATION, RunMode.QA}:
-            return {"ok": False, "status": "skipped_mode"}
-        status = str(result.get("status") or (result.get("report") or {}).get("status") or "")
-        task_status = str(result.get("task_status") or (result.get("report") or {}).get("task_status") or "")
-        if status != AgentRunStatus.SUCCEEDED.value and task_status != TaskStatus.READY_FOR_MERGE_TEST.value:
-            return {"ok": False, "status": "skipped_not_successful"}
-
-        binding = next(
-            (
-                item
-                for item in self.ledger.list_project_workitem_bindings(task_id)
-                if item.get("relation_kind") == "bugfix_source"
-            ),
-            None,
-        )
-        source = task.get("source") or {}
-        workitem_url = str((binding or {}).get("workitem_url") or source.get("url") or "").strip()
-        if not workitem_url:
-            source_context = source.get("source_context")
-            if isinstance(source_context, dict):
-                workitem_url = str(source_context.get("url") or "").strip()
-        if not workitem_url:
-            return {"ok": False, "status": "skipped_missing_workitem_url"}
-
-        report = dict(result.get("report") or {})
-        test_commands = report.get("test_commands") or []
-        verification = str(report.get("verification_summary") or "").strip()
-        if not verification:
-            verification = ", ".join(str(command) for command in test_commands) or "未提供自动验证摘要"
-        summary = str(report.get("summary") or report.get("user_facing_summary") or task.get("requirement_summary") or "").strip()
-        branch = str(task.get("source_branch") or (task.get("task_session") or {}).get("source_branch") or "").strip()
-        comment = redact_secrets(
-            "\n".join(
-                [
-                    f"Hermes 已完成 bugfix：{summary or task_id}",
-                    f"验证：{verification}",
-                    f"分支：{branch or '未记录'}",
-                ]
-            )
-        )
-        payload = {"workitem_url": workitem_url, "content": comment}
-        writeback = self._project_mcp_adapter().call_tool("add_comment", payload)
-        writeback_status = "ok" if writeback.get("ok") else str(writeback.get("status") or "failed")
-        writeback_record = {
-            "type": "bugfix_completion_comment",
-            "status": writeback_status,
-            "workitem_url": workitem_url,
-            "comment_id": (writeback.get("result") or {}).get("comment_id"),
-            "run_id": result.get("run_id"),
-            "mode": mode.value,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        self.ledger.update_task_session(task_id, {"project_writeback": writeback_record})
-        if binding:
-            identity = ProjectWorkitemIdentity(
-                domain=str(binding.get("domain") or "https://project.feishu.cn"),
-                space_key=str(binding.get("space_key") or ""),
-                workitem_type=str(binding.get("workitem_type") or ""),
-                workitem_id=str(binding.get("workitem_id") or ""),
-                url=workitem_url,
-                title=str(binding.get("workitem_title") or ""),
-                identity_confidence=str(binding.get("identity_confidence") or "high"),
-            )
-            self.ledger.upsert_project_workitem_binding(
-                identity=identity,
-                hermes_task_id=task_id,
-                relation_kind=str(binding.get("relation_kind") or "bugfix_source"),
-                source_workitem_key=binding.get("source_workitem_key"),
-                root_task_id=binding.get("root_task_id"),
-                parent_task_id=binding.get("parent_task_id"),
-                external_status=str(binding.get("external_status") or ""),
-                writeback_status=writeback_status,
-                metadata=dict(binding.get("metadata") or {}),
-            )
-        return {"ok": bool(writeback.get("ok")), **writeback_record}
+        return self.workitem_service.writeback_project_bugfix_completion(task_id, result, mode=mode)
 
     def tool_project_wbs_update(self, args: dict[str, Any]) -> dict[str, Any]:
-        if not args.get("confirm_write"):
-            return {
-                "ok": False,
-                "status": "confirmation_required",
-                "risk": "write",
-                "action": "update_wbs",
-                "preview": self._redacted_project_payload(args),
-            }
-        workitem_url = str(args.get("workitem_url") or args.get("url") or "").strip()
-        rows = args.get("rows")
-        if not workitem_url:
-            return {"ok": False, "status": "invalid_args", "error": "workitem_url is required"}
-        if not isinstance(rows, list) or not rows:
-            return {"ok": False, "status": "invalid_args", "error": "rows is required"}
-
-        adapter = self._project_mcp_adapter()
-        draft_payload = {
-            "workitem_url": workitem_url,
-            "space": str(args.get("space") or "").strip(),
-            "workitem_name": str(args.get("workitem_name") or "").strip(),
-        }
-        draft_result = adapter.call_tool("create_wbs_draft", draft_payload)
-        self._record_project_mcp_audit("create_wbs_draft", draft_payload, draft_result)
-        if not draft_result.get("ok"):
-            return self._project_mcp_tool_result(draft_result)
-        draft = dict(draft_result.get("result") or {})
-        draft_id = str(draft.get("draft_id") or draft.get("id") or "")
-
-        root_identity = ProjectWorkitemIdentity.from_url(workitem_url)
-        story_task = self.ledger.find_task_by_project_workitem(root_identity.key)
-        parent_task_id = ""
-        if story_task:
-            parent_task_id = str(story_task.get("task_id") or story_task.get("root_task_id") or "")
-        parent_task_id = parent_task_id or str(args.get("hermes_parent_task_id") or "").strip()
-
-        updated_rows: list[dict[str, Any]] = []
-        for index, row in enumerate(rows):
-            if not isinstance(row, dict):
-                return {"ok": False, "status": "invalid_args", "error": f"rows[{index}] must be an object"}
-            edit_payload = {
-                "workitem_url": workitem_url,
-                "draft_id": draft_id,
-                "operation": "upsert_row",
-                "row": row,
-            }
-            edit_result = adapter.call_tool("edit_wbs_draft", edit_payload)
-            self._record_project_mcp_audit("edit_wbs_draft", edit_payload, edit_result)
-            if not edit_result.get("ok"):
-                return self._project_mcp_tool_result(edit_result)
-            row_result = dict(edit_result.get("result") or {})
-            row_uuid = str(row_result.get("row_uuid") or row_result.get("uuid") or row.get("row_uuid") or "")
-            row_identity = ProjectWorkitemIdentity.for_wbs_row(
-                root_identity=root_identity,
-                row_uuid=row_uuid,
-                title=str(row.get("name") or row.get("title") or ""),
-            )
-            hermes_task_id = str(row.get("hermes_task_id") or parent_task_id or "").strip()
-            if hermes_task_id:
-                self.ledger.upsert_project_workitem_binding(
-                    identity=row_identity,
-                    hermes_task_id=hermes_task_id,
-                    relation_kind="wbs_task_row" if row.get("hermes_task_id") else "wbs_row_without_local_task",
-                    source_workitem_key=root_identity.key,
-                    root_task_id=parent_task_id or hermes_task_id,
-                    parent_task_id=parent_task_id or None,
-                    metadata={
-                        "wbs_row_uuid": row_identity.workitem_id,
-                        "estimate": row.get("estimate"),
-                        "actual_hours": row.get("actual_hours"),
-                        "owner": row.get("owner"),
-                        "schedule": row.get("schedule"),
-                    },
-                )
-            updated_rows.append(
-                {
-                    "row_uuid": row_identity.workitem_id,
-                    "binding_key": row_identity.key,
-                    "hermes_task_id": hermes_task_id,
-                }
-            )
-
-        publish_result = None
-        if args.get("publish"):
-            publish_payload = {"workitem_url": workitem_url, "draft_id": draft_id}
-            publish_result = adapter.call_tool("publish_wbs_draft", publish_payload)
-            self._record_project_mcp_audit("publish_wbs_draft", publish_payload, publish_result)
-            if not publish_result.get("ok"):
-                return self._project_mcp_tool_result(publish_result)
-
-        return {
-            "ok": True,
-            "status": "ok",
-            "draft_id": draft_id,
-            "rows": updated_rows,
-            "published": bool(args.get("publish")),
-            "publish_result": (publish_result or {}).get("result", {}),
-        }
+        return self.workitem_service.update_wbs(args)
 
     def tool_project_state_transition(self, args: dict[str, Any]) -> dict[str, Any]:
-        if not args.get("confirm_write"):
-            return {
-                "ok": False,
-                "status": "confirmation_required",
-                "risk": "write",
-                "action": "transition_state",
-                "preview": self._redacted_project_payload(args),
-            }
-        workitem_url = str(args.get("workitem_url") or args.get("url") or "").strip()
-        target_state = str(args.get("target_state") or args.get("state") or "").strip()
-        if not workitem_url or not target_state:
-            return {"ok": False, "status": "invalid_args", "error": "workitem_url and target_state are required"}
-
-        adapter = self._project_mcp_adapter()
-        base_payload = {"workitem_url": workitem_url, "target_state": target_state}
-        required = adapter.call_tool("get_transition_required", base_payload)
-        if not required.get("ok"):
-            return self._project_mcp_tool_result(required)
-        missing = self._project_required_fields(required.get("result") or {})
-        if missing:
-            return {"ok": False, "status": "required_fields_missing", "required": missing}
-
-        states_result = adapter.call_tool("get_transitable_states", {"workitem_url": workitem_url})
-        if not states_result.get("ok"):
-            return self._project_mcp_tool_result(states_result)
-        states = self._project_transitable_states(states_result.get("result") or {})
-        if states and target_state not in states:
-            return {"ok": False, "status": "state_not_transitable", "states": states}
-
-        transition_payload = {
-            "workitem_url": workitem_url,
-            "target_state": target_state,
-            "fields": dict(args.get("fields") or {}),
-        }
-        transition = adapter.call_tool("transition_state", transition_payload)
-        self._record_project_mcp_audit("transition_state", transition_payload, transition)
-        return self._project_mcp_tool_result(transition)
+        return self.workitem_service.transition_state(args)
 
     def _project_mcp_adapter(self) -> Any:
         return self.project_mcp_adapter
 
     def _redacted_project_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
-        redacted = {
-            key: value
-            for key, value in payload.items()
-            if key not in {"token", "secret", "authorization", "confirm_write"}
-        }
-        return redacted
+        return self.workitem_service.redacted_project_payload(payload)
 
     def _record_project_mcp_audit(self, tool: str, payload: dict[str, Any], result: dict[str, Any]) -> None:
-        # Audit persistence is added with project binding/writeback tasks. Keep this hook redaction-only for now.
-        _ = (tool, self._redacted_project_payload(payload), bool(result.get("ok")), result.get("status"))
+        self.workitem_service.record_project_mcp_audit(tool, payload, result)
 
     def _project_mcp_tool_result(self, result: dict[str, Any]) -> dict[str, Any]:
-        if result.get("ok"):
-            return {
-                "ok": True,
-                "status": str(result.get("status") or "ok"),
-                "tool": result.get("tool"),
-                "result": result.get("result", {}),
-            }
-        return {
-            "ok": False,
-            "status": str(result.get("status") or "failed"),
-            "tool": result.get("tool"),
-            "error": str(result.get("error") or ""),
-        }
+        return self.workitem_service.project_mcp_tool_result(result)
 
     @staticmethod
     def _project_mcp_payload(result: dict[str, Any]) -> dict[str, Any]:
-        if not isinstance(result, dict):
-            return {}
-        payload = result.get("result")
-        return payload if isinstance(payload, dict) else result
+        return WorkItemService.project_mcp_payload(result)
 
     @classmethod
     def _project_mcp_states(cls, result: dict[str, Any]) -> list[str]:
-        payload = cls._project_mcp_payload(result)
-        states = payload.get("states")
-        if isinstance(states, list):
-            return [str(state) for state in states]
-        return []
+        return WorkItemService.project_mcp_states(result)
 
     @staticmethod
     def _project_mcp_items(result: dict[str, Any]) -> list[dict[str, Any]]:
-        items = result.get("items")
-        if isinstance(items, list):
-            return [item for item in items if isinstance(item, dict)]
-        data = result.get("data")
-        if isinstance(data, dict) and isinstance(data.get("items"), list):
-            return [item for item in data["items"] if isinstance(item, dict)]
-        return []
+        return WorkItemService.project_mcp_items(result)
 
     @staticmethod
     def _project_related_story_key(item: dict[str, Any]) -> str | None:
-        def from_url_value(value: Any) -> str | None:
-            url = str(value or "").strip()
-            if not url:
-                return None
-            return ProjectWorkitemIdentity.from_url(url).key
-
-        for key in (
-            "related_story_url",
-            "story_url",
-            "source_story_url",
-            "related_requirement_url",
-            "requirement_url",
-        ):
-            found = from_url_value(item.get(key))
-            if found:
-                return found
-
-        fields = item.get("fields")
-        if isinstance(fields, dict):
-            for key in (
-                "related_story_url",
-                "story_url",
-                "source_story_url",
-                "related_requirement_url",
-                "requirement_url",
-            ):
-                found = from_url_value(fields.get(key))
-                if found:
-                    return found
-
-        relation_values: list[Any] = []
-        for key in ("relations", "related_workitems", "related_work_items", "related"):
-            value = item.get(key)
-            if isinstance(value, list):
-                relation_values.extend(value)
-            elif isinstance(value, dict):
-                relation_values.extend(value.values())
-        for relation in relation_values:
-            if not isinstance(relation, dict):
-                continue
-            relation_type = str(
-                relation.get("workitem_type")
-                or relation.get("type")
-                or relation.get("relation_type")
-                or ""
-            ).lower()
-            if relation_type and relation_type not in {"story", "requirement", "demand", "需求"}:
-                continue
-            found = from_url_value(relation.get("url") or relation.get("workitem_url"))
-            if found:
-                return found
-        return None
+        return WorkItemService.project_related_story_key(item)
 
     @staticmethod
     def _project_required_fields(result: dict[str, Any]) -> list[Any]:
-        for key in ("missing", "required_fields", "required"):
-            value = result.get(key)
-            if isinstance(value, list):
-                return value
-        return []
+        return WorkItemService.project_required_fields(result)
 
     @staticmethod
     def _project_transitable_states(result: dict[str, Any]) -> list[str]:
-        raw_states = result.get("states") or result.get("data") or []
-        if isinstance(raw_states, dict):
-            raw_states = raw_states.get("states") or raw_states.get("items") or []
-        states: list[str] = []
-        if isinstance(raw_states, list):
-            for state in raw_states:
-                if isinstance(state, str):
-                    states.append(state)
-                elif isinstance(state, dict):
-                    name = str(state.get("name") or state.get("state") or state.get("label") or "").strip()
-                    if name:
-                        states.append(name)
-        return states
+        return WorkItemService.project_transitable_states(result)
 
     def command_coding_cli(self, args: Any = None) -> str:
         if args is None:
@@ -949,7 +445,7 @@ class CodingOrchestrator:
 
     def command_coding_doctor(self) -> str:
         lark = self.tool_lark_preflight({})
-        meegle = self._meegle_preflight()
+        project_mcp = self.tool_project_mcp_preflight({"include_tools": False})
         kanban_available = bool(getattr(getattr(self, "kanban_bridge", None), "available", lambda: False)())
         runtime_available = self._hermes_runtime_available()
         router = getattr(self, "runner_router", None)
@@ -960,21 +456,51 @@ class CodingOrchestrator:
             codex_decision = None
         codex_backend = getattr(codex_decision, "backend", "unknown")
         hermes_provider = getattr(codex_decision, "hermes_provider", "")
-        lines = [
-            "编码流程健康检查",
-            f"飞书：{lark.get('status') or 'unknown'}",
-            f"飞书恢复动作：{lark.get('recovery_action') or 'ok'}",
-            f"项目管理：{meegle.get('status') or 'unknown'}",
-            f"项目管理恢复动作：{meegle.get('recovery_action') or 'ok'}",
-            f"看板：{'可用' if kanban_available else '不可用'}",
-            f"Hermes 执行入口：{'可用' if runtime_available else '不可用'}",
-            f"默认执行器：{default_runner}",
-            f"Codex 后端：{codex_backend}",
-            f"Hermes openai-codex provider: {hermes_provider or 'not detected'}",
-            f"任务账本：{self.ledger.db_path}",
-            "定时检查建议：rtk hermes cron create \"every 30m\" \"Run hermes coding lark-preflight and report only if unhealthy\" --workdir /Users/xiaojing/Desktop/tools/hermes-codex-tools",
-        ]
-        return "\n".join(lines)
+        return render_doctor_summary(
+            lark=lark,
+            project_mcp=project_mcp,
+            kanban_available=kanban_available,
+            runtime_available=runtime_available,
+            default_runner=default_runner,
+            codex_backend=codex_backend,
+            hermes_provider=hermes_provider,
+        )
+
+    @staticmethod
+    def _doctor_lark_summary(result: dict[str, Any]) -> str:
+        return doctor_lark_summary(result)
+
+    @staticmethod
+    def _doctor_project_mcp_summary(result: dict[str, Any]) -> str:
+        return doctor_project_mcp_summary(result)
+
+    @staticmethod
+    def _doctor_runtime_summary(*, kanban_available: bool, runtime_available: bool) -> str:
+        return doctor_runtime_summary(kanban_available=kanban_available, runtime_available=runtime_available)
+
+    @staticmethod
+    def _doctor_codex_summary(*, default_runner: str, codex_backend: str, hermes_provider: str) -> str:
+        return doctor_codex_summary(
+            default_runner=default_runner,
+            codex_backend=codex_backend,
+            hermes_provider=hermes_provider,
+        )
+
+    @staticmethod
+    def _doctor_display_scope(scope: str) -> str:
+        return doctor_display_scope(scope)
+
+    @staticmethod
+    def _doctor_status_label(status: str) -> str:
+        return doctor_status_label(status)
+
+    @staticmethod
+    def _doctor_scope_login_hint(missing_scopes: list[str]) -> str:
+        return doctor_scope_login_hint(missing_scopes)
+
+    @staticmethod
+    def _doctor_extract_rtk_command(text: str) -> str:
+        return doctor_extract_rtk_command(text)
 
     def _meegle_preflight(self) -> dict[str, Any]:
         resolver = getattr(self, "source_resolver", None)
@@ -1024,99 +550,31 @@ class CodingOrchestrator:
         }
 
     def _format_lark_preflight(self, result: dict[str, Any]) -> str:
-        missing = result.get("missing_scopes") or []
-        lines = [
-            "飞书权限检查",
-            f"状态：{result.get('status') or 'unknown'}",
-            f"可用：{'是' if bool(result.get('ok')) else '否'}",
-        ]
-        if missing:
-            lines.append(f"缺少权限：{', '.join(str(item) for item in missing)}")
-        if result.get("error"):
-            lines.append(f"错误：{result.get('error')}")
-        recovery = result.get("recovery_action") or ""
-        if recovery:
-            lines.append(f"恢复动作：{recovery}")
-        return "\n".join(lines)
+        return format_lark_preflight(result)
 
     def _format_project_mcp_preflight(self) -> str:
         adapter = self._project_mcp_adapter()
         config = adapter.config
-        lines = [
-            "飞书项目 MCP 检查",
-            f"启用：{'是' if bool(config.enabled) else '否'}",
-            f"传输：{config.transport}",
-            f"域名：{config.domain}",
-        ]
-        if not config.enabled:
-            lines.extend(
-                [
-                    "状态：disabled",
-                    "可用：否",
-                    "恢复动作：设置 FEISHU_PROJECT_MCP_ENABLED=1 后再配置 token_ref。",
-                ]
-            )
-            return "\n".join(lines)
-        if not str(config.token_ref or "").strip():
-            lines.extend(
-                [
-                    "状态：invalid_config",
-                    "可用：否",
-                    "错误：FEISHU_PROJECT_MCP_TOKEN_REF 缺失。",
-                    "恢复动作：设置 FEISHU_PROJECT_MCP_TOKEN_REF=env:FEISHU_PROJECT_MCP_TOKEN，token 值只放在进程环境中。",
-                ]
-            )
-            return "\n".join(lines)
-        if not str(config.token_ref).startswith(("env:", "keychain:")):
-            lines.extend(
-                [
-                    "状态：invalid_config",
-                    "可用：否",
-                    "错误：FEISHU_PROJECT_MCP_TOKEN_REF 只能引用 env: 或 keychain:，不能写入明文 token。",
-                ]
-            )
-            return "\n".join(lines)
+        command_available = True
+        result: dict[str, Any] | None = None
         if config.transport == "stdio":
             command = config.command[0] if config.command else "npx"
-            if shutil.which(command) is None:
-                lines.extend(
-                    [
-                        "状态：invalid_runtime",
-                        "可用：否",
-                        f"错误：找不到 stdio MCP 命令：{command}",
-                        "恢复动作：安装 Node.js 18+ 并确认 npx 可用，或设置 FEISHU_PROJECT_MCP_COMMAND。",
-                    ]
-                )
-                return "\n".join(lines)
-        result = self.tool_project_mcp_preflight({"include_tools": True})
-        lines.extend(
-            [
-                f"状态：{result.get('status') or 'unknown'}",
-                f"可用：{'是' if bool(result.get('ok')) else '否'}",
-            ]
+            command_available = shutil.which(command) is not None
+        if bool(config.enabled) and str(config.token or "").strip() and (
+            config.transport != "stdio" or command_available
+        ):
+            result = self.tool_project_mcp_preflight({"include_tools": True})
+        return format_project_mcp_preflight(
+            config,
+            command_available=command_available,
+            result=result,
         )
-        if result.get("allowed_tools"):
-            lines.append(f"工具白名单：{', '.join(str(tool) for tool in result.get('allowed_tools') or [])}")
-        if result.get("error"):
-            lines.append(f"错误：{result.get('error')}")
-        return "\n".join(lines)
 
     def _format_source_resolve(self, text: str) -> str:
         if not text.strip():
             return "Usage: hermes coding source-resolve <feishu_or_meegle_url>"
         result = self.tool_source_resolve({"text": text})
-        lines = [
-            "来源解析",
-            f"来源状态：{result.get('source_status') or 'unknown'}",
-            f"任务状态：{result.get('task_status') or ''}",
-            f"来源类型：{result.get('source_type') or ''}",
-            f"链接：{result.get('url') or ''}",
-        ]
-        if result.get("error"):
-            lines.append(f"错误：{result.get('error')}")
-        if result.get("recovery_action"):
-            lines.append(f"恢复动作：{result.get('recovery_action')}")
-        return "\n".join(lines)
+        return format_source_resolve(result)
 
     def _hermes_runtime_available(self) -> bool:
         for runner in getattr(getattr(self, "runner_router", None), "runners", {}).values():
@@ -1319,11 +777,8 @@ class CodingOrchestrator:
             children = self.ledger.list_child_tasks(task_id)
             if tree_view:
                 return render_task_tree_status(parent=task, children=children)
-            return render_delivery_status(
-                parent=task,
-                children=children,
-                next_child=self._next_runnable_child(task),
-            )
+            projection = self.delivery_service.status_projection(task, children)
+            return render_delivery_status(**projection.as_render_kwargs())
         return self._format_task_status_details(task, include_branch=False)
 
     def command_coding_cancel(self, raw_args: str) -> str:
@@ -1396,15 +851,18 @@ class CodingOrchestrator:
             task = self.ledger.get_task(task_id)
             if not task:
                 return f"未找到任务：{task_id}"
-            if task.get("task_kind") != TaskKind.REQUIREMENT.value:
+            children = self.ledger.list_child_tasks(task_id)
+            decision = self.delivery_service.run_next_decision(task, children)
+            if decision.error == "not_requirement":
                 return f"[{task_id}] 不是父级需求任务；请直接运行该执行任务。"
-            child = self._next_runnable_child(task)
-            if not child:
-                self._rollup_requirement_status(task_id)
+            if not decision.child:
+                if decision.should_rollup:
+                    self._rollup_requirement_status(task_id)
                 return f"[{task_id}] 暂无可运行的子任务。请查看 /coding status {task_id} --tree。"
-            message = self.command_coding_implement(child["task_id"])
-            self._rollup_requirement_status(task_id)
-            return f"[{task_id}] 已选择下一个可执行任务：{child['task_id']}\n\n{message}"
+            message = self.command_coding_implement(decision.child["task_id"])
+            if decision.should_rollup:
+                self._rollup_requirement_status(task_id)
+            return f"[{task_id}] 已选择下一个可执行任务：{decision.child['task_id']}\n\n{message}"
         task_id = raw_args.strip()
         if not task_id:
             return "请提供任务 ID。"
@@ -1479,7 +937,10 @@ class CodingOrchestrator:
         decomposition = (task.get("task_session") or {}).get("decomposition") or {}
         if not bool(decomposition.get("materialization_allowed")):
             return f"[{task_id}] 拆解方案尚未允许生成执行任务，请先补充缺失信息并重新拆解。"
-        children = self._materialize_execution_tasks(task)
+        try:
+            children = self._materialize_execution_tasks(task)
+        except ValueError as exc:
+            return f"[{task_id}] 拆解方案不能生成执行任务：{exc}。请重新拆解。"
         if not children:
             return f"[{task_id}] 拆解方案里没有可生成的执行任务，请重新拆解。"
         return f"[{task_id}] 已生成 {len(children)} 个执行任务。\n" + "\n".join(
@@ -1504,95 +965,27 @@ class CodingOrchestrator:
 
     @staticmethod
     def _decomposition_for_session(report: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "classification": report.get("classification") or "",
-            "reason": report.get("reason") or "",
-            "delivery_units": report.get("delivery_units") or [],
-            "execution_tasks": report.get("execution_tasks") or [],
-            "dependencies": report.get("dependencies") or [],
-            "risks": report.get("risks") or [],
-            "acceptance_plan": report.get("acceptance_plan") or [],
-            "open_questions": report.get("open_questions") or [],
-            "materialization_allowed": bool(report.get("materialization_allowed")),
-        }
+        return DeliveryService.decomposition_for_session(report)
 
     @staticmethod
     def _breakdown_is_approved(task: dict[str, Any]) -> bool:
-        return any(decision.get("type") == "breakdown_approved" for decision in task.get("human_decisions") or [])
+        return DeliveryService.breakdown_is_approved(task)
 
     def _materialize_execution_tasks(self, task: dict[str, Any]) -> list[dict[str, Any]]:
         existing_children = self.ledger.list_child_tasks(str(task["task_id"]))
-        if existing_children:
-            return existing_children
-        decomposition = (task.get("task_session") or {}).get("decomposition") or {}
-        delivery_units = decomposition.get("delivery_units") or []
-        unit_to_task_id: dict[str, str] = {}
-        for index, unit in enumerate(delivery_units, start=1):
-            unit_id = str(unit.get("unit_id") or "")
-            if unit_id:
-                unit_to_task_id[unit_id] = f"task_{index:02d}_{uuid.uuid4().hex[:10]}"
-        created: list[dict[str, Any]] = []
-        root_task_id = str(task.get("root_task_id") or task["task_id"])
-        for index, unit in enumerate(delivery_units, start=1):
-            unit_id = str(unit.get("unit_id") or "")
-            child_id = unit_to_task_id.get(unit_id) or f"task_{index:02d}_{uuid.uuid4().hex[:10]}"
-            dependency_unit_ids = [str(item) for item in unit.get("dependencies") or []]
-            dependency_task_ids = [
-                unit_to_task_id[dependency_unit_id]
-                for dependency_unit_id in dependency_unit_ids
-                if dependency_unit_id in unit_to_task_id
-            ]
-            self.ledger.create_task(
-                task_id=child_id,
-                source={
-                    "type": "decomposition",
-                    "root_task_id": root_task_id,
-                    "delivery_unit_id": unit_id,
-                    "project_name": unit.get("project_key") or "",
-                },
-                requirement_summary=str(unit.get("summary") or unit.get("title") or ""),
-                project_path=str(unit.get("project_path") or "") or None,
-                status=TaskStatus.PLANNED.value,
-                llm_wiki_refs=[],
-                human_decisions=[],
-                phase=TaskPhase.PLAN_READY.value,
-                task_kind=TaskKind.EXECUTION.value,
-                root_task_id=root_task_id,
-                parent_task_id=str(task["task_id"]),
-                dependency_task_ids=dependency_task_ids,
-                task_session={
-                    "project_name": unit.get("project_key") or "",
-                    "delivery": {
-                        "unit_id": unit_id,
-                        "title": unit.get("title") or "",
-                        "acceptance_criteria": unit.get("acceptance_criteria") or [],
-                        "risk_level": unit.get("risk_level") or "",
-                    },
-                    "runner": {"provider": RunnerName.CODEX_CLI.value},
-                },
-            )
-            child = self.ledger.get_task(child_id)
-            if child:
-                created.append(child)
-        return created
+        result = self.delivery_service.materialize_execution_tasks(
+            task,
+            existing_children=existing_children,
+            create_child_task=lambda spec: self.ledger.create_task(**spec.as_create_task_kwargs()),
+            get_child_task=self.ledger.get_task,
+        )
+        if result.errors:
+            raise ValueError("; ".join(result.errors))
+        return result.children
 
     def _next_runnable_child(self, parent_task: dict[str, Any]) -> dict[str, Any] | None:
         children = self.ledger.list_child_tasks(parent_task["task_id"])
-        by_id = {child["task_id"]: child for child in children}
-        completed_statuses = {
-            TaskStatus.READY_FOR_MERGE_TEST.value,
-            TaskStatus.MERGED_TEST.value,
-            TaskStatus.DONE.value,
-        }
-        for child in children:
-            if child.get("task_kind") not in {TaskKind.EXECUTION.value, TaskKind.INTEGRATION.value}:
-                continue
-            if child.get("status") != TaskStatus.PLANNED.value:
-                continue
-            dependencies = [by_id.get(task_id) for task_id in child.get("dependency_task_ids") or []]
-            if all(dep and dep.get("status") in completed_statuses for dep in dependencies):
-                return child
-        return None
+        return self.delivery_service.next_runnable_child(parent_task, children)
 
     def _rollup_requirement_status(self, task_id: str) -> dict[str, Any]:
         parent = self.ledger.get_task(task_id)
@@ -1600,27 +993,12 @@ class CodingOrchestrator:
             raise KeyError(task_id)
         children = self.ledger.list_child_tasks(task_id)
         if not children:
-            return {"status": parent.get("status"), "counts": {}}
-        statuses = [str(child.get("status") or "") for child in children]
-        counts = {status: statuses.count(status) for status in sorted(set(statuses))}
-        if any(status == TaskStatus.RUNNING.value for status in statuses):
-            target = TaskStatus.RUNNING
-        elif any(status == TaskStatus.FAILED.value for status in statuses):
-            target = TaskStatus.FAILED
-        elif self._next_runnable_child(parent) is None and any(status == TaskStatus.BLOCKED.value for status in statuses):
-            target = TaskStatus.BLOCKED
-        elif all(status == TaskStatus.DONE.value for status in statuses):
-            target = TaskStatus.DONE
-        elif all(
-            status in {TaskStatus.READY_FOR_MERGE_TEST.value, TaskStatus.MERGED_TEST.value, TaskStatus.DONE.value}
-            for status in statuses
-        ):
-            target = TaskStatus.READY_FOR_MERGE_TEST
-        else:
-            target = TaskStatus.PLANNED
+            return self.delivery_service.rollup_requirement(parent, children)
+        rollup = self.delivery_service.rollup_requirement(parent, children)
+        target = TaskStatus(rollup["status"])
         self._transition_requirement_rollup_status(task_id, target)
-        self.ledger.update_task_session(task_id, {"rollup": {"status": target.value, "counts": counts}})
-        return {"status": target.value, "counts": counts}
+        self.ledger.update_task_session(task_id, {"rollup": rollup})
+        return rollup
 
     def _transition_requirement_rollup_status(self, task_id: str, target: TaskStatus) -> None:
         task = self.ledger.get_task(task_id) or {}
@@ -1648,17 +1026,7 @@ class CodingOrchestrator:
 
     @staticmethod
     def _phase_for_requirement_rollup(status: TaskStatus) -> TaskPhase:
-        if status == TaskStatus.RUNNING:
-            return TaskPhase.IMPLEMENTING
-        if status == TaskStatus.BLOCKED:
-            return TaskPhase.BLOCKED
-        if status == TaskStatus.FAILED:
-            return TaskPhase.FAILED
-        if status == TaskStatus.READY_FOR_MERGE_TEST:
-            return TaskPhase.READY_TO_MERGE_TEST
-        if status == TaskStatus.DONE:
-            return TaskPhase.DONE
-        return TaskPhase.PLAN_READY
+        return DeliveryService.phase_for_requirement_rollup(status)
 
     def _delete_task_from_args(self, raw_args: str) -> str:
         args = raw_args.split()
@@ -1780,7 +1148,7 @@ class CodingOrchestrator:
         if task["status"] not in {
             TaskStatus.READY_FOR_MERGE_TEST.value,
         } and status_update is None:
-            return f"[{task_id}] 当前状态是 {task_status_display(task.get('status'))}，还不能准备 merge-test。"
+            return merge_test_presenter.prepare_merge_test_invalid_status_message(task_id, task)
         if status_update is not None:
             self._transition_task_status(
                 task_id,
@@ -1801,11 +1169,7 @@ class CodingOrchestrator:
                 "created_at": datetime.now(timezone.utc).isoformat(),
             },
         )
-        return (
-            f"[{task_id}] 已切换为等待人工执行 merge test。\n"
-            f"项目目录：{task.get('project_path') or '未确定'}\n"
-            f"下一步：确认后发送 /coding merge-test {task_id}，系统会基于上一次实现上下文执行 merge-test；发布测试环境仍然人工。"
-        )
+        return merge_test_presenter.prepare_merge_test_ready_message(task_id, task)
 
     def _status_update_for_prepare_merge_test(
         self,
@@ -1820,10 +1184,10 @@ class CodingOrchestrator:
         return TaskStatus.READY_FOR_MERGE_TEST if assessment.get("mergeable") else None
 
     def command_coding_merge_test(self, raw_args: str) -> str:
-        args = raw_args.split()
-        accept_risk = "--accept-risk" in args
-        confirm_qa_risk = "--confirm-qa-risk" in args or accept_risk
-        task_id = next((part for part in args if not part.startswith("--")), "")
+        parsed_args = gateway_command_controller.parse_merge_test_command_args(raw_args)
+        accept_risk = parsed_args.accept_risk
+        confirm_qa_risk = parsed_args.confirm_qa_risk
+        task_id = parsed_args.task_id
         if not task_id:
             return "请提供任务 ID。"
         task = self.ledger.get_task(task_id)
@@ -1889,7 +1253,7 @@ class CodingOrchestrator:
         return f"[{task_id}] 已人工标记完成。\n状态：{task_status_display(TaskStatus.DONE)}"
 
     def create_task_from_text(self, text: str) -> str:
-        return self._create_task_from_text(text).message
+        return self.task_service.create_task_from_text(text)
 
     def _create_task_from_text(
         self,
@@ -1899,176 +1263,34 @@ class CodingOrchestrator:
         source_context: dict[str, Any] | None = None,
         event: Any | None = None,
     ) -> CreatedTask:
-        validation_error = self._task_creation_validation_error(text, source_context)
-        if validation_error:
-            raise ValueError(validation_error)
-        raw_text = text
-        text = normalize_project_text(text)
-        source_context = self._normalize_document_source_context_for_codex(
+        return self.task_service.create_task(
             text,
-            source_context if isinstance(source_context, dict) else None,
-        )
-        explicit_project = self._extract_flag(text, "--project")
-        active_project_context = None
-        if not explicit_project and event is not None:
-            active_project_context = self._active_project_for_event(event)
-            if active_project_context:
-                explicit_project = str(active_project_context.get("name") or "")
-        requested_runner = self._extract_flag(text, "--runner")
-        related_task_id = self._extract_flag(text, "--bug-of") or self._extract_flag(text, "--parent-task")
-        clean_text = self._strip_flags(text)
-        requirement_summary = self._requirement_summary(clean_text, source_context)
-        message_summary = self._message_summary(clean_text, source_context)
-        resolved = self.resolver.resolve(requirement_summary, explicit_project=explicit_project)
-        if not resolved.project_path:
-            resolved = (
-                self._resolve_local_project_from_human_text(
-                    requirement_summary,
-                    extra_candidates=[explicit_project] if explicit_project else (),
-                )
-                or resolved
-            )
-        source_context = source_context or {}
-        source_type = str(source_context.get("source_type") or "feishu_chat")
-        source_needs_human = self._source_context_requires_human(source_context)
-        execution_policy = control_policy_for_mode(mode=RunMode.IMPLEMENTATION, codex_decision={})
-        auto_implementation_on_ready = False
-        task_id = f"task_{uuid.uuid4().hex[:12]}"
-        initial_status = self._initial_task_status_for_create(
-            resolved_needs_human=resolved.needs_human,
-            source_needs_human=source_needs_human,
+            auto_plan_on_ready=auto_plan_on_ready,
             source_context=source_context,
-        )
-        initial_phase = (
-            TaskPhase.DRAFT.value
-            if resolved.needs_human or source_needs_human
-            else (
-                TaskPhase.DRAFT.value
-                if auto_implementation_on_ready
-                else (TaskPhase.PLANNING.value if auto_plan_on_ready else TaskPhase.DRAFT.value)
-            )
-        )
-        self.ledger.create_task(
-            task_id=task_id,
-            source={
-                "type": source_type,
-                "raw_text": raw_text,
-                "normalized_text": text,
-                "gateway_source": self._event_source_for_ledger(event),
-                "media": self._event_media_for_ledger(event),
-                "source_context": self._source_context_for_ledger(source_context),
-                "active_project_context": active_project_context,
-                "project_name": resolved.project_name,
-                "project_confidence": resolved.confidence,
-                "match_evidence": [
-                    {"source": item.source, "value": item.value, "score": item.score}
-                    for item in resolved.match_evidence
-                ],
-                "requested_runner": requested_runner,
-                "related_task_id": related_task_id,
-            },
-            requirement_summary=requirement_summary,
-            project_path=resolved.project_path,
-            status=initial_status,
-            llm_wiki_refs=[],
-            human_decisions=[],
-            phase=initial_phase,
-            task_session={
-                "project_name": resolved.project_name,
-                "runner": {"provider": requested_runner or RunnerName.CODEX_CLI.value},
-            },
-        )
-        self._bind_active_task_for_event(task_id, event)
-        self._sync_task_to_kanban(
-            task_id=task_id,
-            title=message_summary,
-            body=requirement_summary,
-            project_name=resolved.project_name or "",
-            project_path=resolved.project_path or "",
-            status=initial_status,
-        )
-        draft_ref = self.wiki.upsert(
-            {
-                "kind": "draft_knowledge",
-                "title": f"需求草稿 {task_id}",
-                "body": requirement_summary,
-                "source_refs": self._draft_knowledge_source_refs(task_id, source_context, event),
-                "project": resolved.project_name,
-                "module": None,
-                "tags": ["requirement", "draft"],
-                "confidence": "low" if resolved.needs_human or source_needs_human else "medium",
-                "status": "draft",
-            },
-            options={"dedupe_key": f"{task_id}:draft_knowledge"},
-        )
-        self.ledger.replace_llm_wiki_refs(task_id, [draft_ref])
-        if source_needs_human:
-            return CreatedTask(
-                task_id=task_id,
-                message=render_task_needs_source_context(
-                    task_id,
-                    message_summary,
-                    str(source_context.get("url") or ""),
-                    str(source_context.get("error") or ""),
-                ),
-                needs_human=True,
-                auto_plan_started=False,
-            )
-        if resolved.needs_human:
-            return CreatedTask(
-                task_id=task_id,
-                message=render_task_needs_human(task_id, message_summary, resolved.candidates),
-                needs_human=True,
-                auto_plan_started=False,
-            )
-        auto_plan_started = bool(auto_plan_on_ready and not auto_implementation_on_ready)
-        return CreatedTask(
-            task_id=task_id,
-            message=render_task_created(
-                task_id,
-                message_summary,
-                resolved.project_name or "",
-                resolved.project_path or "",
-                status=initial_status,
-                phase=initial_phase,
-                auto_plan_started=auto_plan_started,
-                auto_implementation_started=auto_implementation_on_ready,
-                execution_policy=execution_policy.to_dict(),
-            ),
-            needs_human=False,
-            auto_plan_started=auto_plan_started,
-            auto_implementation_started=auto_implementation_on_ready,
+            event=event,
         )
 
     @staticmethod
     def _task_creation_flag_error(text: str) -> str:
-        parts = text.split()
-        flags_with_value = {"--project", "--runner", "--bug-of", "--parent-task"}
-        for idx, part in enumerate(parts):
-            if part not in flags_with_value:
-                continue
-            if idx + 1 >= len(parts) or parts[idx + 1].startswith("--"):
-                return f"{part} 缺少参数值。用法：/coding task --project <项目名> <完整需求>"
-        return ""
+        return TaskService.task_creation_flag_error(text)
 
     def _task_creation_validation_error(
         self,
         text: str,
         source_context: dict[str, Any] | None = None,
     ) -> str:
-        normalized = normalize_project_text(text)
-        flag_error = self._task_creation_flag_error(normalized)
-        if flag_error:
-            return flag_error
-        normalized_source_context = self._normalize_document_source_context_for_codex(
-            normalized,
-            source_context if isinstance(source_context, dict) else None,
-        )
-        clean_text = self._strip_flags(normalized)
-        requirement_summary = self._requirement_summary(clean_text, normalized_source_context)
-        if not requirement_summary.strip():
-            return "请提供任务需求。用法：/coding task <需求> 或 /coding task --project <项目名> <完整需求>"
-        return ""
+        error = self.task_service.task_creation_validation_error(text, source_context)
+        return self._format_task_creation_validation_error(error)
+
+    @staticmethod
+    def _format_task_creation_validation_error(error: str) -> str:
+        if not error or "用法：" in error:
+            return error
+        if "缺少参数值" in error:
+            return f"{error}用法：/coding task --project <项目名> <完整需求>"
+        if "请提供任务需求" in error:
+            return f"{error}用法：/coding task <需求> 或 /coding task --project <项目名> <完整需求>"
+        return error
 
     def _sync_task_to_kanban(
         self,
@@ -2221,22 +1443,18 @@ class CodingOrchestrator:
         source_needs_human: bool,
         source_context: dict[str, Any],
     ) -> str:
-        if resolved_needs_human or source_needs_human:
-            return TaskStatus.NEEDS_HUMAN.value
-        source_status = self._source_status_from_context(source_context)
-        if source_status in {"deferred", "auth_needed", "permission_missing"}:
-            return TaskStateMachine.task_status_for_source_status(source_status).value
-        return TaskStatus.PLANNED.value
+        return TaskService.initial_task_status_for_create(
+            resolved_needs_human=resolved_needs_human,
+            source_needs_human=source_needs_human,
+            source_context=source_context,
+        )
 
     def _read_source_context(self, text: str, gateway: Any) -> dict[str, Any] | None:
         indexed = self._index_external_source_context(text)
         if indexed is not None:
             return self._normalize_document_source_context_for_codex(text, indexed)
-        reader = self.feishu_project_reader
-        if reader is None:
-            return indexed
         try:
-            context = reader.read_from_text(text, gateway=gateway)
+            context = self._resolve_source_context(text, gateway=gateway)
         except Exception as exc:  # defensive: source readers must not block task creation
             if indexed is None:
                 return None
@@ -2265,270 +1483,50 @@ class CodingOrchestrator:
 
     @staticmethod
     def _index_external_source_context(text: str) -> dict[str, Any] | None:
-        document_link = CodingOrchestrator._extract_first_feishu_document_link(text)
-        if document_link is not None:
-            source_type = "feishu_wiki" if document_link["document_kind"] == "wiki" else "feishu_docx"
-            return {
-                "read_status": "indexed",
-                "source_type": source_type,
-                "url": document_link["url"],
-                "document_kind": document_link["document_kind"],
-                "document_token": document_link["document_token"],
-                "requires_human_context": False,
-                "codex_resolvable": True,
-                "deferred_source_resolution": True,
-                "resolution_owner": "codex",
-                "lark_cli_command": (
-                    "rtk lark-cli docs +fetch --api-version v2 "
-                    f"--doc {document_link['url']} --doc-format markdown --format json"
-                ),
-                "recovery_action": (
-                    "Let the Codex plan session run the recorded lark_cli_command. "
-                    "If Codex cannot read it, report the lark-cli auth/scope error and ask the user to authorize or paste the source content."
-                ),
-            }
-        project_link = CodingOrchestrator._extract_first_feishu_project_link(text)
-        if project_link is not None:
-            return {
-                "read_status": "indexed",
-                "source_type": f"feishu_project_{project_link['work_item_type_key']}",
-                "url": project_link["url"],
-                "project_key": project_link["project_key"],
-                "work_item_type_key": project_link["work_item_type_key"],
-                "work_item_id": project_link["work_item_id"],
-                "requires_human_context": False,
-                "codex_resolvable": True,
-                "deferred_source_resolution": True,
-                "resolution_owner": "codex",
-                "recovery_action": (
-                    "Let the Codex plan session resolve this Feishu Project source if a supported lark-cli command is available. "
-                    "If Codex cannot read it, ask the user to authorize or paste the work item content."
-                ),
-            }
-        return None
+        return TaskService.index_external_source_context(text)
 
     @staticmethod
     def _extract_first_feishu_document_link(text: str) -> dict[str, str] | None:
-        match = _FEISHU_DOCUMENT_LINK_RE.search(text or "")
-        if not match:
-            return None
-        return {
-            "url": match.group("url"),
-            "document_kind": match.group("document_kind"),
-            "document_token": match.group("document_token"),
-        }
+        return TaskService.extract_first_feishu_document_link(text)
 
     @staticmethod
     def _extract_first_feishu_project_link(text: str) -> dict[str, str] | None:
-        match = _FEISHU_PROJECT_LINK_RE.search(text or "")
-        if not match:
-            return None
-        return {
-            "url": match.group("url"),
-            "project_key": match.group("project_key"),
-            "work_item_type_key": match.group("work_item_type_key"),
-            "work_item_id": match.group("work_item_id"),
-        }
+        return TaskService.extract_first_feishu_project_link(text)
 
     @staticmethod
     def _normalize_document_source_context_for_codex(
         text: str,
         context: dict[str, Any] | None,
     ) -> dict[str, Any] | None:
-        if not isinstance(context, dict) or not context:
-            return context
-        status = str(context.get("read_status") or "").strip().lower()
-        source_type = str(context.get("source_type") or "").strip().lower()
-        url = str(context.get("url") or "").strip().lower()
-        is_feishu_source = (
-            source_type.startswith("feishu_doc")
-            or source_type.startswith("feishu_wiki")
-            or source_type.startswith("feishu_project_")
-            or "feishu.cn" in url
-        )
-        if (
-            not context.get("requires_human_context")
-            and (
-                context.get("codex_resolvable")
-                or context.get("deferred_source_resolution")
-                or context.get("resolution_owner") in {"codex", "hermes_or_human"}
-            )
-        ):
-            if is_feishu_source and status in {"failed", "indexed"}:
-                normalized = dict(context)
-                normalized["requires_human_context"] = False
-                normalized["codex_resolvable"] = True
-                normalized["deferred_source_resolution"] = True
-                normalized["resolution_owner"] = "codex"
-                normalized["recovery_action"] = (
-                    "Let the Codex plan session read the source with lark-cli when possible. "
-                    "If Codex cannot read it, report the exact auth/scope error and ask the user to authorize or paste the source content."
-                )
-                return normalized
-            return context
-        if CodingOrchestrator._looks_like_failed_feishu_project_context(context):
-            normalized = dict(context)
-            project_link = CodingOrchestrator._extract_first_feishu_project_link(text)
-            if project_link is not None:
-                normalized["url"] = project_link["url"]
-                normalized["project_key"] = project_link["project_key"]
-                normalized["work_item_type_key"] = project_link["work_item_type_key"]
-                normalized["work_item_id"] = project_link["work_item_id"]
-                normalized["source_type"] = f"feishu_project_{project_link['work_item_type_key']}"
-            normalized["read_status"] = normalized.get("read_status") or "failed"
-            normalized["requires_human_context"] = False
-            normalized["codex_resolvable"] = True
-            normalized["deferred_source_resolution"] = True
-            normalized["resolution_owner"] = "codex"
-            normalized["recovery_action"] = normalized.get("recovery_action") or (
-                "Let the Codex plan session resolve this Feishu Project source if a supported lark-cli command is available. "
-                "If Codex cannot read it, ask the user to authorize or paste the work item content."
-            )
-            return normalized
-        if not CodingOrchestrator._looks_like_failed_feishu_document_context(context):
-            return context
-        normalized = dict(context)
-        document_link = CodingOrchestrator._extract_first_feishu_document_link(text)
-        source_type = str(normalized.get("source_type") or "").strip()
-        document_kind = str(normalized.get("document_kind") or "").strip()
-        if document_link is not None:
-            normalized["url"] = document_link["url"]
-            normalized["document_kind"] = document_link["document_kind"]
-            normalized["document_token"] = document_link["document_token"]
-        elif not document_kind:
-            if "wiki" in source_type:
-                normalized["document_kind"] = "wiki"
-            elif "docx" in source_type or "doc" in source_type:
-                normalized["document_kind"] = "docx"
-        if not source_type:
-            kind = str(normalized.get("document_kind") or "")
-            normalized["source_type"] = "feishu_wiki" if kind == "wiki" else "feishu_docx"
-        normalized["read_status"] = normalized.get("read_status") or "failed"
-        normalized["requires_human_context"] = False
-        normalized["codex_resolvable"] = True
-        normalized["deferred_source_resolution"] = True
-        normalized["resolution_owner"] = "codex"
-        url = str(normalized.get("url") or "").strip()
-        if url.startswith("http") and not normalized.get("lark_cli_command"):
-            normalized["lark_cli_command"] = (
-                "rtk lark-cli docs +fetch --api-version v2 "
-                f"--doc {url} --doc-format markdown --format json"
-            )
-        normalized["recovery_action"] = normalized.get("recovery_action") or (
-            "Let the Codex plan session run the recorded lark_cli_command. "
-            "If Codex cannot read it, report the exact auth/scope error and ask the user to authorize or paste the document content."
-        )
-        return normalized
+        return TaskService.normalize_document_source_context_for_codex(text, context)
 
     @staticmethod
     def _looks_like_failed_feishu_document_context(context: dict[str, Any]) -> bool:
-        status = str(context.get("read_status") or "").strip().lower()
-        if status and status != "failed":
-            return False
-        source_type = str(context.get("source_type") or "").strip().lower()
-        document_kind = str(context.get("document_kind") or "").strip().lower()
-        error = str(context.get("error") or "").strip().lower()
-        if document_kind in {"wiki", "docx"}:
-            return True
-        if source_type in {"feishu_wiki", "feishu_docx"}:
-            return True
-        if source_type.startswith("feishu_doc") or source_type.startswith("feishu_wiki"):
-            return True
-        document_markers = (
-            "docx:document:readonly",
-            "docx",
-            "wiki",
-            "lark document",
-            "feishu document",
-        )
-        auth_markers = ("need_user_authorization", "requires scope", "scope(s)")
-        return any(marker in error for marker in document_markers) and any(marker in error for marker in auth_markers)
+        return TaskService.looks_like_failed_feishu_document_context(context)
 
     @staticmethod
     def _looks_like_failed_feishu_project_context(context: dict[str, Any]) -> bool:
-        status = str(context.get("read_status") or "").strip().lower()
-        if status and status != "failed":
-            return False
-        source_type = str(context.get("source_type") or "").strip().lower()
-        url = str(context.get("url") or "").strip().lower()
-        if source_type.startswith("feishu_project_"):
-            return True
-        return "project.feishu.cn" in url
+        return TaskService.looks_like_failed_feishu_project_context(context)
 
     @staticmethod
     def _requirement_summary(clean_text: str, source_context: dict[str, Any] | None) -> str:
-        if not source_context or source_context.get("read_status") != "success":
-            return clean_text
-        if "raw_fields" in source_context:
-            return clean_text
-        summary = str(source_context.get("summary_markdown") or "").strip()
-        if not summary:
-            return clean_text
-        return f"{clean_text}\n\n{summary}".strip()
+        return TaskService.requirement_summary(clean_text, source_context)
 
     @staticmethod
     def _message_summary(clean_text: str, source_context: dict[str, Any] | None) -> str:
-        if source_context and source_context.get("title"):
-            return str(source_context["title"])
-        return clean_text
+        return TaskService.message_summary(clean_text, source_context)
 
     @staticmethod
     def _source_context_for_ledger(source_context: dict[str, Any]) -> dict[str, Any]:
-        if not source_context:
-            return {}
-        allowed_keys = {
-            "read_status",
-            "source_type",
-            "url",
-            "project_key",
-            "work_item_type_key",
-            "work_item_id",
-            "title",
-            "raw_fields",
-            "document_kind",
-            "document_token",
-            "document_id",
-            "revision_id",
-            "error",
-            "requires_human_context",
-            "codex_resolvable",
-            "deferred_source_resolution",
-            "resolution_owner",
-            "lark_cli_command",
-            "recovery_action",
-        }
-        return {key: source_context[key] for key in allowed_keys if key in source_context}
+        return TaskService.source_context_for_ledger(source_context)
 
     @staticmethod
     def _source_context_requires_human(source_context: dict[str, Any]) -> bool:
-        if not source_context:
-            return False
-        if (
-            source_context.get("codex_resolvable")
-            or source_context.get("deferred_source_resolution")
-            or source_context.get("resolution_owner") in {"codex", "hermes_or_human"}
-        ):
-            return False
-        return bool(source_context.get("requires_human_context"))
+        return TaskService.source_context_requires_human(source_context)
 
     @staticmethod
     def _event_source_for_ledger(event: Any | None) -> dict[str, Any]:
-        source = getattr(event, "source", None)
-        if source is None:
-            return {}
-        metadata: dict[str, Any] = {}
-        for key in ("platform", "chat_id", "user_id", "chat_type"):
-            value = getattr(source, key, None)
-            if value is not None and str(value) != "":
-                metadata[key] = CodingOrchestrator._plain_source_value(value)
-        message_id = getattr(event, "message_id", None)
-        if message_id:
-            metadata["message_id"] = CodingOrchestrator._plain_source_value(message_id)
-        return metadata
-
-    @staticmethod
-    def _plain_source_value(value: Any) -> str:
-        return str(getattr(value, "value", value))
+        return gateway_event_source_for_ledger(event)
 
     @staticmethod
     def _event_media_for_ledger(event: Any | None) -> list[dict[str, str]]:
@@ -2552,11 +1550,7 @@ class CodingOrchestrator:
 
     @staticmethod
     def _missing_feedback_media_message(task: dict[str, Any], action: str) -> str:
-        task_id = task.get("task_id") or "unknown"
-        return (
-            f"[{task_id}] 未启动 Codex：检测到图片占位 [Image]，但图片未捕获，Hermes 没有拿到可访问图片。\n"
-            f"请重发图片或图片链接，或补充文字描述后再发送 /coding {action} <反馈>。"
-        )
+        return feedback_presenter.missing_feedback_media_message(task, action)
 
     @staticmethod
     def _media_prompt_lines(media: list[dict[str, Any]], *, indent: str = "") -> list[str]:
@@ -2589,266 +1583,66 @@ class CodingOrchestrator:
         source_context: dict[str, Any],
         event: Any | None,
     ) -> list[dict[str, str]]:
-        refs: list[dict[str, str]] = [{"type": "task", "task_id": task_id}]
-        source_url = str(source_context.get("url") or "")
-        if source_url:
-            source_ref = {
-                "type": str(source_context.get("source_type") or "feishu_source"),
-                "url": source_url,
-            }
-            for key in (
-                "project_key",
-                "work_item_type_key",
-                "work_item_id",
-                "document_kind",
-                "document_token",
-                "document_id",
-                "revision_id",
-                "codex_resolvable",
-                "deferred_source_resolution",
-                "resolution_owner",
-                "lark_cli_command",
-                "recovery_action",
-            ):
-                value = source_context.get(key)
-                if value is not None and str(value) != "":
-                    source_ref[key] = str(value)
-            refs.append(source_ref)
-        for item in self._event_media_for_ledger(event):
-            media_ref = {"type": "media", "url": item["url"]}
-            if item.get("type"):
-                media_ref["media_type"] = item["type"]
-            refs.append(media_ref)
-        return refs
+        return self.task_service.draft_knowledge_source_refs(task_id, source_context, event)
+
+    def _handle_gateway_immediate_route(
+        self,
+        route: gateway_command_controller.GatewayCommandRoute,
+        event: Any,
+        gateway: Any,
+    ) -> dict[str, str] | None:
+        if route.reply_mode != gateway_command_controller.GATEWAY_REPLY_IMMEDIATE:
+            return None
+        message = self._gateway_immediate_route_message(route, event)
+        if message is None:
+            return None
+        self._reply_if_possible(gateway, event, message)
+        return {"action": "skip", "reason": "handled_by_coding_orchestration"}
+
+    def _gateway_immediate_route_message(
+        self,
+        route: gateway_command_controller.GatewayCommandRoute,
+        event: Any,
+    ) -> str | None:
+        raw_args = route.raw_args
+        handlers = {
+            "help": lambda: self.command_coding_help(raw_args),
+            "doctor": lambda: self.command_coding_doctor(),
+            "lark_preflight": lambda: self._format_lark_preflight(self.tool_lark_preflight({})),
+            "source_resolve": lambda: self._format_source_resolve(raw_args),
+            "list": lambda: self._format_task_list_for_event(event),
+            "project_list": lambda: self._format_project_list_for_event(event),
+            "project_init": lambda: self._initialize_project_for_event(raw_args, event),
+            "project_use": lambda: self._select_active_project_for_event(raw_args, event),
+            "project_status": lambda: self._active_project_status_for_event(event),
+            "project_clear": lambda: self._clear_active_project_for_event(event),
+            "use": lambda: self._select_active_task_for_event(raw_args, event),
+            "exit": lambda: self._clear_active_task_for_event(event),
+            "status": lambda: self._status_for_event(raw_args, event),
+            "complete": lambda: self.command_coding_complete(self._gateway_command_task_id(route, event)),
+            "cancel": lambda: self.command_coding_cancel(raw_args),
+            "restore": lambda: self.command_coding_restore(raw_args),
+            "delete": lambda: self._delete_task_from_args(raw_args),
+        }
+        handler = handlers.get(route.handler_key)
+        return handler() if handler is not None else None
 
     def _handle_explicit_gateway_command(self, text: str, event: Any, gateway: Any) -> dict[str, str] | None:
-        match = _CODING_COMMAND_RE.match(normalize_project_text(text))
-        if not match:
+        route = gateway_command_controller.route_coding_gateway_command(text)
+        if route is None:
             return None
-        command = match.group(1).lower()
-        raw_args = (match.group(2) or "").strip()
-        command, raw_args = self._normalize_coding_gateway_command(command, raw_args)
-        self._clear_pending_action_for_event(event)
-        if command in {"coding-help"}:
-            self._reply_if_possible(gateway, event, self.command_coding_help(raw_args))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-task":
-            source_context = self._read_source_context(raw_args, gateway)
-            validation_error = self._task_creation_validation_error(raw_args, source_context)
-            if validation_error:
-                self._reply_if_possible(gateway, event, validation_error)
-                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-            created = self._create_task_from_text(
-                raw_args,
-                auto_plan_on_ready=True,
-                source_context=source_context,
-                event=event,
-            )
-            self._reply_if_possible(gateway, event, created.message)
-            if created.auto_plan_started:
-                self._start_background_plan_only(created.task_id, gateway, event)
-            elif created.auto_implementation_started:
-                self._start_background_implementation(created.task_id, gateway, event)
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-list":
-            self._reply_if_possible(gateway, event, self._format_task_list_for_event(event))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-project-list":
-            self._reply_if_possible(gateway, event, self._format_project_list_for_event(event))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-project-init":
-            self._reply_if_possible(gateway, event, self._initialize_project_for_event(raw_args, event))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-project-use":
-            self._reply_if_possible(gateway, event, self._select_active_project_for_event(raw_args, event))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-project-status":
-            self._reply_if_possible(gateway, event, self._active_project_status_for_event(event))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-project-clear":
-            self._reply_if_possible(gateway, event, self._clear_active_project_for_event(event))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-use":
-            self._reply_if_possible(gateway, event, self._select_active_task_for_event(raw_args, event))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-exit":
-            self._reply_if_possible(gateway, event, self._clear_active_task_for_event(event))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-status":
-            self._reply_if_possible(gateway, event, self._status_for_event(raw_args, event))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-continue":
-            self._reply_if_possible(gateway, event, self._continue_active_task(raw_args, event, gateway))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-change":
-            self._reply_if_possible(gateway, event, self._change_active_task(raw_args, event, gateway))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-bugfix":
-            self._reply_if_possible(gateway, event, self._bugfix_active_task(raw_args, event, gateway))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-run":
-            task_id = raw_args or self._active_task_id_for_event(event) or ""
-            task = self.ledger.get_task(task_id) if task_id else None
-            if task is None:
-                message = (
-                    f"未找到任务：{task_id}"
-                    if task_id
-                    else "请提供任务 ID，或先使用 /coding use <task_id> 切换当前任务。"
-                )
-                self._reply_if_possible(gateway, event, message)
-                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-            if self._task_is_cancelled(task):
-                self._reply_if_possible(gateway, event, self._cancelled_task_message(task))
-                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-            task = self._apply_active_project_to_task_if_missing(task, event)
-            if str(task.get("status") or "") == TaskStatus.RUNNING.value:
-                self._reply_if_possible(gateway, event, self._plan_only_already_running_message(task))
-                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-            self._reply_if_possible(gateway, event, self._plan_only_started_message(task))
-            self._start_background_plan_only(task_id, gateway, event)
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command in {"coding-analyze", "coding-breakdown"}:
-            task_id = raw_args or self._active_task_id_for_event(event) or ""
-            self._reply_if_possible(gateway, event, self.command_coding_breakdown(task_id))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-approve-breakdown":
-            task_id = raw_args or self._active_task_id_for_event(event) or ""
-            self._reply_if_possible(gateway, event, self.command_coding_approve_breakdown(task_id))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-materialize":
-            task_id = raw_args or self._active_task_id_for_event(event) or ""
-            self._reply_if_possible(gateway, event, self.command_coding_materialize(task_id))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-implement":
-            task_id = raw_args or self._active_task_id_for_event(event) or ""
-            task = self.ledger.get_task(task_id) if task_id else None
-            if task is None:
-                self._reply_if_possible(gateway, event, "请提供任务 ID，或先使用 /coding use <task_id> 切换当前任务。")
-                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-            if self._task_is_cancelled(task):
-                self._reply_if_possible(gateway, event, self._cancelled_task_message(task))
-                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-            task = self._apply_active_project_to_task_if_missing(task, event)
-            if not self._task_is_plan_ready_for_implementation(task):
-                self._record_implementation_confirmation_before_plan_ready(task_id, text, event)
-                self._reply_if_possible(gateway, event, self._implementation_blocked_before_plan_ready_message(task))
-                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-            self._record_implementation_confirmation(task_id, text, event)
-            self._reply_if_possible(gateway, event, self._implementation_started_message(task))
-            self._start_background_implementation(task_id, gateway, event)
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-qa":
-            task_id = raw_args or self._active_task_id_for_event(event) or ""
-            task = self.ledger.get_task(task_id) if task_id else None
-            if task is None:
-                self._reply_if_possible(gateway, event, "请提供任务 ID，或先使用 /coding use <task_id> 切换当前任务。")
-                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-            task = self._apply_active_project_to_task_if_missing(task, event)
-            blocked = self._qa_start_blocker(task)
-            if blocked:
-                self._reply_if_possible(gateway, event, blocked)
-                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-            self._record_qa_request(task_id, text, event)
-            self._reply_if_possible(gateway, event, self._qa_started_message(task))
-            self._start_background_qa(task_id, gateway, event)
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-prepare-merge-test":
-            task_id = raw_args.strip() or self._active_task_id_for_event(event) or ""
-            task = self.ledger.get_task(task_id) if task_id else None
-            assessment = (
-                self._blocked_task_merge_test_assessment(task)
-                if task is not None and task.get("status") == TaskStatus.BLOCKED.value
-                else {}
-            )
-            message = self.command_prepare_merge_test(task_id)
-            if assessment.get("mergeable") and assessment.get("requires_acceptance"):
-                self._store_pending_action_for_event(
-                    event,
-                    task_id=task_id,
-                    action="merge_test_accept_risk",
-                    command_text=f"/coding merge-test {task_id} --accept-risk",
-                    reason=str(assessment.get("impact") or "blocked task merge-test 需要人工接受风险"),
-                    mode=RunMode.MERGE_TEST.value,
-                )
-            self._reply_if_possible(gateway, event, message)
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-merge-test":
-            args = raw_args.split()
-            accept_risk = "--accept-risk" in args
-            confirm_qa_risk = "--confirm-qa-risk" in args or accept_risk
-            task_id = next((part for part in args if not part.startswith("--")), "") or self._active_task_id_for_event(event) or ""
-            task = self.ledger.get_task(task_id) if task_id else None
-            if task is None:
-                self._reply_if_possible(gateway, event, "请提供任务 ID，或先使用 /coding use <task_id> 切换当前任务。")
-                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-            assessment = self._blocked_task_merge_test_assessment(task)
-            if assessment.get("requires_acceptance") and not accept_risk:
-                self._store_pending_action_for_event(
-                    event,
-                    task_id=task_id,
-                    action="merge_test_accept_risk",
-                    command_text=f"/coding merge-test {task_id} --accept-risk",
-                    reason=str(assessment.get("impact") or "blocked task merge-test 需要人工接受风险"),
-                    mode=RunMode.MERGE_TEST.value,
-                )
-                self._reply_if_possible(gateway, event, self._blocked_merge_test_risk_confirmation_message(task_id, assessment))
-                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-            release = self._release_blocked_task_for_merge_test_if_allowed(task, accept_risk=accept_risk)
-            if release:
-                task = self.ledger.get_task(task_id) or task
-            blocked = self._merge_test_blocker(task)
-            if blocked:
-                self._reply_if_possible(gateway, event, blocked)
-                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-            qa_evidence = self._qa_evidence_for_merge_test(task)
-            if qa_evidence.get("requires_confirmation") == "true" and not confirm_qa_risk:
-                self._store_pending_action_for_event(
-                    event,
-                    task_id=task_id,
-                    action="merge_test_qa_risk",
-                    command_text=f"/coding merge-test {task_id} --confirm-qa-risk",
-                    reason=str(qa_evidence.get("impact") or "merge-test 存在 QA 风险，需要人工确认"),
-                    mode=RunMode.MERGE_TEST.value,
-                )
-                self._reply_if_possible(
-                    gateway,
-                    event,
-                    self._merge_test_qa_risk_confirmation_message(task_id, qa_evidence),
-                )
-                return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-            self.ledger.update_phase(task_id, TaskPhase.READY_TO_MERGE_TEST.value)
-            self.ledger.append_merge_record(
-                task_id,
-                {
-                    "type": "merge_test_requested",
-                    "status": "running",
-                    "target_branch": "test",
-                    "qa_evidence": qa_evidence,
-                    "blocked_release": release,
-                    "gateway_source": self._event_source_for_ledger(event),
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
-            )
-            started_message = self._merge_test_started_message(task)
-            if release:
-                started_message = f"{started_message}\n{self._blocked_merge_test_release_note(release)}"
-            self._reply_if_possible(gateway, event, started_message)
-            self._start_background_merge_test(task_id, gateway, event)
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-complete":
-            task_id = raw_args or self._active_task_id_for_event(event) or ""
-            self._reply_if_possible(gateway, event, self.command_coding_complete(task_id))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-cancel":
-            self._reply_if_possible(gateway, event, self.command_coding_cancel(raw_args))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-restore":
-            self._reply_if_possible(gateway, event, self.command_coding_restore(raw_args))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        if command == "coding-delete":
-            self._reply_if_possible(gateway, event, self._delete_task_from_args(raw_args))
-            return {"action": "skip", "reason": "handled_by_coding_orchestration"}
-        return None
+        if route.clears_pending_action:
+            self._clear_pending_action_for_event(event)
+        immediate_route = self._handle_gateway_immediate_route(route, event, gateway)
+        if immediate_route is not None:
+            return immediate_route
+        return gateway_command_executor.handle_gateway_custom_route(
+            self,
+            route,
+            text=text,
+            event=event,
+            gateway=gateway,
+        )
 
     def _handle_coding_mode_gateway_message(self, text: str, event: Any, gateway: Any) -> dict[str, str] | None:
         normalized = normalize_project_text(text)
@@ -3099,94 +1893,21 @@ class CodingOrchestrator:
 
     @staticmethod
     def _rewrite_requires_confirmation(command_text: str, rewrite: dict[str, Any]) -> bool:
-        if bool(rewrite.get("needs_confirmation")):
-            return True
-        risk_level = str(rewrite.get("risk_level") or "").strip().lower()
-        if risk_level == "destructive":
-            return True
-        normalized = normalize_project_text(command_text).lower()
-        return normalized.startswith("/coding delete ") or normalized.startswith("/coding cancel ")
+        return gateway_command_controller.rewrite_requires_confirmation(command_text, rewrite)
 
     def _canonical_rewrite_command(self, value: Any) -> str:
-        if not isinstance(value, str):
-            return ""
-        command_text = normalize_project_text(value)
-        match = _CODING_COMMAND_RE.match(command_text)
-        if not match:
-            return ""
-        raw_args = (match.group(2) or "").strip()
-        action, _, _rest = raw_args.partition(" ")
-        action = action.strip().lower()
-        allowed_actions = allowed_top_level_actions()
-        if action not in allowed_actions:
-            return ""
-        internal_command, rest = self._normalize_coding_gateway_command("coding", raw_args)
-        action_by_internal = {
-            "coding-help": "help",
-            "coding-task": "task",
-            "coding-list": "list",
-            "coding-project-list": "project list",
-            "coding-project-init": "project init",
-            "coding-project-use": "project use",
-            "coding-project-status": "project status",
-            "coding-project-clear": "project clear",
-            "coding-use": "use",
-            "coding-exit": "exit",
-            "coding-status": "status",
-            "coding-continue": "continue",
-            "coding-change": "change",
-            "coding-bugfix": "bugfix",
-            "coding-run": "run",
-            "coding-implement": "implement",
-            "coding-qa": "qa",
-            "coding-cancel": "cancel",
-            "coding-delete": "delete",
-            "coding-prepare-merge-test": "prepare-merge-test",
-            "coding-merge-test": "merge-test",
-            "coding-complete": "complete",
-            "coding-restore": "restore",
-        }
-        canonical_action = action_by_internal.get(internal_command)
-        if canonical_action is None:
-            return ""
-        return f"/coding {canonical_action}{f' {rest}' if rest else ''}".strip()
+        return gateway_command_controller.canonical_rewrite_command(value, allowed_top_level_actions())
 
     def _rewrite_confirmation_message(self, command_text: str, rewrite: dict[str, Any]) -> str:
-        reason = normalize_project_text(str(rewrite.get("reason") or ""))
-        lines = [
-            "我理解你要执行：",
-            "",
-            command_text,
-        ]
-        if reason:
-            lines.extend(["", f"理由：{reason}"])
-        lines.extend(["", "回复“确认”执行，或回复“取消”放弃。"])
-        return "\n".join(lines)
+        return gateway_rewrite_presenter.format_rewrite_confirmation_message(command_text, rewrite)
 
     @staticmethod
     def _rewrite_needs_human_confirmation_message(text: str, rewrite: dict[str, Any], rejection: str) -> str:
-        del rewrite
-        rejection_text = CodingOrchestrator._rewrite_rejection_user_text(rejection)
-        return "\n".join(
-            [
-                "我还不能确定要执行哪个 coding 动作，所以没有创建任务，也没有启动 Codex。",
-                f"原话：{text}",
-                f"需要补充：{rejection_text}",
-                "请补充项目或直接发送 /coding task --project <项目名> <完整需求>。",
-            ]
-        )
+        return gateway_rewrite_presenter.format_rewrite_needs_human_confirmation_message(text, rewrite, rejection)
 
     @staticmethod
     def _rewrite_rejection_user_text(rejection: str) -> str:
-        normalized = normalize_project_text(str(rejection or ""))
-        if not normalized:
-            return "请补充项目、任务目标或要执行的动作。"
-        internal_markers = ("置信度", "LLM", "canonical_command", "command_rewriter", "JSON", "阈值")
-        if any(marker in normalized for marker in internal_markers):
-            return "请补充项目、任务目标或要执行的动作。"
-        if "缺少必要信息" in normalized:
-            return "请补充项目、任务目标或要执行的动作。"
-        return normalized
+        return gateway_rewrite_presenter.rewrite_rejection_user_text(rejection)
 
     def _rewrite_handoff_to_hermes_message(
         self,
@@ -3195,56 +1916,9 @@ class CodingOrchestrator:
         rejection: str,
         event: Any,
     ) -> str:
+        del rewrite
         context = self._coding_rewrite_context(text, event)
-        lines = [
-            "我还不能确定这句话要创建或操作哪个开发任务，所以没有创建任务，也没有启动执行。",
-            "",
-            f"原话：{text}",
-            f"- 需要补充：{self._rewrite_rejection_user_text(rejection)}",
-        ]
-        active_project = context.get("active_project")
-        if isinstance(active_project, dict) and active_project:
-            project_name = str(active_project.get("name") or active_project.get("project") or "").strip()
-            if project_name:
-                lines.append(f"- 当前项目：{project_name}")
-        active_task = context.get("active_task")
-        if isinstance(active_task, dict) and active_task:
-            task_summary = normalize_project_text(str(active_task.get("summary") or ""))
-            task_line = f"- 当前任务：{active_task.get('task_id') or '未知'}，状态 {active_task.get('status_label') or active_task.get('status') or '未知'}"
-            project = str(active_task.get("project") or "").strip()
-            if project:
-                task_line += f"，项目 {project}"
-            if task_summary:
-                task_line += f"，摘要：{task_summary}"
-            lines.append(task_line)
-            next_step = normalize_project_text(str(active_task.get("next_step") or ""))
-            if next_step:
-                lines.append(f"- 当前任务建议下一步：{next_step}")
-        known_tasks = context.get("known_tasks")
-        if isinstance(known_tasks, list) and known_tasks:
-            task_lines = []
-            for task in known_tasks[:3]:
-                if not isinstance(task, dict):
-                    continue
-                task_id = str(task.get("task_id") or "").strip()
-                if not task_id:
-                    continue
-                summary = normalize_project_text(str(task.get("summary") or ""))
-                status = task_status_display(task.get("status"))
-                item = f"{task_id}（{status}）"
-                if summary:
-                    item += f"：{summary}"
-                task_lines.append(item)
-            if task_lines:
-                lines.append(f"- 最近相关任务：{'；'.join(task_lines)}")
-        lines.extend(
-            [
-                "- 可用入口：/coding task --project <项目名> <完整需求>、/coding run <task_id>、/coding implement <task_id>、/coding status <task_id>。",
-                "- 如果这不是开发任务操作，可以直接继续普通对话；如果要进入开发流程，请补充项目、任务目标或明确命令。",
-                "- 当前没有创建任务、启动执行或执行 /coding 命令。",
-            ]
-        )
-        return "\n".join(lines)
+        return gateway_rewrite_presenter.format_rewrite_handoff_to_hermes_message(text, context, rejection)
 
     def _handle_pending_action_gateway_message(
         self,
@@ -3254,39 +1928,13 @@ class CodingOrchestrator:
         *,
         include_latest_human_required: bool,
     ) -> dict[str, str] | None:
-        normalized = normalize_project_text(text)
-        pending = self._pending_action_for_event(event)
-        from_binding = pending is not None
-        if pending is None and include_latest_human_required and self._is_human_confirmation_reply(normalized):
-            pending = self._pending_action_from_latest_human_required_run(event)
-        if pending is None:
-            return None
-        if self._is_human_cancellation_reply(normalized):
-            if from_binding:
-                self._clear_pending_action_for_event(event)
-            self._reply_if_possible(gateway, event, "已取消当前待确认动作，未启动新的执行。")
-            return {"action": "skip", "reason": "coding_pending_action_cancelled"}
-        if self._is_human_confirmation_reply(normalized):
-            if from_binding:
-                self._clear_pending_action_for_event(event)
-            task_id = str(pending.get("task_id") or "").strip()
-            task = self.ledger.get_task(task_id) if task_id else None
-            if task is not None and self._task_is_cancelled(task):
-                self._reply_if_possible(gateway, event, self._cancelled_task_message(task))
-                return {"action": "skip", "reason": "coding_pending_action_cancelled_task"}
-            self._record_pending_action_confirmation(pending, normalized, event)
-            command_text = str(pending.get("command_text") or "").strip()
-            handled = self._handle_explicit_gateway_command(command_text, event, gateway)
-            if handled is None:
-                self._reply_if_possible(
-                    gateway,
-                    event,
-                    f"未执行：待确认动作已失效。\n候选命令：{command_text or '无'}\n请重新描述或直接发送 /coding <action>。",
-                )
-            return {"action": "skip", "reason": "coding_pending_action_confirmed"}
-        if from_binding:
-            self._clear_pending_action_for_event(event)
-        return None
+        return gateway_pending_action_executor.handle_pending_action_gateway_message(
+            self,
+            text,
+            event,
+            gateway,
+            include_latest_human_required=include_latest_human_required,
+        )
 
     def _store_pending_action_for_event(
         self,
@@ -3299,87 +1947,30 @@ class CodingOrchestrator:
         run_id: str = "",
         mode: str = "",
     ) -> bool:
-        binding_key = self._pending_action_binding_key_for_event(event)
-        if not binding_key:
-            return False
-        scope = self._event_source_for_ledger(event)
-        scope["pending_action"] = {
-            "task_id": task_id,
-            "action": action,
-            "command_text": command_text,
-            "reason": reason,
-            "run_id": run_id,
-            "mode": mode,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        self.ledger.bind_active_task(
-            binding_key=binding_key,
-            task_id=_PENDING_ACTION_TASK_ID,
-            scope=scope,
+        return self.gateway_binding_service.store_pending_action_for_event(
+            event,
+            task_id=task_id,
+            action=action,
+            command_text=command_text,
+            reason=reason,
+            run_id=run_id,
+            mode=mode,
         )
-        return True
 
     def _pending_action_for_event(self, event: Any | None) -> dict[str, Any] | None:
-        binding_key = self._pending_action_binding_key_for_event(event)
-        if not binding_key:
-            return None
-        binding = self.ledger.get_active_binding(binding_key)
-        if not binding or binding.get("task_id") != _PENDING_ACTION_TASK_ID:
-            return None
-        scope = binding.get("scope") or {}
-        pending = scope.get("pending_action")
-        return pending if isinstance(pending, dict) else None
+        return self.gateway_binding_service.pending_action_for_event(event)
 
     def _pending_action_from_latest_human_required_run(self, event: Any | None) -> dict[str, Any] | None:
-        task = self._active_task_for_event(event)
-        if task is None:
-            return None
-        for run in reversed(task.get("agent_runs") or []):
-            if run.get("mode") != RunMode.MERGE_TEST.value:
-                continue
-            report = self._read_report_json((run.get("artifact") or {}).get("report"))
-            if not bool(report.get("human_required")):
-                return None
-            task_id = str(task.get("task_id") or "")
-            qa_evidence = self._qa_evidence_for_merge_test(task)
-            qa_flag = " --confirm-qa-risk" if qa_evidence.get("requires_confirmation") == "true" else ""
-            return {
-                "task_id": task_id,
-                "action": "merge_test_retry",
-                "command_text": f"/coding merge-test {task_id}{qa_flag}",
-                "reason": normalize_project_text(str(report.get("summary_markdown") or "merge-test 需要人工确认")),
-                "run_id": str(run.get("run_id") or ""),
-                "mode": RunMode.MERGE_TEST.value,
-            }
-        return None
+        return gateway_pending_action_executor.pending_action_from_latest_human_required_run(self, event)
 
     def _clear_pending_action_for_event(self, event: Any | None) -> bool:
-        binding_key = self._pending_action_binding_key_for_event(event)
-        if not binding_key:
-            return False
-        return self.ledger.clear_active_binding(binding_key)
+        return self.gateway_binding_service.clear_pending_action_for_event(event)
 
     def _pending_action_binding_key_for_event(self, event: Any | None) -> str | None:
-        binding_key = self._binding_key_for_event(event)
-        return f"{binding_key}:coding_pending_action" if binding_key else None
+        return self.gateway_binding_service.pending_action_binding_key_for_event(event)
 
     def _record_pending_action_confirmation(self, pending: dict[str, Any], text: str, event: Any | None) -> None:
-        task_id = str(pending.get("task_id") or "").strip()
-        if not task_id or self.ledger.get_task(task_id) is None:
-            return
-        self.ledger.append_human_decision(
-            task_id,
-            {
-                "type": "pending_action_confirmation",
-                "action": str(pending.get("action") or ""),
-                "command": str(pending.get("command_text") or ""),
-                "source_run_id": str(pending.get("run_id") or ""),
-                "mode": str(pending.get("mode") or ""),
-                "text": text,
-                "gateway_source": self._event_source_for_ledger(event),
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            },
-        )
+        self.gateway_binding_service.record_pending_action_confirmation(pending, text, event)
 
     def _store_pending_rewrite_for_event(
         self,
@@ -3388,142 +1979,53 @@ class CodingOrchestrator:
         rewrite: dict[str, Any],
         user_text: str,
     ) -> bool:
-        binding_key = self._pending_rewrite_binding_key_for_event(event)
-        if not binding_key:
-            return False
-        scope = self._event_source_for_ledger(event)
-        scope["pending_rewrite"] = {
-            "canonical_command": command_text,
-            "rewrite": rewrite,
-            "user_text": user_text,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        }
-        self.ledger.bind_active_task(
-            binding_key=binding_key,
-            task_id=_PENDING_REWRITE_TASK_ID,
-            scope=scope,
-        )
-        return True
+        return self.gateway_binding_service.store_pending_rewrite_for_event(event, command_text, rewrite, user_text)
 
     def _pending_rewrite_for_event(self, event: Any | None) -> dict[str, Any] | None:
-        binding_key = self._pending_rewrite_binding_key_for_event(event)
-        if not binding_key:
-            return None
-        binding = self.ledger.get_active_binding(binding_key)
-        if not binding or binding.get("task_id") != _PENDING_REWRITE_TASK_ID:
-            return None
-        scope = binding.get("scope") or {}
-        pending = scope.get("pending_rewrite")
-        return pending if isinstance(pending, dict) else None
+        return self.gateway_binding_service.pending_rewrite_for_event(event)
 
     def _clear_pending_rewrite_for_event(self, event: Any | None) -> bool:
-        binding_key = self._pending_rewrite_binding_key_for_event(event)
-        if not binding_key:
-            return False
-        return self.ledger.clear_active_binding(binding_key)
+        return self.gateway_binding_service.clear_pending_rewrite_for_event(event)
 
     def _pending_rewrite_binding_key_for_event(self, event: Any | None) -> str | None:
-        binding_key = self._binding_key_for_event(event)
-        return f"{binding_key}:coding_rewrite_pending" if binding_key else None
+        return self.gateway_binding_service.pending_rewrite_binding_key_for_event(event)
 
     @staticmethod
     def _is_rewrite_confirmation(text: str) -> bool:
-        value = normalize_project_text(text).lower()
-        return value in {"确认", "确认执行", "执行", "可以", "可以执行", "好的", "好", "ok", "okay", "yes", "y"}
+        return gateway_command_controller.is_rewrite_confirmation(text)
 
     @staticmethod
     def _is_rewrite_cancellation(text: str) -> bool:
-        value = normalize_project_text(text).lower()
-        return value in {"取消", "取消执行", "放弃", "不要执行", "不执行", "算了", "no", "n"}
+        return gateway_command_controller.is_rewrite_cancellation(text)
 
     @staticmethod
     def _is_human_confirmation_reply(text: str) -> bool:
-        value = normalize_project_text(text).lower()
-        if not value or CodingOrchestrator._is_human_cancellation_reply(value):
-            return False
-        if value in {"确认", "确认执行", "执行", "可以", "可以执行", "好的", "好", "ok", "okay", "yes", "y", "继续", "确认继续"}:
-            return True
-        confirmation_markers = ("确认", "确定", "可以", "同意", "继续", "执行", "提交")
-        return len(value) <= 80 and any(marker in value for marker in confirmation_markers)
+        return gateway_command_controller.is_human_confirmation_reply(text)
 
     @staticmethod
     def _is_human_cancellation_reply(text: str) -> bool:
-        value = normalize_project_text(text).lower()
-        if value in {"取消", "取消执行", "放弃", "不要执行", "不执行", "算了", "no", "n", "先别", "暂停"}:
-            return True
-        cancellation_markers = ("取消", "放弃", "不要", "不可以", "别", "暂停")
-        return len(value) <= 80 and any(marker in value for marker in cancellation_markers)
+        return gateway_command_controller.is_human_cancellation_reply(text)
 
     def _handle_commands_gateway_command(self, text: str, event: Any, gateway: Any) -> dict[str, str] | None:
-        match = _COMMANDS_COMMAND_RE.match(normalize_project_text(text))
-        if not match:
+        parsed = gateway_command_controller.parse_commands_gateway_command(text)
+        if parsed is None:
             return None
-        self._reply_if_possible(gateway, event, self.command_commands_listing(match.group(1).strip()))
+        self._reply_if_possible(gateway, event, self.command_commands_listing(parsed.raw_args))
         return {"action": "skip", "reason": "handled_by_coding_orchestration_commands"}
 
     @staticmethod
     def _normalize_coding_gateway_command(command: str, raw_args: str) -> tuple[str, str]:
-        if command == "coding-help":
-            return "coding-help", raw_args
-        if command != "coding":
-            return command, raw_args
-        action, _, rest = raw_args.strip().partition(" ")
-        action = action.strip().lower()
-        rest = rest.strip()
-        if action in {"", "help", "-help", "--help"}:
-            return "coding-help", rest
-        if action == "project":
-            project_action, _, project_rest = rest.partition(" ")
-            project_action = project_action.strip().lower()
-            project_rest = project_rest.strip()
-            project_map = {
-                "list": "coding-project-list",
-                "init": "coding-project-init",
-                "use": "coding-project-use",
-                "status": "coding-project-status",
-                "clear": "coding-project-clear",
-            }
-            if not project_action:
-                return "coding-project-status", ""
-            mapped_project = project_map.get(project_action)
-            if mapped_project:
-                return mapped_project, project_rest
-            return "coding-help", raw_args
-        command_map = {
-            "task": "coding-task",
-            "new": "coding-task",
-            "create": "coding-task",
-            "doctor": "coding-doctor",
-            "lark-preflight": "coding-lark-preflight",
-            "source-resolve": "coding-source-resolve",
-            "status": "coding-status",
-            "list": "coding-list",
-            "use": "coding-use",
-            "exit": "coding-exit",
-            "continue": "coding-continue",
-            "change": "coding-change",
-            "revise": "coding-change",
-            "bugfix": "coding-bugfix",
-            "run": "coding-run",
-            "analyze": "coding-analyze",
-            "breakdown": "coding-breakdown",
-            "approve-breakdown": "coding-approve-breakdown",
-            "materialize": "coding-materialize",
-            "implement": "coding-implement",
-            "qa": "coding-qa",
-            "test": "coding-qa",
-            "cancel": "coding-cancel",
-            "restore": "coding-restore",
-            "reopen": "coding-restore",
-            "delete": "coding-delete",
-            "prepare-merge-test": "coding-prepare-merge-test",
-            "merge-test": "coding-merge-test",
-            "complete": "coding-complete",
-        }
-        mapped = command_map.get(action)
-        if mapped:
-            return mapped, rest
-        return "coding-help", raw_args
+        return gateway_command_controller.normalize_coding_gateway_command(command, raw_args)
+
+    def _gateway_command_task_id(
+        self,
+        route: gateway_command_controller.GatewayCommandRoute,
+        event: Any | None,
+    ) -> str:
+        return gateway_command_controller.gateway_route_task_id(
+            route,
+            self._active_task_id_for_event(event),
+        )
 
     def _initialize_project_for_event(self, raw_args: str, event: Any | None) -> str:
         candidate = normalize_project_text(raw_args).strip()
@@ -3721,44 +2223,22 @@ class CodingOrchestrator:
             return 0
 
     def _bind_active_project_for_event(self, project: dict[str, Any], event: Any | None) -> bool:
-        binding_key = self._active_project_binding_key_for_event(event)
-        name = str(project.get("name") or "").strip()
-        if not binding_key or not name:
-            return False
-        source = self._event_source_for_ledger(event)
-        source["active_project"] = project
-        self.ledger.bind_active_task(
-            binding_key=binding_key,
-            task_id=f"{_ACTIVE_PROJECT_TASK_ID_PREFIX}{name}",
-            scope=source,
-        )
-        return True
+        return self.gateway_binding_service.bind_active_project_for_event(project, event)
 
     def _active_project_for_event(self, event: Any | None) -> dict[str, Any] | None:
-        binding_key = self._active_project_binding_key_for_event(event)
-        if not binding_key:
-            return None
-        binding = self.ledger.get_active_binding(binding_key)
-        task_id = str((binding or {}).get("task_id") or "")
-        if not binding or not task_id.startswith(_ACTIVE_PROJECT_TASK_ID_PREFIX):
-            return None
-        scope = binding.get("scope") or {}
-        project = scope.get("active_project")
-        if not isinstance(project, dict):
-            project = {"name": task_id.removeprefix(_ACTIVE_PROJECT_TASK_ID_PREFIX)}
-        latest = self._find_project_profile(str(project.get("name") or ""))
-        return {**project, **(latest or {})}
+        return self.gateway_binding_service.active_project_for_event(
+            event,
+            find_project_profile=self._find_project_profile,
+        )
 
     def _clear_active_project_for_event(self, event: Any | None) -> str:
-        binding_key = self._active_project_binding_key_for_event(event)
-        if not binding_key:
+        if not self._active_project_binding_key_for_event(event):
             return "当前来源无法识别，没有可清除的当前项目。"
-        cleared = self.ledger.clear_active_binding(binding_key)
+        cleared = self.gateway_binding_service.clear_active_project_for_event(event)
         return "已清除当前项目，不会删除项目上下文。" if cleared else "当前没有绑定项目。"
 
     def _active_project_binding_key_for_event(self, event: Any | None) -> str | None:
-        binding_key = self._binding_key_for_event(event)
-        return f"{binding_key}:active_project" if binding_key else None
+        return self.gateway_binding_service.active_project_binding_key_for_event(event)
 
     def _format_task_list_for_event(self, event: Any) -> str:
         binding_key = self._binding_key_for_event(event)
@@ -3774,58 +2254,15 @@ class CodingOrchestrator:
         return "\n".join(lines)
 
     def _format_task_list(self, tasks: list[dict[str, Any]], active_id: str | None = None) -> str:
-        lines = ["当前未结束开发任务："]
-        for index, task in enumerate(tasks):
-            if index > 0:
-                lines.append("")
-            marker = "*" if active_id and task["task_id"] == active_id else ""
-            task_id = f"{marker}{task['task_id']}" if marker else str(task["task_id"])
-            lines.append(
-                f"任务：{task_id}\n"
-                f"状态：{task_status_display(task.get('status'))}\n"
-                f"项目：{self._task_project_label(task)}\n"
-                f"任务描述：{self._task_description_label(task)}"
-            )
-        return "\n".join(lines)
+        return task_list_presenter.format_task_list(tasks, active_id=active_id)
 
     @staticmethod
     def _task_project_label(task: dict[str, Any]) -> str:
-        source = task.get("source") or {}
-        session = task.get("task_session") or {}
-        project_name = source.get("project_name") or session.get("project_name")
-        if project_name:
-            return str(project_name)
-        project_path = task.get("project_path")
-        if project_path:
-            return Path(str(project_path)).name
-        return "未确定"
+        return task_list_presenter.task_project_label(task)
 
     @staticmethod
     def _task_description_label(task: dict[str, Any]) -> str:
-        summary = normalize_project_text(str(task.get("requirement_summary") or ""))
-        if not summary:
-            return "未填写"
-        summary = re.sub(r"##\s*人工(?:计划|实现)?反馈.*$", "", summary, flags=re.S).strip()
-        summary = re.sub(r"需要支持以下功能[:：]?", "支持", summary)
-        summary = re.sub(r"\s*[1-9][、.．]\s*", "；", summary)
-        parts = [part.strip(" ：:；，,。") for part in summary.split("；") if part.strip(" ：:；，,。")]
-        if len(parts) > 1 and parts[0].endswith("支持"):
-            first_item = parts[1].split("，", 1)[0].strip(" ：:；，,。")
-            summary = f"{parts[0]}{first_item}"
-        elif parts:
-            summary = parts[0]
-        replacements = {
-            "的订单列表的": "订单列表",
-            "批量绑定商品弹窗": "批量绑定商品弹窗",
-            "变体ID、商品名称两种方式的搜索": "变体ID/商品名称搜索",
-            "变体ID、商品名称": "变体ID/商品名称",
-        }
-        for old, new in replacements.items():
-            summary = summary.replace(old, new)
-        summary = re.sub(r"搜索商品现在要支持", "支持", summary)
-        summary = summary.replace("支持支持", "支持")
-        summary = re.sub(r"\s+", "", summary)
-        return summary if len(summary) <= 42 else f"{summary[:39]}..."
+        return task_list_presenter.task_description_label(task)
 
     def _select_active_task_for_event(self, task_id: str, event: Any) -> str:
         task_id = task_id.strip()
@@ -3843,10 +2280,9 @@ class CodingOrchestrator:
         )
 
     def _clear_active_task_for_event(self, event: Any) -> str:
-        binding_key = self._binding_key_for_event(event)
-        if not binding_key:
+        if not self._binding_key_for_event(event):
             return "当前来源无法识别，没有可退出的当前任务。"
-        cleared = self.ledger.clear_active_binding(binding_key)
+        cleared = self.gateway_binding_service.clear_active_task_for_event(event)
         mode_cleared = self._disable_coding_mode_for_event(event)
         pending_cleared = self._clear_pending_rewrite_for_event(event)
         action_cleared = self._clear_pending_action_for_event(event)
@@ -3879,212 +2315,47 @@ class CodingOrchestrator:
         return self._format_task_status_details(task, include_branch=True)
 
     def _task_status_payload(self, task_id: str) -> dict[str, Any]:
-        task = self.ledger.get_task(task_id)
-        if not task:
-            return {"ok": False, "task_id": task_id, "error": f"task not found: {task_id}"}
-        source = task.get("source") or {}
-        source_context = source.get("source_context") or {}
-        session = task.get("task_session") or {}
-        runner = session.get("runner") or {}
-        latest_run = self._latest_agent_run(task)
-        status_view = task_status_view(task.get("status"))
-        return {
-            "ok": True,
-            "task_id": task_id,
-            **status_view,
-            "status_label": task_status_display(task.get("status")),
-            "phase": task.get("phase"),
-            "project_name": source.get("project_name") or session.get("project_name"),
-            "project_path": task.get("project_path"),
-            "source_status": self._source_status_from_context(source_context),
-            "source_type": source_context.get("source_type") or source.get("type"),
-            "source_url": source_context.get("url") or "",
-            "source_recovery_action": source_context.get("recovery_action") or "",
-            "runner": runner.get("provider") or runner.get("name") or "",
-            "last_run_id": (latest_run or {}).get("run_id") or "",
-            "runtime_status": (latest_run or {}).get("status") or "",
-            "kanban_task_id": session.get("kanban_task_id") or "",
-            "kanban_sync": session.get("kanban_sync") or {},
-            "next_actions": self._next_actions_for_task_payload(task, source_context),
-        }
+        return self.task_service.task_status_payload(task_id)
 
     @staticmethod
     def _latest_agent_run(task: dict[str, Any]) -> dict[str, Any] | None:
-        runs = task.get("agent_runs") or []
-        return runs[-1] if runs else None
+        return TaskService.latest_agent_run(task)
 
     @staticmethod
     def _next_actions_for_task_payload(task: dict[str, Any], source_context: dict[str, Any]) -> list[str]:
-        source_status = CodingOrchestrator._source_status_from_context(source_context)
-        if source_status in {"deferred", "auth_needed", "permission_missing"}:
-            if source_context.get("codex_resolvable") or source_context.get("resolution_owner") == "codex":
-                return ["coding_task_run", "coding_task_status"]
-            return ["coding_lark_preflight", "coding_source_resolve", "coding_task_status"]
-        status = (canonical_task_status(task.get("status")) or TaskStatus.NEW).value
-        if status in {TaskStatus.PLANNED.value, TaskStatus.NEW.value}:
-            return ["coding_task_run"]
-        if status == TaskStatus.READY_FOR_MERGE_TEST.value:
-            return ["coding_task_run", "coding_task_status"]
-        return ["coding_task_status"]
+        return TaskService.next_actions_for_task_payload(task, source_context)
 
     @staticmethod
     def _source_context_payload(context: dict[str, Any] | None) -> dict[str, Any]:
-        if not context:
-            return {
-                "ok": False,
-                "source_status": "failed",
-                "task_status": "",
-                "error": "No source context returned.",
-            }
-        source_status = CodingOrchestrator._source_status_from_context(context)
-        ok = source_status == "ok"
-        return {
-            "ok": ok,
-            "source_status": source_status,
-            "task_status": "planned" if ok else "",
-            "source_type": context.get("source_type") or "",
-            "url": context.get("url") or "",
-            "title": context.get("title") or "",
-            "summary_markdown": context.get("summary_markdown") or "",
-            "error": context.get("error") or "",
-            "recovery_action": context.get("recovery_action") or "",
-            "raw": context,
-        }
+        return TaskService.source_context_payload(context)
 
     @staticmethod
     def _source_status_from_context(context: dict[str, Any] | None) -> str:
-        if not context:
-            return "missing"
-        if context.get("read_status") == "success" or context.get("summary_markdown"):
-            return "ok"
-        error = str(context.get("error") or "").lower()
-        if "needs_refresh" in error or "auth" in error or "authorization" in error:
-            return "auth_needed"
-        if "scope" in error or "permission" in error or "forbidden" in error:
-            return "permission_missing"
-        if context.get("deferred_source_resolution"):
-            return "deferred"
-        return "failed"
+        return TaskService.source_status_from_context(context)
 
     @staticmethod
     def _format_task_status_details(task: dict[str, Any], *, include_branch: bool) -> str:
-        task_id = str(task.get("task_id") or "")
-        session = task.get("task_session") or {}
-        lines = [
-            f"[{task_id}] 状态：{task_status_display(task.get('status'))}",
-            f"项目：{task.get('project_path') or '未确定'}",
-        ]
-        status_view = task_status_view(task.get("status"))
-        phase = str(task.get("phase") or "").strip()
-        if phase:
-            lines.append(f"执行阶段：{phase}")
-        latest_run = CodingOrchestrator._latest_agent_run(task)
-        if latest_run and latest_run.get("status"):
-            lines.append(f"最近运行：{latest_run.get('status')}")
-        kanban_sync = session.get("kanban_sync") or {}
-        if kanban_sync:
-            lines.append(f"Kanban 同步：{CodingOrchestrator._kanban_sync_status_display(kanban_sync)}")
-        completion_notification = session.get("last_completion_notification") or {}
-        if completion_notification:
-            lines.append(
-                "完成回传："
-                f"{CodingOrchestrator._completion_notification_status_display(completion_notification)}"
-            )
-        if include_branch:
-            lines.extend(
-                [
-                    f"源分支：{session.get('source_branch') or '未创建'}",
-                    f"工作区：{session.get('worktree_path') or '未创建'}",
-                ]
-            )
-        qa_run = CodingOrchestrator._latest_qa_run(task)
-        if qa_run:
-            qa_artifacts = qa_run.get("qa_artifacts") or {}
-            qa_report_path = str(qa_artifacts.get("report") or "").strip()
-            report = CodingOrchestrator._read_report_json((qa_run.get("artifact") or {}).get("report"))
-            if qa_report_path:
-                lines.append(f"QA report：{qa_report_path}")
-                health_score = CodingOrchestrator._qa_health_score_from_report_path(qa_report_path)
-                if health_score:
-                    lines.append(f"QA health score：{health_score}")
-            limitations = report.get("verification_limitations") or []
-            if limitations:
-                lines.append("已知缺口：")
-                for item in limitations[:3]:
-                    if not isinstance(item, dict):
-                        continue
-                    reason = str(item.get("reason") or "unknown")
-                    impact = str(item.get("impact") or "").strip()
-                    recovery = str(item.get("recovery_action") or "").strip()
-                    line = f"- {reason}"
-                    if impact:
-                        line += f"；影响：{impact}"
-                    if recovery:
-                        line += f"；恢复：{recovery}"
-                    lines.append(line)
-        return "\n".join(lines)
+        return task_status_presenter.format_task_status_details(task, include_branch=include_branch)
 
     @staticmethod
     def _kanban_sync_status_display(kanban_sync: dict[str, Any]) -> str:
-        status = str(kanban_sync.get("status") or "").strip()
-        label = {
-            "ok": "成功",
-            "failed": "失败",
-            "skipped": "跳过",
-        }.get(status, status or "未知")
-        reason = str(kanban_sync.get("reason") or "").strip()
-        if reason and status in {"failed", "skipped"}:
-            return f"{label} - {reason}"
-        return label
+        return task_status_presenter.kanban_sync_status_display(kanban_sync)
 
     @staticmethod
     def _completion_notification_status_display(notification: dict[str, Any]) -> str:
-        status = str(notification.get("status") or "").strip()
-        label = {
-            "ok": "成功",
-            "scheduled": "已投递",
-            "failed": "失败",
-            "skipped": "跳过",
-        }.get(status, status or "未知")
-        run_id = str(notification.get("run_id") or "").strip()
-        reason = str(notification.get("reason") or "").strip()
-        parts = [label]
-        if run_id:
-            parts.append(f"执行={run_id}")
-        if reason and status in {"failed", "skipped"}:
-            parts.append(reason)
-        return " - ".join(parts)
+        return task_status_presenter.completion_notification_status_display(notification)
 
     @staticmethod
     def _latest_qa_run(task: dict[str, Any]) -> dict[str, Any] | None:
-        for run in reversed(task.get("agent_runs") or []):
-            if run.get("mode") == RunMode.QA.value:
-                return run
-        return None
+        return task_status_presenter.latest_qa_run(task)
 
     @staticmethod
     def _read_report_json(path_value: Any) -> dict[str, Any]:
-        if not path_value:
-            return {}
-        path = Path(str(path_value))
-        if not path.exists():
-            return {}
-        try:
-            import json
-
-            parsed = json.loads(path.read_text(encoding="utf-8", errors="replace"))
-            return parsed if isinstance(parsed, dict) else {}
-        except Exception:
-            return {}
+        return task_status_presenter.read_report_json(path_value)
 
     @staticmethod
     def _qa_health_score_from_report_path(path_value: Any) -> str:
-        path = Path(str(path_value))
-        if not path.exists():
-            return ""
-        text = path.read_text(encoding="utf-8", errors="replace")
-        match = re.search(r"health\s*score\s*[:：]\s*([0-9]+(?:\s*[-→>]+\s*[0-9]+)?)", text, flags=re.I)
-        return match.group(1).strip() if match else ""
+        return task_status_presenter.qa_health_score_from_report_path(path_value)
 
     def _continue_active_task(self, raw_args: str, event: Any, gateway: Any) -> str:
         task = self._active_task_for_event(event)
@@ -4252,91 +2523,32 @@ class CodingOrchestrator:
         return self.ledger.get_task(task_id) or task
 
     def _bind_active_task_for_event(self, task_id: str, event: Any | None) -> bool:
-        binding_key = self._binding_key_for_event(event)
-        if not binding_key:
-            return False
-        source = self._event_source_for_ledger(event)
-        self.ledger.bind_active_task(binding_key=binding_key, task_id=task_id, scope=source)
-        return True
+        return self.gateway_binding_service.bind_active_task_for_event(task_id, event)
 
     def _enable_coding_mode_for_event(self, event: Any | None) -> bool:
-        binding_key = self._coding_mode_binding_key_for_event(event)
-        if not binding_key:
-            return False
-        source = self._event_source_for_ledger(event)
-        self.ledger.bind_active_task(binding_key=binding_key, task_id=_CODING_MODE_TASK_ID, scope=source)
-        return True
+        return self.gateway_binding_service.enable_coding_mode_for_event(event)
 
     def _disable_coding_mode_for_event(self, event: Any | None) -> bool:
-        binding_key = self._coding_mode_binding_key_for_event(event)
-        if not binding_key:
-            return False
-        return self.ledger.clear_active_binding(binding_key)
+        return self.gateway_binding_service.disable_coding_mode_for_event(event)
 
     def _coding_mode_enabled_for_event(self, event: Any | None) -> bool:
-        binding_key = self._coding_mode_binding_key_for_event(event)
-        if not binding_key:
-            return False
-        binding = self.ledger.get_active_binding(binding_key)
-        return bool(binding and binding.get("task_id") == _CODING_MODE_TASK_ID)
+        return self.gateway_binding_service.coding_mode_enabled_for_event(event)
 
     def _coding_mode_binding_key_for_event(self, event: Any | None) -> str | None:
-        binding_key = self._binding_key_for_event(event)
-        return f"{binding_key}:coding_mode" if binding_key else None
+        return self.gateway_binding_service.coding_mode_binding_key_for_event(event)
 
     def _active_task_for_event(self, event: Any) -> dict[str, Any] | None:
         task_id = self._active_task_id_for_event(event)
         return self.ledger.get_task(task_id) if task_id else None
 
     def active_task_for_session(self, *, session_id: str, platform: str = "feishu") -> str | None:
-        session_id = str(session_id or "").strip()
-        platform = str(platform or "feishu").strip() or "feishu"
-        if not session_id:
-            return None
-        candidates = []
-        if ":" in session_id:
-            candidates.append(session_id)
-        candidates.extend(
-            [
-                f"{platform}:chat:{session_id}",
-                f"{platform}:user:{session_id}",
-                session_id,
-            ]
-        )
-        for binding_key in dict.fromkeys(candidates):
-            binding = self.ledger.get_active_binding(binding_key)
-            if not binding:
-                continue
-            task_id = str(binding.get("task_id") or "")
-            task = self.ledger.get_task(task_id)
-            if task:
-                return str(task["task_id"])
-            self.ledger.clear_active_binding(binding_key)
-        return None
+        return self.gateway_binding_service.active_task_for_session(session_id=session_id, platform=platform)
 
     def _active_task_id_for_event(self, event: Any) -> str | None:
-        binding_key = self._binding_key_for_event(event)
-        if not binding_key:
-            return None
-        binding = self.ledger.get_active_binding(binding_key)
-        if not binding:
-            return None
-        task = self.ledger.get_task(str(binding["task_id"]))
-        if not task:
-            self.ledger.clear_active_binding(binding_key)
-            return None
-        return str(task["task_id"])
+        return self.gateway_binding_service.active_task_id_for_event(event)
 
     def _binding_key_for_event(self, event: Any | None) -> str | None:
-        source = self._event_source_for_ledger(event)
-        platform = source.get("platform") or "unknown"
-        chat_id = source.get("chat_id")
-        if chat_id:
-            return f"{platform}:chat:{chat_id}"
-        user_id = source.get("user_id")
-        if user_id:
-            return f"{platform}:user:{user_id}"
-        return None
+        return self.gateway_binding_service.binding_key_for_event(event)
 
     @staticmethod
     def _active_coding_statuses() -> list[str]:
@@ -4352,11 +2564,11 @@ class CodingOrchestrator:
 
     @staticmethod
     def _looks_like_plugin_generated_message(text: str) -> bool:
-        return bool(re.search(r"^\s*\[task_[A-Za-z0-9_:-]+\]", normalize_project_text(text)))
+        return gateway_command_controller.looks_like_plugin_generated_message(text)
 
     @staticmethod
     def _task_is_cancelled(task: dict[str, Any]) -> bool:
-        return str(task.get("status") or "") == TaskStatus.CANCELLED.value
+        return RunService.task_is_cancelled(task)
 
     @staticmethod
     def _cancelled_task_message(task: dict[str, Any] | str) -> str:
@@ -4446,18 +2658,7 @@ class CodingOrchestrator:
 
     @staticmethod
     def _task_is_plan_ready_for_implementation(task: dict[str, Any]) -> bool:
-        if str(task.get("phase") or "") in {TaskPhase.PLAN_READY.value, TaskPhase.PLAN_APPROVED.value}:
-            return True
-        for decision in reversed(task.get("human_decisions") or []):
-            if decision.get("type") == "implementation_confirmed":
-                return True
-        for run in reversed(task.get("agent_runs") or []):
-            if run.get("mode") == RunMode.IMPLEMENTATION.value:
-                return True
-        for run in reversed(task.get("agent_runs") or []):
-            if run.get("mode") == RunMode.PLAN_ONLY.value and run.get("status") == AgentRunStatus.SUCCESS.value:
-                return True
-        return False
+        return RunService.task_is_plan_ready_for_implementation(task)
 
     def _record_plan_feedback(self, task: dict[str, Any], text: str, event: Any) -> None:
         self.ledger.update_phase(task["task_id"], TaskPhase.PLAN_REVISION.value)
@@ -4637,15 +2838,12 @@ class CodingOrchestrator:
             return source_context
         if not self._is_deferred_feishu_source_context(source_context):
             return source_context
-        reader = self.feishu_project_reader
-        if reader is None:
-            return source_context
         reader_text = text
         source_url = str(source_context.get("url") or "").strip()
         if source_url.startswith("http") and source_url not in reader_text:
             reader_text = f"{reader_text}\n{source_url}".strip()
         try:
-            refreshed = reader.read_from_text(reader_text, gateway=None)
+            refreshed = self._resolve_source_context(reader_text, gateway=None)
         except Exception as exc:
             refreshed = {
                 **source_context,
@@ -4667,6 +2865,22 @@ class CodingOrchestrator:
             ):
                 merged.pop(key, None)
         return self._normalize_document_source_context_for_codex(reader_text, merged) or source_context
+
+    def _resolve_source_context(self, text: str, gateway: Any = None) -> dict[str, Any] | None:
+        resolver = getattr(self, "source_resolver", None)
+        if resolver is not None:
+            if hasattr(resolver, "resolve_source_result"):
+                result = resolver.resolve_source_result({"text": text}, gateway=gateway)
+                context = getattr(result, "context", None)
+                return context if isinstance(context, dict) and context else None
+            if hasattr(resolver, "resolve_source"):
+                context = resolver.resolve_source({"text": text}, gateway=gateway)
+                return context if isinstance(context, dict) and context else None
+        reader = getattr(self, "feishu_project_reader", None)
+        if reader is None:
+            return None
+        context = reader.read_from_text(text, gateway=gateway)
+        return context if isinstance(context, dict) and context else None
 
     @staticmethod
     def _is_deferred_feishu_source_context(source_context: dict[str, Any]) -> bool:
@@ -4731,34 +2945,7 @@ class CodingOrchestrator:
         return unique
 
     def _apply_active_project_to_task_if_missing(self, task: dict[str, Any], event: Any | None) -> dict[str, Any]:
-        if task.get("project_path"):
-            return task
-        active_project = self._active_project_for_event(event)
-        if not active_project:
-            return task
-        project_name = str(active_project.get("name") or active_project.get("project") or "").strip()
-        project_path = str(active_project.get("path") or "").strip()
-        if not project_name or not project_path:
-            return task
-        evidence = [{"source": "active_project", "value": project_name, "score": 1.0}]
-        self.ledger.update_project_context(
-            task["task_id"],
-            project_name=project_name,
-            project_path=project_path,
-            confidence=1.0,
-            match_evidence=evidence,
-        )
-        self.ledger.append_human_decision(
-            task["task_id"],
-            {
-                "type": "project_context_applied_from_active_project",
-                "project_name": project_name,
-                "project_path": project_path,
-                "gateway_source": self._event_source_for_ledger(event),
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            },
-        )
-        return self.ledger.get_task(task["task_id"]) or task
+        return gateway_active_context.apply_active_project_to_task_if_missing(self, task, event)
 
     @staticmethod
     def _project_folder_candidates_from_text(text: str) -> list[str]:
@@ -4918,56 +3105,30 @@ class CodingOrchestrator:
 
     @staticmethod
     def _implementation_started_message(task: dict[str, Any]) -> str:
-        return (
-            f"[{task['task_id']}] 已收到确认，开始实现。\n"
-            f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：会把已确认计划交给 Codex，并在隔离工作区执行；不会自动进入测试、合并或发布。"
-        )
+        return run_start_presenter.implementation_started_message(task)
 
     @staticmethod
     def _qa_started_message(task: dict[str, Any]) -> str:
-        return (
-            f"[{task['task_id']}] 已开始 QA。\n"
-            f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：本次 QA 由人工显式触发。完成后会自动回传结果，但不会自动 merge-test 或发布。"
-        )
+        return run_start_presenter.qa_started_message(task)
 
     @staticmethod
     def _implementation_blocked_before_plan_ready_message(task: dict[str, Any]) -> str:
-        return (
-            f"[{task['task_id']}] 已拦截实现确认，但当前任务还不能开始开发。\n"
-            f"状态：{task_status_display(task.get('status'))}\n"
-            "必须先完成计划，并由你确认计划完整度和正确性后，才能开始实现。"
-        )
+        return run_start_presenter.implementation_blocked_before_plan_ready_message(task)
 
     @staticmethod
     def _plan_only_started_message(task: dict[str, Any]) -> str:
-        return (
-            f"[{task['task_id']}] 已开始整理计划。\n"
-            f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：Codex 正在后台生成计划；完成后会自动回传结果。"
-        )
+        return run_start_presenter.plan_only_started_message(task)
 
     @staticmethod
     def _plan_only_already_running_message(task: dict[str, Any]) -> str:
-        return CodingOrchestrator._active_run_already_running_message(task, requested_mode="plan-only")
+        return run_start_presenter.plan_only_already_running_message(task)
 
     @staticmethod
     def _task_has_active_run(task: dict[str, Any]) -> bool:
-        runner = (task.get("task_session") or {}).get("runner") or {}
-        return bool(runner.get("active_run_id")) or str(task.get("status") or "") == TaskStatus.RUNNING.value
+        return RunService.task_has_active_run(task)
 
     def _start_run_blocker(self, task: dict[str, Any], *, mode: RunMode) -> str:
-        if self._task_is_cancelled(task):
-            return self._cancelled_task_message(task)
-        if self._task_has_active_run(task):
-            return self._active_run_already_running_message(task, requested_mode=mode.value)
-        current_status = str(task.get("status") or TaskStatus.NEW.value)
-        try:
-            TaskStateMachine.transition(current_status, TaskStatus.RUNNING, reason=f"{mode.value} start")
-        except ValueError as exc:
-            return self._cannot_start_run_message(task, mode=mode, reason=str(exc))
-        return ""
+        return self.run_service.start_run_blocker(task, mode=mode)
 
     def _qa_start_blocker(self, task: dict[str, Any]) -> str:
         blocked = self._start_run_blocker(task, mode=RunMode.QA)
@@ -4983,12 +3144,7 @@ class CodingOrchestrator:
 
     @staticmethod
     def _cannot_start_run_message(task: dict[str, Any], *, mode: RunMode, reason: str) -> str:
-        task_id = str(task.get("task_id") or "unknown")
-        return (
-            f"[{task_id}] 当前状态为 {task_status_display(task.get('status'))}，不能启动{CodingOrchestrator._run_mode_user_label(mode)}执行。\n"
-            f"原因：{reason}\n"
-            "恢复动作：如需重新处理，请先重新整理计划或创建新的开发任务后再启动。"
-        )
+        return run_start_presenter.cannot_start_run_message(task, mode=mode, reason=reason)
 
     def _clear_active_run_if_matches(self, task_id: str, run_id: str) -> None:
         task = self.ledger.get_task(task_id) or {}
@@ -5024,13 +3180,13 @@ class CodingOrchestrator:
         report = self._read_report_json(artifacts.report)
         if not report:
             return None
-        mode = self._run_mode_for_existing_run(task, run, report)
+        mode = run_orchestration_service.run_mode_for_existing_run(task, run, report)
         details = self._run_status_details_from_report(report, mode)
         status = str(details["status"])
         if status == AgentRunStatus.RUNNING.value:
             return None
 
-        changed_files = self._changed_files_for_existing_run(run, report)
+        changed_files = run_orchestration_service.changed_files_for_existing_run(run, report)
         report = dict(report)
         report["modified_files"] = changed_files
         details = self._normalize_implementation_run_status(report, mode)
@@ -5041,28 +3197,23 @@ class CodingOrchestrator:
         report.setdefault("mode", mode.value)
         report["modified_files"] = changed_files
         report = self._ensure_verification_limitations(report, status, artifacts)
-        artifacts.report.write_text(self._json(report), encoding="utf-8")
+        run_report_artifact_service.write_run_report_artifact(report_path=artifacts.report, report=report)
         summary = str(report.get("summary_markdown") or "").strip()
         if summary:
-            artifacts.summary.write_text(summary, encoding="utf-8")
+            run_summary_artifact_service.write_run_summary_artifact(summary_path=artifacts.summary, summary=summary)
 
-        task_status = self._task_status_for_run_result(mode, status, details=details)
-        task_phase = self._task_phase_for_run_result(mode, status, details=details)
-        report["run_status"] = status
-        report["status"] = status
-        report["task_status"] = task_status.value
-        report.update(details)
-        artifacts.report.write_text(self._json(report), encoding="utf-8")
-        if (
-            mode == RunMode.MERGE_TEST
-            and bool(report.get("human_required"))
-            and status not in {AgentRunStatus.BLOCKED.value, AgentRunStatus.FAILED.value, AgentRunStatus.CANCELLED.value}
-        ):
-            task_status = TaskStatus.READY_FOR_MERGE_TEST
-            task_phase = TaskPhase.READY_TO_MERGE_TEST
-            report["task_status"] = task_status.value
-            report["known_gaps"] = True
-            artifacts.report.write_text(self._json(report), encoding="utf-8")
+        completion_projection = run_orchestration_service.project_run_completion(
+            mode=mode,
+            status=status,
+            details=details,
+            report=report,
+            running_phase=self.run_service.running_phase_for_mode(mode),
+        )
+        status = completion_projection.status
+        task_status = completion_projection.task_status
+        task_phase = completion_projection.task_phase
+        report = completion_projection.report
+        run_report_artifact_service.write_run_report_artifact(report_path=artifacts.report, report=report)
         self._transition_task_status(
             task_id,
             task_status,
@@ -5070,68 +3221,51 @@ class CodingOrchestrator:
             reason=f"{mode.value} reconciled with completed artifact status {status}",
         )
 
-        artifact_record = self._artifact_record(artifacts)
-        self.ledger.upsert_artifact(task_id, artifact_record)
-        merged_run = dict(run)
-        merged_run.update(
-            {
-                "run_id": run_id,
-                "runner": runner_name,
-                "mode": mode.value,
-                "status": status,
-                "raw_status": str(report.get("raw_status") or ""),
-                "status_detail": str(report.get("status_detail") or ""),
-                "failure_type": str(report.get("failure_type") or ""),
-                "known_gaps": bool(report.get("known_gaps")),
-                "structured": bool(report.get("structured", True)),
-                "artifact": artifact_record,
-                "qa_artifacts": report.get("qa_artifacts")
-                if isinstance(report.get("qa_artifacts"), dict)
-                else merged_run.get("qa_artifacts", {}),
-                "tested_commit": str(report.get("tested_commit") or merged_run.get("tested_commit") or ""),
-                "stale_completion": False,
-                "diff_guard": {
-                    "changed_files": changed_files,
-                    "violations": list((merged_run.get("diff_guard") or {}).get("violations") or []),
-                },
-            }
+        ledger_records = run_ledger_projection.build_reconciled_run_ledger_writeback_records(
+            artifacts=artifacts,
+            existing_run=run,
+            run_id=run_id,
+            runner_name=runner_name,
+            mode=mode,
+            status=status,
+            report=report,
+            changed_files=changed_files,
         )
+        artifact_record = ledger_records.artifact_record
+        merged_run = ledger_records.agent_run_record
+        self.ledger.upsert_artifact(task_id, artifact_record)
         self.ledger.upsert_agent_run(task_id, merged_run)
 
         session_id = self._thread_id_from_artifact(artifacts.stdout) or self._codex_resume_session_id_for_task(task)
-        usable_session_id = "" if self._run_details_are_runner_failed(report) else session_id
-        runner_update: dict[str, Any] = {
-            "provider": runner_name,
-            "last_run_id": run_id,
-            "last_run_status": status,
-            "last_run_raw_status": str(report.get("raw_status") or ""),
-            "active_run_id": None,
-            "active_mode": None,
-            "resume_session_id": usable_session_id,
-            "thread_id": usable_session_id,
-            "session_id": usable_session_id,
-            "attach_command": self._codex_attach_command(usable_session_id) if usable_session_id else "",
-            "reconciled_run_id": run_id,
-            "reconciled_at": datetime.now(timezone.utc).isoformat(),
-        }
+        runner_update = run_orchestration_service.build_runner_session_update(
+            runner_name=runner_name,
+            run_id=run_id,
+            status=status,
+            report=report,
+            session_id=session_id,
+            run_still_active=False,
+            attach_command=self._codex_attach_command(session_id) if session_id else "",
+            reconciled_at=datetime.now(timezone.utc).isoformat(),
+        )
         self.ledger.update_task_session(task_id, {"runner": runner_update})
-        self.summary_writer.write_run_summary(
+        summary_payload = run_summary_projection.build_reconciled_run_summary_writeback_payload(
             task_id=task_id,
             run_id=run_id,
-            runner=str(merged_run["runner"]),
-            project=str(session.get("project_name") or (task.get("source") or {}).get("project_name") or ""),
+            task=task,
+            session=session,
+            merged_run=merged_run,
             report=report,
             summary=summary,
         )
-        return {
-            "task_id": task_id,
-            "run_id": run_id,
-            "mode": mode.value,
-            "status": status,
-            "task_status": task_status.value,
-            "artifacts": artifact_record,
-            "reconciled": True,
-        }
+        self.summary_writer.write_run_summary(**summary_payload.as_kwargs())
+        return run_orchestration_service.build_reconcile_result_payload(
+            task_id=task_id,
+            run_id=run_id,
+            mode=mode,
+            status=status,
+            task_status=task_status,
+            artifact_record=artifact_record,
+        )
 
     @staticmethod
     def _agent_run_for_id(task: dict[str, Any], run_id: str) -> dict[str, Any] | None:
@@ -5141,150 +3275,52 @@ class CodingOrchestrator:
         return None
 
     def _artifact_set_for_existing_run(self, task_id: str, run_id: str, run: dict[str, Any]) -> ArtifactSet:
-        artifact = run.get("artifact") or {}
-        run_dir = Path(str(artifact.get("run_dir") or self.run_root / task_id / run_id)).expanduser()
-        return ArtifactSet(
-            run_dir=run_dir,
-            input_prompt=Path(str(artifact.get("input_prompt") or run_dir / "input-prompt.md")).expanduser(),
-            manifest=Path(str(artifact.get("manifest") or run_dir / "run-manifest.json")).expanduser(),
-            stdout=Path(str(artifact.get("stdout") or run_dir / "stdout.log")).expanduser(),
-            stderr=Path(str(artifact.get("stderr") or run_dir / "stderr.log")).expanduser(),
-            events=Path(str(artifact.get("events") or run_dir / "events.jsonl")).expanduser(),
-            report=Path(str(artifact.get("report") or run_dir / "report.json")).expanduser(),
-            summary=Path(str(artifact.get("summary") or run_dir / "summary.md")).expanduser(),
-            diff=Path(str(artifact.get("diff") or run_dir / "diff.patch")).expanduser(),
-            operator_log=Path(str(artifact.get("operator_log") or run_dir / "run-log.md")).expanduser(),
-            execution_policy=Path(str(artifact.get("execution_policy") or run_dir / "execution-policy.json")).expanduser(),
+        return run_artifact_paths.artifact_set_for_existing_run(
+            task_id=task_id,
+            run_id=run_id,
+            run=run,
+            run_root=self.run_root,
         )
-
-    @staticmethod
-    def _run_mode_for_existing_run(
-        task: dict[str, Any],
-        run: dict[str, Any],
-        report: dict[str, Any],
-    ) -> RunMode:
-        runner_session = (task.get("task_session") or {}).get("runner") or {}
-        candidates = [
-            report.get("mode"),
-            run.get("mode"),
-            runner_session.get("active_mode"),
-            runner_session.get("last_requested_mode"),
-        ]
-        for candidate in candidates:
-            try:
-                return RunMode(str(candidate))
-            except ValueError:
-                continue
-        return RunMode.PLAN_ONLY
-
-    @staticmethod
-    def _changed_files_for_existing_run(run: dict[str, Any], report: dict[str, Any]) -> list[str]:
-        candidates = report.get("modified_files")
-        if not isinstance(candidates, list):
-            diff_guard = run.get("diff_guard") if isinstance(run.get("diff_guard"), dict) else {}
-            candidates = diff_guard.get("changed_files")
-        if not isinstance(candidates, list):
-            return []
-        return [str(item) for item in candidates if str(item).strip()]
 
     @staticmethod
     def _run_mode_user_label(mode: RunMode | str | None) -> str:
-        value = mode.value if isinstance(mode, RunMode) else str(mode or "").strip()
-        labels = {
-            RunMode.DECOMPOSITION.value: "需求拆解",
-            RunMode.PLAN_ONLY.value: "整理计划",
-            RunMode.IMPLEMENTATION.value: "实现",
-            RunMode.QA.value: "QA 验证",
-            RunMode.MERGE_TEST.value: "merge-test",
-        }
-        return labels.get(value, value or "未记录")
+        return RunService.run_mode_user_label(mode)
 
     @staticmethod
     def _active_run_already_running_message(task: dict[str, Any], *, requested_mode: str | None = None) -> str:
-        session = task.get("task_session") or {}
-        runner = session.get("runner") or {}
-        active_run_id = runner.get("active_run_id") or "未记录"
-        active_mode = CodingOrchestrator._run_mode_user_label(
-            runner.get("active_mode") or runner.get("last_requested_mode")
-        )
-        task_id = task["task_id"]
-        requested_label = CodingOrchestrator._run_mode_user_label(requested_mode)
-        action_text = (
-            f"未重复启动{requested_label}。"
-            if requested_mode
-            else "确认词已识别为当前执行的续接，但执行仍在进行，未启动新动作。"
-        )
-        return (
-            f"[{task_id}] 当前已有执行正在进行，{action_text}\n"
-            f"状态：{task_status_display(task.get('status'))}\n"
-            f"当前执行：{active_run_id}\n"
-            f"执行模式：{active_mode}\n"
-            f"恢复动作：等待完成回传；如果确认卡住，先发送 /coding status {task_id} 查看详情，必要时再 /coding cancel {task_id} 后重试。"
-        )
+        return run_start_presenter.active_run_already_running_message(task, requested_mode=requested_mode)
 
     @staticmethod
     def _plan_feedback_received_message(task: dict[str, Any]) -> str:
-        return (
-            f"[{task['task_id']}] 已收到计划反馈，重新整理计划。\n"
-            f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：反馈已记录，并会带入下一轮计划；不会直接改代码。"
-        )
+        return feedback_presenter.plan_feedback_received_message(task)
 
     @staticmethod
     def _blocked_plan_feedback_received_message(task: dict[str, Any]) -> str:
-        return (
-            f"[{task['task_id']}] 已收到受阻计划的补充信息，重新整理计划。\n"
-            f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：上一次计划仍受阻，本次反馈会作为计划补充重新分析；不会直接开始实现。"
-        )
+        return feedback_presenter.blocked_plan_feedback_received_message(task)
 
     @staticmethod
     def _requirement_change_received_message(task: dict[str, Any]) -> str:
-        return (
-            f"[{task['task_id']}] 已收到需求变更，重新分析变更影响。\n"
-            f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：需求变更已记录；本轮只做影响分析和计划更新，不直接开始修复。"
-        )
+        return feedback_presenter.requirement_change_received_message(task)
 
     @staticmethod
     def _requirement_change_queued_message(task: dict[str, Any]) -> str:
-        return (
-            f"[{task['task_id']}] 已记录需求变更，但当前任务仍在执行。\n"
-            f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：为避免并发修改，暂不启动新的计划；请等待当前执行结束后再次发送 /coding change，或先取消当前执行。"
-        )
+        return feedback_presenter.requirement_change_queued_message(task)
 
     @staticmethod
     def _implementation_feedback_received_message(task: dict[str, Any]) -> str:
-        return (
-            f"[{task['task_id']}] 已收到修复反馈，开始修复。\n"
-            f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：反馈已记录；会复用该任务最近一次实现工作区继续处理。"
-        )
+        return feedback_presenter.implementation_feedback_received_message(task)
 
     @staticmethod
     def _runtime_feedback_received_message(task: dict[str, Any]) -> str:
-        return (
-            f"[{task['task_id']}] 任务正在运行，已记录本次反馈。\n"
-            f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：反馈已记录；当前执行不会并发重启，后续重新整理计划或修复时会带入这次补充。"
-        )
+        return feedback_presenter.runtime_feedback_received_message(task)
 
     @staticmethod
     def _human_clarification_received_message(task: dict[str, Any]) -> str:
-        return (
-            f"[{task['task_id']}] 已收到补充信息，仍需要继续确认。\n"
-            f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：补充已记录；请在项目或来源信息明确后重新整理计划。"
-        )
+        return feedback_presenter.human_clarification_received_message(task)
 
     @staticmethod
     def _human_clarification_project_resolved_message(task: dict[str, Any]) -> str:
-        return (
-            f"[{task['task_id']}] 已补充项目上下文，开始整理计划。\n"
-            f"项目：{task.get('project_path') or '未确定'}\n"
-            "说明：项目上下文已记录；本轮补充会带入计划。"
-        )
+        return feedback_presenter.human_clarification_project_resolved_message(task)
 
     def start_run(
         self,
@@ -5304,7 +3340,7 @@ class CodingOrchestrator:
         blocked = self._start_run_blocker(task, mode=mode)
         if blocked:
             raise ValueError(blocked)
-        if not task.get("project_path") and mode != RunMode.DECOMPOSITION:
+        if not task.get("project_path") and run_orchestration_service.run_requires_project_path(mode):
             self._transition_task_status(
                 task_id,
                 TaskStatus.NEEDS_HUMAN,
@@ -5323,7 +3359,7 @@ class CodingOrchestrator:
         source = task["source"]
         execution_policy = control_policy_for_mode(
             mode=mode,
-            codex_decision=self._latest_execution_policy_decision(task),
+            codex_decision=run_orchestration_service.latest_execution_policy_decision(task),
         ).to_dict()
         timeout = self._timeout_seconds_for_mode(mode, timeout_seconds, execution_policy=execution_policy)
         project_name = source.get("project_name") or self._project_name_for_path(str(project_path)) or project_path.name
@@ -5334,81 +3370,51 @@ class CodingOrchestrator:
         )
         self.ledger.update_task_session(
             task_id,
-            {
-                "project_name": project_name,
-                "runner": {
-                    "provider": runner.name,
-                    "last_requested_mode": mode.value,
-                },
-            },
+            run_orchestration_service.build_run_start_base_session_update(
+                project_name=project_name,
+                runner_name=runner.name,
+                mode=mode,
+            ),
         )
         workspace_path = None
-        if mode == RunMode.IMPLEMENTATION:
-            self.ledger.update_phase(task_id, TaskPhase.GITOPS_PREPARING.value)
+        workspace_selection = run_orchestration_service.run_workspace_selection_for_mode(mode)
+        if workspace_selection.preparation_phase is not None:
+            self.ledger.update_phase(task_id, workspace_selection.preparation_phase.value)
+        if workspace_selection.workspace_kind == run_orchestration_service.RUN_WORKSPACE_CREATE_IMPLEMENTATION:
             workspace_path = self._implementation_workspace(task, project_path, run_id)
-            self.ledger.update_task_session(
-                task_id,
-                {
-                    "source_branch": self._source_branch_for_task(task, project_name),
-                    "source_base_branch": self._source_base_branch_for_task(task),
-                    "worktree_path": str(workspace_path),
-                },
-            )
-        elif mode == RunMode.QA:
+        elif workspace_selection.workspace_kind == run_orchestration_service.RUN_WORKSPACE_EXISTING_IMPLEMENTATION:
             workspace_path = self._merge_test_workspace(task)
             if workspace_path is None:
                 self._transition_task_status(
                     task_id,
                     TaskStatus.BLOCKED,
                     phase=TaskPhase.BLOCKED,
-                    reason="task has no implementation worktree to QA",
+                    reason=workspace_selection.missing_workspace_reason,
                 )
-                raise ValueError(f"task has no implementation worktree to QA: {task_id}")
+                raise ValueError(f"{workspace_selection.missing_workspace_reason}: {task_id}")
+        if workspace_path is not None:
             self.ledger.update_task_session(
                 task_id,
-                {
-                    "source_branch": self._source_branch_for_task(task, project_name),
-                    "source_base_branch": self._source_base_branch_for_task(task),
-                    "worktree_path": str(workspace_path),
-                    "runner": {
-                        "resume_session_id": resume_session_id,
-                    },
-                },
-            )
-        elif mode == RunMode.MERGE_TEST:
-            workspace_path = self._merge_test_workspace(task)
-            if workspace_path is None:
-                self._transition_task_status(
-                    task_id,
-                    TaskStatus.BLOCKED,
-                    phase=TaskPhase.BLOCKED,
-                    reason="task has no implementation worktree to merge from",
-                )
-                raise ValueError(f"task has no implementation worktree to merge from: {task_id}")
-            self.ledger.update_task_session(
-                task_id,
-                {
-                    "source_branch": self._source_branch_for_task(task, project_name),
-                    "source_base_branch": self._source_base_branch_for_task(task),
-                    "worktree_path": str(workspace_path),
-                    "runner": {
-                        "resume_session_id": resume_session_id,
-                    },
-                },
+                run_orchestration_service.build_run_start_workspace_session_update(
+                    mode=mode,
+                    source_branch=self._source_branch_for_task(task, project_name),
+                    source_base_branch=self._source_base_branch_for_task(task),
+                    workspace_path=workspace_path,
+                    resume_session_id=resume_session_id,
+                ),
             )
         execution_root = workspace_path or project_path
 
         wiki_docs = self._wiki_docs_for_task(task, project_name)
         wiki_refs = [self._wiki_ref(doc) for doc in wiki_docs]
         self.ledger.replace_llm_wiki_refs(task_id, wiki_refs)
-        self._write_report_schema(run_dir / "report.schema.json")
-        confirmed_context = (
-            self._confirmed_plan_for_task(task)
-            if mode == RunMode.IMPLEMENTATION
-            else self._merge_test_context_for_task(task)
-            if mode in {RunMode.QA, RunMode.MERGE_TEST}
-            else ""
-        )
+        run_context_source = run_orchestration_service.run_context_source_for_mode(mode)
+        if run_context_source == run_orchestration_service.RUN_CONTEXT_SOURCE_CONFIRMED_PLAN:
+            confirmed_context = self._confirmed_plan_for_task(task)
+        elif run_context_source == run_orchestration_service.RUN_CONTEXT_SOURCE_MERGE_TEST_CONTEXT:
+            confirmed_context = self._merge_test_context_for_task(task)
+        else:
+            confirmed_context = ""
         context_artifacts = self._write_prompt_context_artifacts(
             run_dir=run_dir,
             task=task,
@@ -5420,33 +3426,23 @@ class CodingOrchestrator:
             confirmed_context=confirmed_context,
             execution_policy=execution_policy,
         )
-        if resume_session_id:
-            prompt = self.prompt_builder.build_incremental(
-                task_id=task_id,
-                mode=mode,
-                runner_name=runner.name,
-                project_path=str(project_path),
-                workspace_path=str(workspace_path) if workspace_path else None,
-                resume_session_id=resume_session_id,
-                incremental_context=self._incremental_context_for_resumed_session(task, mode),
-                context_artifacts=context_artifacts,
-                execution_policy=execution_policy,
-            )
-        else:
-            prompt = self.prompt_builder.build(
-                requirement_summary=task["requirement_summary"],
-                source=source,
-                project_path=str(project_path),
-                workspace_path=str(workspace_path) if workspace_path else None,
-                workflow=workflow,
-                wiki_refs=wiki_docs,
-                mode=mode,
-                runner_name=runner.name,
-                confirmed_plan=confirmed_context,
-                context_artifacts=context_artifacts,
-                execution_policy=execution_policy,
-            )
-        (run_dir / "input-prompt.md").write_text(prompt, encoding="utf-8")
+        prompt = run_orchestration_service.build_run_prompt_text(
+            prompt_builder=self.prompt_builder,
+            task_id=task_id,
+            mode=mode,
+            runner_name=runner.name,
+            project_path=project_path,
+            workspace_path=workspace_path,
+            resume_session_id=resume_session_id,
+            incremental_context=self._incremental_context_for_resumed_session(task, mode),
+            requirement_summary=task["requirement_summary"],
+            source=source,
+            workflow=workflow,
+            wiki_docs=wiki_docs,
+            confirmed_context=confirmed_context,
+            context_artifacts=context_artifacts,
+            execution_policy=execution_policy,
+        )
         manifest = self._build_manifest(
             task=task,
             run_id=run_id,
@@ -5460,52 +3456,44 @@ class CodingOrchestrator:
             run_dir=run_dir,
             execution_policy=execution_policy,
         )
-        run_uses_controlled_bypass = self._run_uses_controlled_bypass(mode, source)
-        if resume_session_id:
-            manifest.resume_session_id = resume_session_id
-            manifest.session_id = resume_session_id
-            manifest.attach_command = self._codex_attach_command(resume_session_id)
-            manifest.resume_command = self._codex_resume_command(
-                resume_session_id,
-                mode=mode,
-                dangerous_bypass=run_uses_controlled_bypass,
-            )
-            manifest.session_visibility = "visible"
-        if run_uses_controlled_bypass:
-            manifest.dangerous_bypass = True
-            source_elevated = mode == RunMode.PLAN_ONLY
-            manifest.permission_profile = self._permission_profile(mode, source_elevated=source_elevated)
-            manifest.elevated_permissions_reason = self._elevated_permissions_reason(mode, source_elevated=source_elevated)
-            manifest.elevated_permission_scope = self._elevated_permission_scope(mode, source_elevated=source_elevated)
-            manifest.source_modification_boundary = self._source_modification_boundary(mode, workspace_path, project_path)
-        if mode == RunMode.MERGE_TEST:
-            manifest.target_branch = "test"
-            manifest.merge_test_checkpoint = self._prepare_merge_test_checkpoint(workspace_path, task_id)
-        if mode == RunMode.QA:
-            manifest.qa_checkpoint = self._prepare_qa_checkpoint(workspace_path, task_id)
-        (run_dir / "run-manifest.json").write_text(
-            self._json(manifest.to_dict()),
-            encoding="utf-8",
+        checkpoint_preparation = run_orchestration_service.run_manifest_checkpoint_preparation_for_mode(mode)
+        for field, value in run_manifest_service.build_start_manifest_updates(
+            mode=mode,
+            source=source,
+            runner_name=runner.name,
+            resume_session_id=resume_session_id,
+            existing_resume_session_id=manifest.resume_session_id,
+            existing_session_visibility=manifest.session_visibility,
+            workspace_path=workspace_path,
+            project_path=project_path,
+            checkpoint_target_branch=checkpoint_preparation.target_branch,
+        ).items():
+            setattr(manifest, field, value)
+        checkpoint_payload = None
+        if (
+            checkpoint_preparation.checkpoint_kind
+            == run_orchestration_service.RUN_MANIFEST_CHECKPOINT_MERGE_TEST
+        ):
+            checkpoint_payload = self._prepare_merge_test_checkpoint(workspace_path, task_id)
+        elif checkpoint_preparation.checkpoint_kind == run_orchestration_service.RUN_MANIFEST_CHECKPOINT_QA:
+            checkpoint_payload = self._prepare_qa_checkpoint(workspace_path, task_id)
+        if checkpoint_payload is not None and checkpoint_preparation.manifest_field:
+            setattr(manifest, checkpoint_preparation.manifest_field, checkpoint_payload)
+        run_start_artifact_service.write_run_start_artifacts(
+            run_dir=run_dir,
+            prompt=prompt,
+            manifest=manifest,
+            report_schema_writer=self._write_report_schema,
         )
 
         before = self.diff_guard.snapshot(execution_root)
-        running_phase = (
-            TaskPhase.PLANNING
-            if mode in {RunMode.DECOMPOSITION, RunMode.PLAN_ONLY}
-            else TaskPhase.QA_VERIFYING
-            if mode == RunMode.QA
-            else TaskPhase.READY_TO_MERGE_TEST
-            if mode == RunMode.MERGE_TEST
-            else TaskPhase.IMPLEMENTING
-        )
+        running_phase = self.run_service.running_phase_for_mode(mode)
         self.ledger.update_task_session(
             task_id,
-            {
-                "runner": {
-                    "active_run_id": run_id,
-                    "active_mode": mode.value,
-                }
-            },
+            run_orchestration_service.build_active_run_session_update(
+                run_id=run_id,
+                mode=mode,
+            ),
         )
         try:
             self._transition_task_status(
@@ -5517,15 +3505,12 @@ class CodingOrchestrator:
         except Exception:
             self._clear_active_run_if_matches(task_id, run_id)
             raise
-        checkpoint = (
-            manifest.qa_checkpoint
-            if mode == RunMode.QA
-            else manifest.merge_test_checkpoint
-            if mode == RunMode.MERGE_TEST
-            else None
+        checkpoint = run_orchestration_service.run_checkpoint_for_mode(
+            mode=mode,
+            qa_checkpoint=manifest.qa_checkpoint,
+            merge_test_checkpoint=manifest.merge_test_checkpoint,
         )
-        checkpoint_failed = isinstance(checkpoint, dict) and checkpoint.get("status") == "failed"
-        if checkpoint_failed:
+        if run_orchestration_service.run_checkpoint_failed(checkpoint):
             result = self._checkpoint_failed_result(
                 runner_name=runner.name,
                 run_dir=run_dir,
@@ -5557,117 +3542,84 @@ class CodingOrchestrator:
             allowed_paths=workflow.allowed_paths,
             forbidden_paths=workflow.forbidden_paths,
         )
-        if mode == RunMode.PLAN_ONLY and changed_files:
-            violations.extend(
-                f"plan-only run modified {path}; plan-only may read external context but must not write project files"
-                for path in changed_files
-            )
+        violations = run_orchestration_service.build_run_diff_guard_violations(
+            mode=mode,
+            violations=violations,
+            changed_files=changed_files,
+        )
         self.diff_guard.write_diff_summary(result.artifacts.diff, changed_files, violations)
-        report = dict(result.report)
-        report["modified_files"] = changed_files
-        qa_artifacts = self._collect_qa_artifacts(workspace_path) if mode == RunMode.QA else {}
-        if qa_artifacts:
-            report["qa_artifacts"] = qa_artifacts
-        qa_tested_commit = self._git_head(workspace_path) if mode == RunMode.QA else ""
-        if qa_tested_commit:
-            report["tested_commit"] = qa_tested_commit
-        details = self._run_status_details_from_report(report, mode, fallback_status=result.status)
-        status = str(details["status"])
-        report.update(details)
+        observe_qa_evidence = run_orchestration_service.run_observes_qa_evidence(mode)
+        qa_artifacts = self._collect_qa_artifacts(workspace_path) if observe_qa_evidence else {}
+        qa_tested_commit = self._git_head(workspace_path) if observe_qa_evidence else ""
+        report = run_orchestration_service.build_observed_run_report(
+            result.report,
+            changed_files=changed_files,
+            qa_artifacts=qa_artifacts,
+            tested_commit=qa_tested_commit,
+        )
+        refinement = run_orchestration_service.refine_run_report_projection(
+            report,
+            mode=mode,
+            fallback_status=result.status,
+            violations=violations,
+            diff_path=result.artifacts.diff,
+        )
+        details = refinement.details
+        status = refinement.status
+        report = refinement.report
         session_id = self._thread_id_from_artifact(result.artifacts.stdout) or self._codex_resume_session_id_for_task(task)
         if session_id:
-            manifest.session_id = session_id
-            manifest.resume_session_id = manifest.resume_session_id or session_id
-            if self._is_codex_session_runner(runner.name):
-                manifest.attach_command = self._codex_attach_command(session_id)
-                manifest.resume_command = self._codex_resume_command(
-                    session_id,
-                    mode=mode,
-                    dangerous_bypass=manifest.dangerous_bypass,
-                )
-                manifest.session_visibility = manifest.session_visibility or "visible"
+            for field, value in run_manifest_service.build_manifest_session_fields(
+                session_id=session_id,
+                runner_name=runner.name,
+                mode=mode,
+                dangerous_bypass=manifest.dangerous_bypass,
+                existing_resume_session_id=manifest.resume_session_id,
+                existing_session_visibility=manifest.session_visibility,
+            ).items():
+                setattr(manifest, field, value)
             self._update_manifest_session_metadata(
                 manifest_path=result.artifacts.manifest,
                 session_id=session_id,
                 runner_name=runner.name,
             )
-        if violations:
-            details = agent_run_status_details("blocked", mode)
-            status = str(details["status"])
-            report.update(details)
-            report["human_required"] = True
-            report["risks"] = list(report.get("risks") or []) + violations
-            report["verification_limitations"] = list(report.get("verification_limitations") or []) + [
-                {
-                    "reason": "diff_guard_violation",
-                    "impact": "The run modified files outside the allowed workflow boundary, so Hermes cannot mark it safe.",
-                    "recovery_action": "Review diff.patch and rerun after constraining edits to allowed paths or explicitly approving the path change.",
-                    "fallback_evidence": str(result.artifacts.diff),
-                }
-            ]
-            report["next_actions"] = list(report.get("next_actions") or []) + [
-                "人工检查越权 diff，确认是否丢弃或重跑。"
-            ]
-        else:
-            details = self._normalize_implementation_run_status(report, mode)
-            status = str(details["status"])
-            report.update(details)
-            if (
-                mode == RunMode.IMPLEMENTATION
-                and status == AgentRunStatus.SUCCEEDED.value
-                and self._workspace_has_uncommitted_changes(workspace_path)
-            ):
-                manifest.implementation_checkpoint = self._workspace_clean_checkpoint(workspace_path)
-                result.artifacts.manifest.write_text(
-                    self._json(manifest.to_dict()),
-                    encoding="utf-8",
-                )
-                details = agent_run_status_details("blocked", mode)
-                status = str(details["status"])
-                report.update(details)
-                report["human_required"] = True
-                report["risks"] = list(report.get("risks") or []) + [
-                    "implementation 已返回成功，但 Codex 未提交本次实现改动，不能安全进入 QA 或 merge-test。"
-                ]
-                report["verification_limitations"] = list(report.get("verification_limitations") or []) + [
-                    {
-                        "reason": "implementation_commit_missing",
-                        "impact": "Implementation changes remain uncommitted in the task workspace, so downstream QA/merge-test would not have a stable source commit.",
-                        "recovery_action": "让 Codex 依据实际 diff 按 Git Flow/Conventional Commit 规范创建提交，或重新触发 implementation 完成提交后再继续。",
-                        "fallback_evidence": str(result.artifacts.diff),
-                    }
-                ]
-                report["next_actions"] = list(report.get("next_actions") or []) + [
-                    "让 Codex 提交当前 implementation 改动后，再重新触发 QA 或 merge-test。"
-                ]
+        if refinement.requires_implementation_commit_check and self._workspace_has_uncommitted_changes(workspace_path):
+            manifest.implementation_checkpoint = self._workspace_clean_checkpoint(workspace_path)
+            run_manifest_artifact_service.write_run_manifest_artifact(
+                manifest_path=result.artifacts.manifest,
+                manifest=manifest,
+            )
+            refinement = run_orchestration_service.refine_run_report_projection(
+                report,
+                mode=mode,
+                fallback_status=status,
+                violations=[],
+                diff_path=result.artifacts.diff,
+                implementation_commit_missing=True,
+            )
+            details = refinement.details
+            status = refinement.status
+            report = refinement.report
         report = self._ensure_verification_limitations(report, status, result.artifacts)
-        result.artifacts.report.write_text(self._json(report), encoding="utf-8")
+        run_report_artifact_service.write_run_report_artifact(report_path=result.artifacts.report, report=report)
 
-        task_status = self._task_status_for_run_result(mode, status, details=details)
-        task_phase = self._task_phase_for_run_result(mode, status, details=details)
-        run_still_active = status == AgentRunStatus.RUNNING.value
-        if run_still_active:
-            task_status = TaskStatus.RUNNING
-            task_phase = running_phase
-        if (
-            mode == RunMode.MERGE_TEST
-            and bool(report.get("human_required"))
-            and status not in {AgentRunStatus.BLOCKED.value, AgentRunStatus.FAILED.value, AgentRunStatus.CANCELLED.value}
-        ):
-            task_status = TaskStatus.READY_FOR_MERGE_TEST
-            task_phase = TaskPhase.READY_TO_MERGE_TEST
-        report["run_status"] = status
-        report["status"] = status
-        report["task_status"] = task_status.value
-        report.update(details)
-        result.artifacts.report.write_text(self._json(report), encoding="utf-8")
-        current_task = self.ledger.get_task(task_id) or {}
-        current_runner = (current_task.get("task_session") or {}).get("runner") or {}
-        observed_active_run_id = str(current_runner.get("active_run_id") or "")
-        current_task_status = str(current_task.get("status") or "")
-        stale_completion = bool(observed_active_run_id and observed_active_run_id != run_id) or (
-            current_task_status == TaskStatus.CANCELLED.value
+        completion_projection = run_orchestration_service.project_run_completion(
+            mode=mode,
+            status=status,
+            details=details,
+            report=report,
+            running_phase=running_phase,
         )
+        status = completion_projection.status
+        task_status = completion_projection.task_status
+        task_phase = completion_projection.task_phase
+        run_still_active = completion_projection.run_still_active
+        report = completion_projection.report
+        run_report_artifact_service.write_run_report_artifact(report_path=result.artifacts.report, report=report)
+        current_task = self.ledger.get_task(task_id) or {}
+        stale_observation = run_orchestration_service.observe_stale_completion(current_task, run_id=run_id)
+        observed_active_run_id = stale_observation.observed_active_run_id
+        stale_completion = stale_observation.stale_completion
         if not stale_completion:
             self._transition_task_status(
                 task_id,
@@ -5675,189 +3627,113 @@ class CodingOrchestrator:
                 phase=task_phase,
                 reason=f"{mode.value} completed with {status}",
             )
-        artifact_record = self._artifact_record(result.artifacts)
-        self.ledger.append_artifact(task_id, artifact_record)
-        self.ledger.append_agent_run(
-            task_id,
-            {
-                "run_id": run_id,
-                "runner": runner.name,
-                "mode": mode.value,
-                "status": status,
-                "raw_status": str(report.get("raw_status") or ""),
-                "status_detail": str(report.get("status_detail") or ""),
-                "failure_type": str(report.get("failure_type") or ""),
-                "known_gaps": bool(report.get("known_gaps")),
-                "structured": bool(report.get("structured", True)),
-                "exit_code": result.exit_code,
-                "artifact": artifact_record,
-                "workspace_path": str(workspace_path) if workspace_path else None,
-                "source_branch": self._source_branch_for_task(task, project_name)
-                if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}
-                else None,
-                "target_branch": "test" if mode == RunMode.MERGE_TEST else None,
-                "implementation_checkpoint": manifest.implementation_checkpoint
-                if mode == RunMode.IMPLEMENTATION
-                else None,
-                "qa_artifacts": qa_artifacts,
-                "tested_commit": qa_tested_commit,
-                "stale_completion": stale_completion,
-                "diff_guard": {
-                    "changed_files": changed_files,
-                    "violations": violations,
-                },
-            },
+        run_source_branch = (
+            self._source_branch_for_task(task, project_name)
+            if run_orchestration_service.run_records_source_branch(mode)
+            else None
         )
+        ledger_records = run_ledger_projection.build_run_ledger_writeback_records(
+            artifacts=result.artifacts,
+            run_id=run_id,
+            runner_name=runner.name,
+            mode=mode,
+            status=status,
+            task_status=task_status,
+            report=report,
+            exit_code=result.exit_code,
+            workspace_path=workspace_path,
+            source_branch=run_source_branch,
+            implementation_checkpoint=manifest.implementation_checkpoint,
+            qa_artifacts=qa_artifacts,
+            tested_commit=qa_tested_commit,
+            stale_completion=stale_completion,
+            changed_files=changed_files,
+            violations=violations,
+            merge_record_created_at=(
+                datetime.now(timezone.utc).isoformat()
+                if mode == RunMode.MERGE_TEST and not stale_completion
+                else ""
+            ),
+        )
+        artifact_record = ledger_records.artifact_record
+        self.ledger.append_artifact(task_id, artifact_record)
+        self.ledger.append_agent_run(task_id, ledger_records.agent_run_record)
         if not stale_completion:
-            if mode == RunMode.PLAN_ONLY:
-                plan_report = self._plan_report_session_fields(report)
-                if plan_report:
-                    self.ledger.update_task_session(task_id, {"plan_report": plan_report})
-            usable_session_id = "" if self._run_details_are_runner_failed(report) else session_id
-            runner_session_update = {
-                "provider": runner.name,
-                "last_run_id": run_id,
-                "last_run_status": status,
-                "last_run_raw_status": str(report.get("raw_status") or ""),
-            }
-            if not run_still_active:
-                runner_session_update.update(
-                    {
-                        "active_run_id": None,
-                        "active_mode": None,
-                        "resume_session_id": usable_session_id,
-                        "thread_id": usable_session_id,
-                        "session_id": usable_session_id,
-                        "attach_command": self._codex_attach_command(usable_session_id) if usable_session_id else "",
-                    }
-                )
-            self.ledger.update_task_session(task_id, {"runner": runner_session_update})
-        if mode == RunMode.MERGE_TEST and not stale_completion:
-            self.ledger.append_merge_record(
-                task_id,
-                {
-                    "type": "merge_test_run",
-                    "run_id": run_id,
-                    "status": status,
-                    "task_status": task_status.value,
-                    "source_branch": self._source_branch_for_task(task, project_name),
-                    "target_branch": "test",
-                    "artifact": artifact_record,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
+            completion_session_update = run_orchestration_service.build_completion_session_update(
+                mode=mode,
+                report=report,
+                stale_completion=stale_completion,
+                runner_name=runner.name,
+                run_id=run_id,
+                status=status,
+                session_id=session_id,
+                run_still_active=run_still_active,
+                attach_command=self._codex_attach_command(session_id) if session_id else "",
             )
-        summary = result.artifacts.summary.read_text(encoding="utf-8") if result.artifacts.summary.exists() else ""
-        self.summary_writer.write_run_summary(
+            if completion_session_update:
+                self.ledger.update_task_session(task_id, completion_session_update)
+        if ledger_records.merge_test_record is not None:
+            self.ledger.append_merge_record(task_id, ledger_records.merge_test_record)
+        summary = run_summary_artifact_service.read_run_summary_artifact(summary_path=result.artifacts.summary)
+        summary_payload = run_summary_projection.build_completed_run_summary_writeback_payload(
             task_id=task_id,
             run_id=run_id,
             runner=runner.name,
-            project=project_name,
+            project_name=project_name,
             report=report,
             summary=summary,
         )
+        self.summary_writer.write_run_summary(**summary_payload.as_kwargs())
         project_writeback = (
             self._writeback_project_bugfix_completion(
                 task_id,
-                {
-                    "run_id": run_id,
-                    "status": status,
-                    "task_status": task_status.value,
-                    "report": report,
-                },
+                run_orchestration_service.build_project_writeback_payload(
+                    run_id=run_id,
+                    status=status,
+                    task_status=task_status,
+                    report=report,
+                ),
                 mode=mode,
             )
             if not stale_completion
             else {"ok": False, "status": "skipped_stale_completion"}
         )
-        return {
-            "task_id": task_id,
-            "run_id": run_id,
-            "mode": mode.value,
-            "status": status,
-            "run_status": status,
-            "task_status": task_status.value,
-            "stale_completion": stale_completion,
-            "current_task_status": current_task.get("status") if stale_completion else task_status.value,
-            "observed_active_run_id": observed_active_run_id if stale_completion else "",
-            "artifacts": artifact_record,
-            "report": report,
-            "project_writeback": project_writeback,
-        }
+        return run_orchestration_service.build_start_run_result_payload(
+            task_id=task_id,
+            run_id=run_id,
+            mode=mode,
+            status=status,
+            task_status=task_status,
+            stale_completion=stale_completion,
+            current_task_status=stale_observation.current_task_status,
+            observed_active_run_id=observed_active_run_id,
+            artifact_record=artifact_record,
+            report=report,
+            project_writeback=project_writeback,
+        )
 
     @staticmethod
     def _looks_like_task(text: str) -> bool:
-        value = normalize_project_text(text)
-        return bool(
-            _CODING_COMMAND_RE.match(value)
-            or _CODING_MODE_ENTER_RE.match(value)
-            or _CODING_MODE_EXIT_RE.match(value)
-        )
+        return gateway_command_controller.looks_like_task(text)
 
     def _dedupe_gateway_event(self, event: Any) -> dict[str, str] | None:
-        key = self._gateway_event_dedupe_key(event)
-        if not key:
-            return None
-        now = time.monotonic()
-        cutoff = now - 300
-        self._recent_gateway_event_ids = {
-            item: seen_at
-            for item, seen_at in self._recent_gateway_event_ids.items()
-            if seen_at >= cutoff
-        }
-        if key in self._recent_gateway_event_ids:
-            return {"action": "skip", "reason": "duplicate_gateway_event"}
-        self._recent_gateway_event_ids[key] = now
-        return None
+        return gateway_command_controller.dedupe_gateway_event(self._recent_gateway_event_ids, event)
 
     @staticmethod
     def _gateway_event_dedupe_key(event: Any) -> str | None:
-        message_id = str(
-            getattr(event, "message_id", None)
-            or getattr(getattr(event, "source", None), "message_id", None)
-            or ""
-        ).strip()
-        if not message_id:
-            return None
-        source = getattr(event, "source", None)
-        platform = getattr(source, "platform", "") if source is not None else ""
-        platform_value = getattr(platform, "value", platform)
-        chat_id = getattr(source, "chat_id", "") if source is not None else ""
-        user_id = getattr(source, "user_id", "") if source is not None else ""
-        return f"{platform_value}:{chat_id}:{user_id}:{message_id}"
+        return gateway_command_controller.gateway_event_dedupe_key(event)
 
     @staticmethod
     def _gateway_user_is_authorized(gateway: Any, event: Any) -> bool:
-        checker = getattr(gateway, "_is_user_authorized", None)
-        source = getattr(event, "source", None)
-        if not callable(checker) or source is None or getattr(source, "user_id", None) is None:
-            return True
-        try:
-            return bool(checker(source))
-        except Exception:
-            return True
+        return gateway_command_controller.gateway_user_is_authorized(gateway, event)
 
     @staticmethod
     def _extract_flag(text: str, flag: str) -> str | None:
-        parts = text.split()
-        for idx, part in enumerate(parts):
-            if part == flag and idx + 1 < len(parts):
-                return parts[idx + 1]
-        return None
+        return TaskService.extract_flag(text, flag)
 
     @staticmethod
     def _strip_flags(text: str) -> str:
-        parts = text.split()
-        result: list[str] = []
-        skip = False
-        for idx, part in enumerate(parts):
-            if skip:
-                skip = False
-                continue
-            if part in {"--project", "--runner", "--bug-of", "--parent-task"} and idx + 1 < len(parts):
-                skip = True
-                continue
-            result.append(part)
-        return " ".join(result).strip()
+        return TaskService.strip_flags(text)
 
     def _project_name_for_path(self, project_path: str) -> str | None:
         for project in self.resolver.registry.projects:
@@ -5888,192 +3764,66 @@ class CodingOrchestrator:
         )
 
     def _implementation_workspace(self, task: dict[str, Any], project_path: Path, run_id: str) -> Path:
-        reusable = self._latest_existing_implementation_workspace(task)
-        if reusable is not None:
-            return reusable
-        project_name = task.get("source", {}).get("project_name") or project_path.name
-        return self.workspace_manager.create_workspace(
-            project_path=project_path,
-            task_id=task["task_id"],
-            run_id=run_id,
-            base_branch=self._source_base_branch_for_task(task),
-            branch_name=self._source_branch_for_task(task, str(project_name)),
-        )
+        return self.workspace_checkpoint_service.implementation_workspace(task, project_path, run_id)
 
     def _merge_test_workspace(self, task: dict[str, Any]) -> Path | None:
-        reusable = self._latest_existing_implementation_workspace(task)
-        if reusable is not None:
-            return reusable
-        session = task.get("task_session") or {}
-        worktree = session.get("worktree_path")
-        if worktree:
-            path = Path(str(worktree)).expanduser()
-            if path.exists():
-                return path.resolve()
-        return None
+        return self.workspace_checkpoint_service.merge_test_workspace(task)
 
     @staticmethod
     def _diff_guard_changed_files_for_mode(mode: RunMode, changed_files: list[str]) -> list[str]:
-        if mode != RunMode.QA:
-            return changed_files
-        return [
-            path
-            for path in changed_files
-            if not path.startswith(".gstack/qa-reports/")
-        ]
+        return workspace_checkpoint_service.diff_guard_changed_files_for_mode(mode, changed_files)
 
     @staticmethod
     def _collect_qa_artifacts(workspace_path: Path | None) -> dict[str, str]:
-        if workspace_path is None:
-            return {}
-        qa_dir = workspace_path / ".gstack" / "qa-reports"
-        if not qa_dir.exists():
-            return {}
-        reports = sorted(qa_dir.glob("qa-report-*.md"), key=lambda path: path.stat().st_mtime, reverse=True)
-        baseline = qa_dir / "baseline.json"
-        screenshots = qa_dir / "screenshots"
-        artifacts: dict[str, str] = {}
-        if reports:
-            artifacts["report"] = str(reports[0])
-        if baseline.exists():
-            artifacts["baseline"] = str(baseline)
-        if screenshots.exists():
-            artifacts["screenshots_dir"] = str(screenshots)
-        return artifacts
+        return workspace_checkpoint_service.collect_qa_artifacts(workspace_path)
 
     @staticmethod
     def _prepare_qa_checkpoint(workspace_path: Path | None, task_id: str) -> dict[str, str]:
-        return CodingOrchestrator._workspace_clean_checkpoint(workspace_path)
+        return workspace_checkpoint_service.prepare_qa_checkpoint(workspace_path, task_id)
 
     @staticmethod
     def _prepare_merge_test_checkpoint(workspace_path: Path | None, task_id: str) -> dict[str, str]:
-        return CodingOrchestrator._workspace_clean_checkpoint(workspace_path)
+        return workspace_checkpoint_service.prepare_merge_test_checkpoint(workspace_path, task_id)
 
     @staticmethod
     def _workspace_has_uncommitted_changes(workspace_path: Path | None) -> bool:
-        checkpoint = CodingOrchestrator._workspace_clean_checkpoint(workspace_path)
-        return checkpoint.get("status") == "failed"
+        return workspace_checkpoint_service.workspace_has_uncommitted_changes(workspace_path)
 
     @staticmethod
     def _workspace_clean_checkpoint(workspace_path: Path | None) -> dict[str, str]:
-        if workspace_path is None:
-            return {"status": "skipped", "reason": "no_workspace"}
-        if not (workspace_path / ".git").exists():
-            return {"status": "skipped", "reason": "not_git_repo"}
-        try:
-            status = subprocess.run(
-                ["git", "status", "--porcelain"],
-                cwd=workspace_path,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            if status.stdout.strip():
-                return {
-                    "status": "failed",
-                    "reason": "implementation_commit_missing",
-                    "error": "source worktree has uncommitted changes",
-                    "status_porcelain": status.stdout.strip(),
-                }
-            head = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=workspace_path,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            return {"status": "clean", "head": head.stdout.strip()}
-        except Exception as exc:
-            return {
-                "status": "failed",
-                "reason": "implementation_commit_missing",
-                "error": str(exc),
-            }
+        return workspace_checkpoint_service.workspace_clean_checkpoint(workspace_path)
 
     @staticmethod
     def _git_head(workspace_path: Path | None) -> str:
-        if workspace_path is None or not (workspace_path / ".git").exists():
-            return ""
-        try:
-            result = subprocess.run(
-                ["git", "rev-parse", "HEAD"],
-                cwd=workspace_path,
-                check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-            )
-            return result.stdout.strip()
-        except Exception:
-            return ""
+        return workspace_checkpoint_service.git_head(workspace_path)
 
     @staticmethod
     def _source_branch_for_task(task: dict[str, Any], project_name: str) -> str:
-        session = task.get("task_session") or {}
-        existing = session.get("source_branch")
-        if existing:
-            return str(existing)
-        plan_report = session.get("plan_report") or {}
-        candidate = plan_report.get("branch_slug_candidate") if isinstance(plan_report, dict) else ""
-        slug = CodingOrchestrator._slugify_ascii(str(candidate or ""))
-        if slug:
-            slug = slug[:_SOURCE_BRANCH_SLUG_MAX_LENGTH].rstrip("-")
-        if not slug:
-            slug = "task"
-        return f"codex/{slug}-{CodingOrchestrator._task_short_id(str(task['task_id']))}"
+        return workspace_checkpoint_service.source_branch_for_task(task, project_name)
 
     @staticmethod
     def _plan_report_session_fields(report: dict[str, Any]) -> dict[str, Any]:
-        fields = (
-            "branch_slug_candidate",
-            "execution_policy_decision",
-            "user_facing_summary",
-            "technical_summary",
-            "next_actions",
-        )
-        return {field: report[field] for field in fields if field in report}
+        return run_orchestration_service.build_plan_report_session_fields(report)
 
     @staticmethod
     def _latest_execution_policy_decision(task: dict[str, Any]) -> dict[str, Any]:
-        session = task.get("task_session") or {}
-        plan_report = session.get("plan_report") or {}
-        if not isinstance(plan_report, dict):
-            return {}
-        decision = plan_report.get("execution_policy_decision") or {}
-        return decision if isinstance(decision, dict) else {}
+        return run_orchestration_service.latest_execution_policy_decision(task)
 
     @staticmethod
     def _source_base_branch_for_task(task: dict[str, Any]) -> str:
-        session = task.get("task_session") or {}
-        existing = session.get("source_base_branch")
-        if existing:
-            return str(existing)
-        source = task.get("source") or {}
-        configured = source.get("source_base_branch") or source.get("base_branch")
-        return str(configured or "main")
+        return workspace_checkpoint_service.source_base_branch_for_task(task)
 
     @staticmethod
     def _task_short_id(task_id: str) -> str:
-        return task_id.removeprefix("task_")
+        return workspace_checkpoint_service.task_short_id(task_id)
 
     @staticmethod
     def _slugify_ascii(text: str) -> str:
-        return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", text.lower())).strip("-")
+        return workspace_checkpoint_service.slugify_ascii(text)
 
     @staticmethod
     def _latest_existing_implementation_workspace(task: dict[str, Any]) -> Path | None:
-        for run in reversed(task.get("agent_runs") or []):
-            if run.get("mode") != RunMode.IMPLEMENTATION.value:
-                continue
-            workspace_path = run.get("workspace_path")
-            if not workspace_path:
-                continue
-            path = Path(str(workspace_path))
-            if path.exists():
-                return path
-        return None
+        return workspace_checkpoint_service.latest_existing_implementation_workspace(task)
 
     def _merge_test_blocker(self, task: dict[str, Any]) -> str:
         task_id = str(task.get("task_id") or "")
@@ -6084,14 +3834,10 @@ class CodingOrchestrator:
                 return CodingOrchestrator._cancelled_task_message(task)
             if task.get("status") == TaskStatus.BLOCKED.value:
                 assessment = self._blocked_task_merge_test_assessment(task)
-                return (
-                    f"[{task_id}] 当前验证证据不足，暂不能 merge-test。\n"
-                    f"影响：{assessment.get('impact') or '暂不能证明该受阻任务已安全完成实现。'}\n"
-                    f"建议：{assessment.get('recovery_action') or '先恢复实现，或补齐结构化报告、工作区和执行上下文后重试。'}"
-                )
-            return f"[{task_id}] 当前状态是 {task_status_display(task.get('status'))}，还不能 merge-test。"
+                return merge_test_presenter.merge_test_blocked_validation_message(task_id, assessment)
+            return merge_test_presenter.merge_test_invalid_status_message(task)
         if self._merge_test_workspace(task) is None:
-            return f"[{task_id}] 未找到实现工作区，无法基于上一次实现上下文执行 merge-test。"
+            return merge_test_presenter.merge_test_missing_workspace_message(task)
         return ""
 
     def _release_blocked_task_for_merge_test_if_allowed(
@@ -6290,42 +4036,15 @@ class CodingOrchestrator:
 
     @staticmethod
     def _blocked_merge_test_risk_confirmation_message(task_id: str, assessment: dict[str, Any]) -> str:
-        lines = [
-            f"[{task_id}] 验证证据还不完整，但可以由你确认风险后继续 merge-test。",
-            f"影响：{assessment.get('impact') or '缺少完整自动验证或结构化证据'}",
-            f"建议：{assessment.get('recovery_action') or '补齐证据或重跑 implementation'}",
-        ]
-        fallback = str(assessment.get("fallback_evidence") or "").strip()
-        if fallback:
-            lines.append(CodingOrchestrator._fallback_evidence_user_line())
-        lines.extend(
-            [
-                f"继续执行：/coding merge-test {task_id} --accept-risk",
-                "回复“确认”会继续；回复“取消”会放弃本次继续动作。",
-            ]
-        )
-        return "\n".join(lines)
+        return merge_test_presenter.blocked_merge_test_risk_confirmation_message(task_id, assessment)
 
     @staticmethod
     def _blocked_merge_test_release_note(release: dict[str, Any]) -> str:
-        if release.get("accepted_risk"):
-            lines = ["说明：已按你的风险确认继续 merge-test。"]
-        else:
-            lines = ["说明：已基于 Codex 给出的验证说明继续 merge-test。"]
-        impact = str(release.get("impact") or "").strip()
-        if impact:
-            lines.append(f"影响：{impact}")
-        recovery_action = str(release.get("recovery_action") or "").strip()
-        if recovery_action:
-            lines.append(f"建议：{recovery_action}")
-        fallback = str(release.get("fallback_evidence") or "").strip()
-        if fallback:
-            lines.append(CodingOrchestrator._fallback_evidence_user_line())
-        return "\n".join(lines)
+        return merge_test_presenter.blocked_merge_test_release_note(release)
 
     @staticmethod
     def _fallback_evidence_user_line() -> str:
-        return "替代证据：已有运行记录可供核对。"
+        return merge_test_presenter.fallback_evidence_user_line()
 
     @staticmethod
     def _merge_test_qa_risk_confirmation_message(
@@ -6334,15 +4053,11 @@ class CodingOrchestrator:
         *,
         include_reply_hint: bool = True,
     ) -> str:
-        lines = [
-            f"[{task_id}] 最近一次 QA 证据不够完整，继续 merge-test 需要你确认。",
-            f"影响：{qa_evidence.get('impact') or '缺少可信 QA 通过证据'}",
-            f"建议：{qa_evidence.get('recovery_action') or '重新运行 QA，或确认风险后继续'}",
-            f"继续执行：/coding merge-test {task_id} --confirm-qa-risk",
-        ]
-        if include_reply_hint:
-            lines.append("回复“确认”继续，或回复“取消”放弃。")
-        return "\n".join(lines)
+        return merge_test_presenter.merge_test_qa_risk_confirmation_message(
+            task_id,
+            qa_evidence,
+            include_reply_hint=include_reply_hint,
+        )
 
     @staticmethod
     def _qa_evidence_for_merge_test(task: dict[str, Any]) -> dict[str, str]:
@@ -6439,18 +4154,11 @@ class CodingOrchestrator:
 
     @staticmethod
     def _is_codex_session_runner(runner_name: str) -> bool:
-        return runner_name in {
-            RunnerName.CODEX_CLI.value,
-            RunnerName.HERMES_AUTONOMOUS_CODEX.value,
-        }
+        return run_manifest_service.is_codex_session_runner(runner_name)
 
     @staticmethod
     def _runner_name_for_manifest(runner_name: str) -> RunnerName | str:
-        if runner_name == RunnerName.CODEX_CLI.value:
-            return RunnerName.CODEX_CLI
-        if runner_name == RunnerName.HERMES_AUTONOMOUS_CODEX.value:
-            return RunnerName.HERMES_AUTONOMOUS_CODEX
-        return runner_name
+        return run_manifest_service.runner_name_for_manifest(runner_name)
 
     @staticmethod
     def _incremental_context_for_resumed_session(task: dict[str, Any], mode: RunMode) -> str:
@@ -6520,86 +4228,21 @@ class CodingOrchestrator:
         confirmed_context: str,
         execution_policy: dict[str, Any],
     ) -> dict[str, str]:
-        artifacts: dict[str, str] = {}
-        if wiki_docs:
-            wiki_path = run_dir / "wiki-context.md"
-            wiki_sections = []
-            for doc in wiki_docs:
-                title = str(doc.get("title") or "未命名")
-                ref_id = str(doc.get("id") or "unknown")
-                body = str(doc.get("body") or "").strip() or "无正文"
-                wiki_sections.append(f"## {ref_id}：{title}\n\n{body}")
-            wiki_path.write_text("\n\n".join(wiki_sections), encoding="utf-8")
-            artifacts["wiki_context"] = str(wiki_path)
-
-        if mode == RunMode.IMPLEMENTATION:
-            plan_text = confirmed_context.strip()
-            if plan_text:
-                plan_path = run_dir / "confirmed-plan.md"
-                plan_path.write_text(plan_text, encoding="utf-8")
-                artifacts["confirmed_plan"] = str(plan_path)
-            elif str((execution_policy or {}).get("planning") or "") != "inline":
-                plan_path = run_dir / "confirmed-plan.md"
-                plan_path.write_text(
-                    "未找到已确认 plan-only 摘要；如果无法安全实现，请返回 `status=blocked` 并说明需要人工补充什么。",
-                    encoding="utf-8",
-                )
-                artifacts["confirmed_plan"] = str(plan_path)
-        elif mode in {RunMode.QA, RunMode.MERGE_TEST}:
-            implementation_path = run_dir / "implementation-context.md"
-            implementation_text = confirmed_context.strip() or (
-                "未找到上一次 implementation 上下文；如果无法安全继续，请返回 `status=blocked`。"
-            )
-            implementation_path.write_text(implementation_text, encoding="utf-8")
-            artifacts["implementation_context"] = str(implementation_path)
-
-        context_package = self.context_assembler.assemble(
-            run_mode=mode,
-            task=task,
+        return run_context_artifact_service.write_run_context_artifacts(
             run_dir=run_dir,
+            task=task,
+            mode=mode,
+            source=source,
+            project_name=project_name,
+            wiki_docs=wiki_docs,
+            wiki_refs=wiki_refs,
+            confirmed_context=confirmed_context,
+            execution_policy=execution_policy,
+            context_assembler=self.context_assembler,
+            prompt_builder=self.prompt_builder,
             dependency_tasks=self._context_dependency_tasks(task),
             sibling_tasks=self._context_sibling_tasks(task),
         )
-        if context_package.prompt_context.strip():
-            assembled_context_path = run_dir / "assembled-context.md"
-            assembled_context_path.write_text(context_package.prompt_context, encoding="utf-8")
-            artifacts["assembled_context"] = str(assembled_context_path)
-        artifacts["context_manifest"] = str(context_package.manifest_path)
-
-        instructions_path = run_dir / "run-instructions.md"
-        instructions_path.write_text(
-            self.prompt_builder.build_run_instructions(mode=mode, execution_policy=execution_policy),
-            encoding="utf-8",
-        )
-        artifacts["run_instructions"] = str(instructions_path)
-
-        execution_policy_path = run_dir / "execution-policy.json"
-        execution_policy_path.write_text(self._json(execution_policy), encoding="utf-8")
-        artifacts["execution_policy"] = str(execution_policy_path)
-
-        context_index_path = run_dir / "context-index.json"
-        artifacts["context_index"] = str(context_index_path)
-        index = {
-            "task_id": task.get("task_id"),
-            "project_name": project_name,
-            "requirement_summary": task.get("requirement_summary"),
-            "source": {
-                key: source[key]
-                for key in ("type", "title", "url", "project_name", "message_summary", "related_task_id")
-                if source.get(key)
-            },
-            "wiki_refs": [
-                {"id": ref.get("id"), "title": ref.get("title")}
-                for ref in wiki_refs
-            ],
-            "execution_policy": execution_policy,
-            "artifacts": dict(artifacts),
-        }
-        source_context = source.get("source_context")
-        if isinstance(source_context, dict) and source_context:
-            index["source"]["source_context"] = source_context
-        context_index_path.write_text(self._json(index), encoding="utf-8")
-        return artifacts
 
     def _context_dependency_tasks(self, task: dict[str, Any]) -> list[dict[str, Any]]:
         dependency_ids = task.get("dependency_task_ids") or []
@@ -6720,34 +4363,31 @@ class CodingOrchestrator:
         run_dir: Path,
         execution_policy: dict[str, Any],
     ) -> RunManifest:
-        now = datetime.now(timezone.utc)
-        return RunManifest(
-            task_id=task["task_id"],
+        source_branch = (
+            self._source_branch_for_task(task, self._project_name_for_path(str(project_path)) or project_path.name)
+            if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}
+            else None
+        )
+        source_base_branch = (
+            self._source_base_branch_for_task(task)
+            if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}
+            else None
+        )
+        return self.run_manifest_service.build_manifest(
+            task=task,
             run_id=run_id,
             mode=mode,
-            runner=self._runner_name_for_manifest(runner_name),
-            source=task["source"],
-            project_path=str(project_path),
-            workspace_path=str(workspace_path) if workspace_path else None,
-            workflow_refs=[str(project_path / "WORKFLOW.md")],
-            llm_wiki_refs=[str(ref.get("id")) for ref in wiki_refs],
-            allowed_paths=workflow.allowed_paths,
-            forbidden_paths=workflow.forbidden_paths,
-            task_phase=str(task.get("phase") or TaskPhase.DRAFT.value),
-            source_branch=self._source_branch_for_task(task, self._project_name_for_path(str(project_path)) or project_path.name)
-            if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}
-            else None,
-            source_base_branch=self._source_base_branch_for_task(task)
-            if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}
-            else None,
+            runner_name=runner_name,
+            project_path=project_path,
+            workspace_path=workspace_path,
+            workflow=workflow,
+            wiki_refs=wiki_refs,
             timeout_seconds=timeout_seconds,
-            deadline_at=(now + timedelta(seconds=timeout_seconds)).isoformat(),
+            run_dir=run_dir,
             heartbeat_interval_seconds=self.heartbeat_interval_seconds,
-            output_schema_path=str(run_dir / "report.schema.json"),
-            created_at=now.isoformat(),
-            session_visibility="visible" if mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST} else "background",
-            permission_profile=self._permission_profile(mode),
             execution_policy=execution_policy,
+            source_branch=source_branch,
+            source_base_branch=source_base_branch,
         )
 
     def _timeout_seconds_for_mode(
@@ -6756,239 +4396,47 @@ class CodingOrchestrator:
         override: int | None = None,
         execution_policy: dict[str, Any] | None = None,
     ) -> int:
-        if override is not None:
-            return override
-        policy_timeout = self._policy_timeout_seconds(execution_policy)
-        if mode == RunMode.IMPLEMENTATION:
-            if policy_timeout and self._policy_uses_targeted_verification(execution_policy):
-                return min(self.implementation_timeout_seconds, policy_timeout)
-            return self.implementation_timeout_seconds
-        if mode == RunMode.QA:
-            if policy_timeout and self._policy_uses_targeted_verification(execution_policy):
-                return min(self.qa_timeout_seconds, policy_timeout)
-            return self.qa_timeout_seconds
-        if mode == RunMode.MERGE_TEST:
-            return self.merge_test_timeout_seconds
-        return self.default_timeout_seconds
+        return self.run_service.timeout_seconds_for_mode(mode, override, execution_policy=execution_policy)
 
     @staticmethod
     def _policy_timeout_seconds(execution_policy: dict[str, Any] | None) -> int:
-        if not isinstance(execution_policy, dict):
-            return 0
-        try:
-            value = int(execution_policy.get("max_duration_seconds") or 0)
-        except (TypeError, ValueError):
-            return 0
-        return value if value > 0 else 0
+        return RunService.policy_timeout_seconds(execution_policy)
 
     @staticmethod
     def _policy_uses_targeted_verification(execution_policy: dict[str, Any] | None) -> bool:
-        if not isinstance(execution_policy, dict):
-            return False
-        route = str(execution_policy.get("route") or "")
-        verification = str(execution_policy.get("verification") or "")
-        return verification == "targeted" or route in {"fast_fix", "targeted_ui_fix"}
+        return RunService.policy_uses_targeted_verification(execution_policy)
 
     @staticmethod
     def _write_report_schema(path: Path) -> None:
-        schema = {
-            "type": "object",
-            "additionalProperties": False,
-            "required": [
-                "runner",
-                "status",
-                "raw_status",
-                "status_detail",
-                "failure_type",
-                "known_gaps",
-                "structured",
-                "mode",
-                "summary_markdown",
-                "modified_files",
-                "test_commands",
-                "test_results",
-                "risks",
-                "human_required",
-                "next_actions",
-                "verification_limitations",
-                "qa_artifacts",
-                "tested_commit",
-                "user_facing_summary",
-                "technical_summary",
-                "implementation_landed",
-                "commit_sha",
-                "changed_files_summary",
-                "branch_slug_candidate",
-                "execution_policy_decision",
-                "merge_readiness",
-                "classification",
-                "reason",
-                "delivery_units",
-                "execution_tasks",
-                "dependencies",
-                "acceptance_plan",
-                "open_questions",
-                "materialization_allowed",
-            ],
-            "properties": {
-                "runner": {"type": "string"},
-                "status": {
-                    "type": "string",
-                    "enum": [status.value for status in AgentRunStatus],
-                },
-                "raw_status": {"type": "string"},
-                "status_detail": {"type": "string"},
-                "failure_type": {"type": "string"},
-                "known_gaps": {"type": "boolean"},
-                "structured": {"type": "boolean"},
-                "mode": {"type": "string", "enum": ["decomposition", "plan-only", "implementation", "qa", "merge-test"]},
-                "summary_markdown": {
-                    "type": "string",
-                    "description": "Human-readable Markdown summary or plan to show in Feishu.",
-                },
-                "modified_files": {"type": "array", "items": {"type": "string"}},
-                "test_commands": {"type": "array", "items": {"type": "string"}},
-                "test_results": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["command", "status", "output_summary"],
-                        "properties": {
-                            "command": {"type": "string"},
-                            "status": {
-                                "type": "string",
-                                "enum": ["passed", "failed", "not_run", "blocked"],
-                            },
-                            "output_summary": {"type": "string"},
-                        },
-                    },
-                },
-                "risks": {"type": "array", "items": {"type": "string"}},
-                "verification_limitations": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "required": ["reason", "impact", "recovery_action", "fallback_evidence"],
-                        "properties": {
-                            "reason": {"type": "string"},
-                            "impact": {"type": "string"},
-                            "recovery_action": {"type": "string"},
-                            "fallback_evidence": {"type": "string"},
-                        },
-                    },
-                },
-                "human_required": {"type": "boolean"},
-                "next_actions": {"type": "array", "items": {"type": "string"}},
-                "qa_artifacts": {
-                    "type": "object",
-                    "additionalProperties": False,
-                    "required": ["report", "baseline", "screenshots_dir"],
-                    "properties": {
-                        "report": {"type": "string"},
-                        "baseline": {"type": "string"},
-                        "screenshots_dir": {"type": "string"},
-                    },
-                },
-                "tested_commit": {"type": "string"},
-                "user_facing_summary": {"type": "string"},
-                "technical_summary": {"type": "string"},
-                "implementation_landed": {"type": "boolean"},
-                "commit_sha": {"type": "string"},
-                "changed_files_summary": {"type": "array", "items": {"type": "string"}},
-                "branch_slug_candidate": {"type": "string"},
-                "execution_policy_decision": {"type": "object", "additionalProperties": True},
-                "merge_readiness": {"type": "object", "additionalProperties": True},
-                "classification": {
-                    "type": "string",
-                    "enum": ["", "single_execution", "multi_task", "multi_project", "needs_clarification"],
-                },
-                "reason": {"type": "string"},
-                "delivery_units": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-                "execution_tasks": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-                "dependencies": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-                "acceptance_plan": {"type": "array", "items": {"type": "string"}},
-                "open_questions": {"type": "array", "items": {"type": "string"}},
-                "materialization_allowed": {"type": "boolean"},
-            },
-        }
-        path.write_text(CodingOrchestrator._json(schema), encoding="utf-8")
+        write_report_schema(path)
 
     @staticmethod
     def _artifact_record(artifacts: Any) -> dict[str, str]:
-        operator_log = getattr(artifacts, "operator_log", None) or artifacts.run_dir / "run-log.md"
-        execution_policy = getattr(artifacts, "execution_policy", None) or artifacts.run_dir / "execution-policy.json"
-        context_manifest = getattr(artifacts, "context_manifest", None) or artifacts.run_dir / "context-manifest.json"
-        return {
-            "run_dir": str(artifacts.run_dir),
-            "input_prompt": str(artifacts.input_prompt),
-            "manifest": str(artifacts.manifest),
-            "stdout": str(artifacts.stdout),
-            "stderr": str(artifacts.stderr),
-            "events": str(artifacts.events),
-            "report": str(artifacts.report),
-            "summary": str(artifacts.summary),
-            "diff": str(artifacts.diff),
-            "operator_log": str(operator_log),
-            "execution_policy": str(execution_policy),
-            "context_manifest": str(context_manifest),
-        }
+        return run_manifest_service.artifact_record(artifacts)
 
     @staticmethod
     def _artifact_set_for_run_dir(run_dir: Path) -> ArtifactSet:
-        return ArtifactSet(
-            run_dir=run_dir,
-            input_prompt=run_dir / "input-prompt.md",
-            manifest=run_dir / "run-manifest.json",
-            stdout=run_dir / "stdout.log",
-            stderr=run_dir / "stderr.log",
-            events=run_dir / "events.jsonl",
-            report=run_dir / "report.json",
-            summary=run_dir / "summary.md",
-            diff=run_dir / "diff.patch",
-            operator_log=run_dir / "run-log.md",
-            execution_policy=run_dir / "execution-policy.json",
-            context_manifest=run_dir / "context-manifest.json",
-        )
+        return run_artifact_paths.artifact_set_for_run_dir(run_dir)
 
     def _runner_failed_result(self, *, runner_name: str, run_dir: Path, mode: RunMode, error: Exception) -> RunResult:
         artifacts = self._artifact_set_for_run_dir(run_dir)
         artifacts.stdout.touch(exist_ok=True)
-        artifacts.stderr.write_text(str(error), encoding="utf-8")
-        summary = f"Runner failed before producing a structured result: {error}"
-        artifacts.summary.write_text(summary, encoding="utf-8")
-        report = {
-            "runner": runner_name,
-            **agent_run_status_details("runner_failed", mode),
-            "mode": mode.value,
-            "summary_markdown": summary,
-            "modified_files": [],
-            "test_commands": [],
-            "test_results": [],
-            "risks": ["Runner crashed or failed before a structured report was produced."],
-            "verification_limitations": [
-                {
-                    "reason": "runner_exception",
-                    "impact": "The requested run did not execute to completion, so no implementation or verification result can be trusted.",
-                    "recovery_action": "Inspect stderr, fix the runner invocation or environment, then rerun the same task.",
-                    "fallback_evidence": str(artifacts.stderr),
-                }
-            ],
-            "human_required": True,
-            "next_actions": ["Inspect runner stderr and rerun after correcting the runner failure."],
-            "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
-            "tested_commit": "",
-            "raw_stdout_ref": str(artifacts.stdout),
-            "raw_stderr_ref": str(artifacts.stderr),
-            "summary_ref": str(artifacts.summary),
-        }
-        artifacts.report.write_text(self._json(report), encoding="utf-8")
+        failure = run_orchestration_service.build_runner_failed_report_payload(
+            runner_name=runner_name,
+            mode=mode,
+            error=error,
+            stdout_path=artifacts.stdout,
+            stderr_path=artifacts.stderr,
+            summary_path=artifacts.summary,
+        )
+        run_stderr_artifact_service.write_run_stderr_artifact(stderr_path=artifacts.stderr, stderr=failure.stderr)
+        run_summary_artifact_service.write_run_summary_artifact(summary_path=artifacts.summary, summary=failure.summary)
+        run_report_artifact_service.write_run_report_artifact(report_path=artifacts.report, report=failure.report)
         return RunResult(
-            status=report["status"],
+            status=failure.status,
             exit_code=None,
             artifacts=artifacts,
-            report=report,
+            report=failure.report,
         )
 
     def _checkpoint_failed_result(
@@ -7001,54 +4449,25 @@ class CodingOrchestrator:
     ) -> RunResult:
         artifacts = self._artifact_set_for_run_dir(run_dir)
         artifacts.stdout.touch(exist_ok=True)
-        error = str(checkpoint.get("error") or "source worktree has uncommitted changes")
-        artifacts.stderr.write_text(error, encoding="utf-8")
-        if mode == RunMode.MERGE_TEST:
-            summary = "merge-test 未启动：实现工作区仍有未提交改动。"
-            risk = "merge-test 前 source branch 必须已经由 Codex 按 Git Flow/Conventional Commit 规范提交干净。"
-            impact = "merge-test run 未执行，避免把未提交实现改动用流程状态信息提交。"
-            recovery_action = "让 Codex 根据实际 diff 创建符合规范的实现提交后，重新触发 merge-test。"
-            next_actions = ["让 Codex 提交当前 implementation 改动后重新触发 merge-test。"]
-        else:
-            summary = "QA 未启动：实现工作区仍有未提交改动。"
-            risk = "QA 前 source branch 必须已经由 Codex 按 Git Flow/Conventional Commit 规范提交干净。"
-            impact = "QA run 未执行，当前缺少自动测试证据。"
-            recovery_action = "让 Codex 根据实际 diff 创建符合规范的实现提交后，重新运行 QA。"
-            next_actions = ["让 Codex 提交当前 implementation 改动后重新触发 QA；也可以人工判断后继续 merge-test。"]
-        artifacts.summary.write_text(summary, encoding="utf-8")
-        report = {
-            "runner": runner_name,
-            **agent_run_status_details("blocked", mode),
-            "mode": mode.value,
-            "summary_markdown": summary,
-            "modified_files": [],
-            "test_commands": [],
-            "test_results": [],
-            "risks": [risk],
-            "verification_limitations": [
-                {
-                    "reason": str(checkpoint.get("reason") or "implementation_commit_missing"),
-                    "impact": impact,
-                    "recovery_action": recovery_action,
-                    "fallback_evidence": str(artifacts.stderr),
-                }
-            ],
-            "human_required": True,
-            "next_actions": next_actions,
-            "qa_artifacts": {"report": "", "baseline": "", "screenshots_dir": ""},
-            "tested_commit": "",
-        }
-        artifacts.report.write_text(self._json(report), encoding="utf-8")
+        failure = run_orchestration_service.build_checkpoint_failed_report_payload(
+            runner_name=runner_name,
+            mode=mode,
+            checkpoint=checkpoint,
+            stderr_path=artifacts.stderr,
+        )
+        run_stderr_artifact_service.write_run_stderr_artifact(stderr_path=artifacts.stderr, stderr=failure.stderr)
+        run_summary_artifact_service.write_run_summary_artifact(summary_path=artifacts.summary, summary=failure.summary)
+        run_report_artifact_service.write_run_report_artifact(report_path=artifacts.report, report=failure.report)
         return RunResult(
-            status=AgentRunStatus.BLOCKED.value,
+            status=failure.status,
             exit_code=None,
             artifacts=artifacts,
-            report=report,
+            report=failure.report,
         )
 
     @staticmethod
     def _codex_attach_command(session_id: str) -> str:
-        return f"codex resume {session_id}" if session_id else ""
+        return run_manifest_service.codex_attach_command(session_id)
 
     @staticmethod
     def _codex_resume_command(
@@ -7057,162 +4476,22 @@ class CodingOrchestrator:
         *,
         dangerous_bypass: bool = False,
     ) -> str:
-        if not session_id:
-            return ""
-        mode_value = mode.value if isinstance(mode, RunMode) else str(mode or "")
-        if dangerous_bypass or mode_value in {
-            RunMode.IMPLEMENTATION.value,
-            RunMode.QA.value,
-            RunMode.MERGE_TEST.value,
-        }:
-            return f"codex exec resume --dangerously-bypass-approvals-and-sandbox {session_id} -"
-        return f'codex exec resume -c sandbox_mode="read-only" -c approval_policy="never" {session_id} -'
-
-    @staticmethod
-    def _mode_uses_controlled_bypass(mode: RunMode) -> bool:
-        return mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}
-
-    @staticmethod
-    def _run_uses_controlled_bypass(mode: RunMode, source: dict[str, Any] | None = None) -> bool:
-        if CodingOrchestrator._mode_uses_controlled_bypass(mode):
-            return True
-        return mode == RunMode.PLAN_ONLY and CodingOrchestrator._source_requires_codex_plan_permissions(source)
-
-    @staticmethod
-    def _source_requires_codex_plan_permissions(source: dict[str, Any] | None) -> bool:
-        if not isinstance(source, dict):
-            return False
-        source_context = source.get("source_context")
-        if not isinstance(source_context, dict) or not source_context:
-            return False
-        if str(source_context.get("read_status") or "").strip().lower() == "success":
-            return False
-        source_type = str(source_context.get("source_type") or source.get("type") or "").strip().lower()
-        url = str(source_context.get("url") or "").strip().lower()
-        if (
-            source_context.get("codex_resolvable")
-            or source_context.get("resolution_owner") == "codex"
-            or source_context.get("lark_cli_command")
-        ):
-            return True
-        return (
-            source_type.startswith("feishu_doc")
-            or source_type.startswith("feishu_wiki")
-            or source_type.startswith("feishu_project_")
-            or "feishu.cn" in url
-        )
-
-    @staticmethod
-    def _permission_profile(mode: RunMode, *, source_elevated: bool = False) -> str:
-        if mode == RunMode.DECOMPOSITION:
-            return "decomposition_read_only"
-        if mode == RunMode.PLAN_ONLY:
-            if source_elevated:
-                return "plan_source_read_elevated"
-            return "plan_read_only"
-        if mode == RunMode.IMPLEMENTATION:
-            return "implementation_controlled_elevated"
-        if mode == RunMode.QA:
-            return "qa_controlled_elevated"
-        if mode == RunMode.MERGE_TEST:
-            return "merge_test_git_elevated"
-        return "default"
-
-    @staticmethod
-    def _elevated_permissions_reason(mode: RunMode, *, source_elevated: bool = False) -> str:
-        if mode == RunMode.PLAN_ONLY:
-            if source_elevated:
-                return (
-                    "Plan-only has an unresolved external source. Codex needs the same terminal-level "
-                    "access as an interactive Codex session to run rtk lark-cli, read Feishu/Lark documents, "
-                    "and inspect authenticated planning context before producing a safe plan."
-                )
-            return (
-                "Plan-only may need to read Feishu/Lark documents, Swagger/OpenAPI specs, "
-                "private API metadata, package metadata, and authenticated context sources before producing a plan."
-            )
-        if mode == RunMode.QA:
-            return (
-                "QA requires dependency install, test execution, dev server/browser automation, "
-                "git metadata writes for QA fix commits, and QA artifact writes."
-            )
-        if mode == RunMode.IMPLEMENTATION:
-            return (
-                "Implementation requires dependency install, test execution, dev server/browser checks, "
-                "and git metadata writes before QA."
-            )
-        return "Merge-test requires git merge and push operations against the test branch."
-
-    @staticmethod
-    def _elevated_permission_scope(mode: RunMode, *, source_elevated: bool = False) -> list[str]:
-        if mode == RunMode.PLAN_ONLY:
-            if source_elevated:
-                return [
-                    "project file reads",
-                    "rtk lark-cli document reads",
-                    "Feishu/Lark auth cache reads or refreshes available to the Codex CLI session",
-                    "Swagger/OpenAPI reads",
-                    "private API metadata reads",
-                    "network reads for planning context",
-                    "no project file writes",
-                ]
-            return [
-                "project file reads",
-                "Feishu/Lark document reads",
-                "Swagger/OpenAPI reads",
-                "private API metadata reads",
-                "network reads for planning context",
-                "no project file writes",
-            ]
-        if mode == RunMode.MERGE_TEST:
-            return ["git metadata", "source branch push", "test branch merge and push"]
-        return [
-            "dependency install",
-            "package manager caches",
-            "git metadata",
-            "dev server and browser QA",
-            "QA reports",
-        ]
-
-    @staticmethod
-    def _source_modification_boundary(mode: RunMode, workspace_path: Path | None, project_path: Path | None = None) -> str:
-        if mode == RunMode.PLAN_ONLY:
-            project = str(project_path) if project_path else "project workspace"
-            return (
-                f"plan-only may read project files under {project} and external planning context "
-                "such as Feishu/Lark docs, Swagger/OpenAPI, and API metadata; it must not modify project files."
-            )
-        workspace = str(workspace_path) if workspace_path else "task workspace"
-        return (
-            f"source code changes must stay within {workspace}; writes outside the workspace are limited to "
-            "dependency caches, git metadata, dev server/browser temporary files, and QA artifacts required for verification."
+        return run_manifest_service.codex_resume_command(
+            session_id,
+            mode=mode,
+            dangerous_bypass=dangerous_bypass,
         )
 
     def _update_manifest_session_metadata(self, *, manifest_path: Path, session_id: str, runner_name: str) -> None:
-        if not manifest_path.exists():
-            return
-        try:
-            import json
-
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception:
-            return
-        manifest["session_id"] = session_id
-        manifest["resume_session_id"] = manifest.get("resume_session_id") or session_id
-        if self._is_codex_session_runner(runner_name):
-            manifest["attach_command"] = self._codex_attach_command(session_id)
-            manifest["resume_command"] = self._codex_resume_command(
-                session_id,
-                mode=manifest.get("mode"),
-                dangerous_bypass=bool(manifest.get("dangerous_bypass")),
-            )
-            manifest["session_visibility"] = manifest.get("session_visibility") or "visible"
-        manifest_path.write_text(self._json(manifest), encoding="utf-8")
+        self.run_manifest_service.update_session_metadata(
+            manifest_path=manifest_path,
+            session_id=session_id,
+            runner_name=runner_name,
+        )
 
     @staticmethod
     def _status_requires_verification_limitations(status: str) -> bool:
-        details = agent_run_status_details(status)
-        return CodingOrchestrator._run_details_require_verification_limitations(details)
+        return status_policy.status_requires_verification_limitations(status)
 
     @staticmethod
     def _run_status_details_from_report(
@@ -7221,100 +4500,31 @@ class CodingOrchestrator:
         *,
         fallback_status: Any = "",
     ) -> dict[str, Any]:
-        source_status = (
-            report.get("raw_status")
-            or report.get("status_detail")
-            or report.get("status")
-            or fallback_status
-            or "completed_unstructured"
-        )
-        details = agent_run_status_details(source_status, mode)
-        status_detail = str(report.get("status_detail") or "").strip()
-        failure_type = str(report.get("failure_type") or "").strip()
-        if status_detail:
-            details["status_detail"] = status_detail
-        if failure_type:
-            details = apply_failure_type_to_run_details(details, failure_type)
-        if "known_gaps" in report:
-            details["known_gaps"] = bool(report.get("known_gaps"))
-        if "structured" in report:
-            details["structured"] = bool(report.get("structured"))
-        if details["known_gaps"] and not details["status_detail"]:
-            details["status_detail"] = "ready_for_merge_test_with_known_gaps"
-        if details["structured"] is False and not details["status_detail"]:
-            details["status_detail"] = "completed_unstructured"
-        return details
+        return status_policy.run_status_details_from_report(report, mode, fallback_status=fallback_status)
 
     @staticmethod
     def _run_details_require_verification_limitations(details: dict[str, Any]) -> bool:
-        status = str(details.get("status") or "")
-        return bool(
-            status in {AgentRunStatus.BLOCKED.value, AgentRunStatus.FAILED.value}
-            or details.get("known_gaps")
-            or details.get("failure_type")
-            or details.get("status_detail") in {"completed_unstructured", "ready_for_merge_test_with_known_gaps"}
-            or details.get("structured") is False
-        )
+        return status_policy.run_details_require_verification_limitations(details)
 
     @staticmethod
     def _run_details_are_runner_failed(details: dict[str, Any]) -> bool:
-        return str(details.get("failure_type") or "") == "runner_failed" or str(details.get("raw_status") or "") == "runner_failed"
+        return status_policy.run_details_are_runner_failed(details)
 
     @staticmethod
     def _normalize_implementation_run_status(report: dict[str, Any], mode: RunMode) -> dict[str, Any]:
-        details = CodingOrchestrator._run_status_details_from_report(report, mode)
-        if details.get("structured") is False and mode != RunMode.MERGE_TEST:
-            blocked_details = agent_run_status_details("blocked", mode)
-            blocked_details["raw_status"] = str(details.get("raw_status") or "")
-            blocked_details["status_detail"] = str(details.get("status_detail") or "completed_unstructured")
-            blocked_details["structured"] = False
-            return blocked_details
-        if mode == RunMode.IMPLEMENTATION:
-            if CodingOrchestrator._report_has_implementation_not_landed_detail(report):
-                details = agent_run_status_details("blocked", mode)
-                details["failure_type"] = "implementation_not_landed"
-                details["status_detail"] = "implementation_not_landed"
-                return details
-            if (
-                not CodingOrchestrator._run_details_are_runner_failed(details)
-                and CodingOrchestrator._implementation_report_explicitly_not_landed(report)
-            ):
-                details = agent_run_status_details("blocked", mode)
-                details["failure_type"] = "implementation_not_landed"
-                details["status_detail"] = "implementation_not_landed"
-                return details
-        if (
-            mode == RunMode.IMPLEMENTATION
-            and str(details.get("status") or "") == AgentRunStatus.SUCCEEDED.value
-            and not details.get("known_gaps")
-            and details.get("structured") is not False
-            and CodingOrchestrator._implementation_report_not_landed(report)
-        ):
-            details = agent_run_status_details("blocked", mode)
-            details["failure_type"] = "implementation_not_landed"
-            details["status_detail"] = "implementation_not_landed"
-        return details
+        return status_policy.normalize_implementation_run_status(report, mode)
 
     @staticmethod
     def _implementation_report_not_landed(report: dict[str, Any]) -> bool:
-        if CodingOrchestrator._report_has_implementation_not_landed_detail(report):
-            return True
-        return report.get("implementation_landed") is not True or not str(report.get("commit_sha") or "").strip()
+        return status_policy.implementation_report_not_landed(report)
 
     @staticmethod
     def _implementation_report_explicitly_not_landed(report: dict[str, Any]) -> bool:
-        if CodingOrchestrator._report_has_implementation_not_landed_detail(report):
-            return True
-        if "implementation_landed" not in report and "commit_sha" not in report:
-            return False
-        return report.get("implementation_landed") is not True or not str(report.get("commit_sha") or "").strip()
+        return status_policy.implementation_report_explicitly_not_landed(report)
 
     @staticmethod
     def _report_has_implementation_not_landed_detail(report: dict[str, Any]) -> bool:
-        return "implementation_not_landed" in {
-            str(report.get("failure_type") or ""),
-            str(report.get("status_detail") or ""),
-        }
+        return status_policy.report_has_implementation_not_landed_detail(report)
 
     def _ensure_verification_limitations(
         self,
@@ -7322,23 +4532,12 @@ class CodingOrchestrator:
         status: str,
         artifacts: ArtifactSet,
     ) -> dict[str, Any]:
-        report = dict(report)
-        report.setdefault("verification_limitations", [])
-        try:
-            mode = RunMode(str(report.get("mode") or RunMode.PLAN_ONLY.value))
-        except ValueError:
-            mode = RunMode.PLAN_ONLY
-        details = self._run_status_details_from_report(report, mode, fallback_status=status)
-        if self._run_details_require_verification_limitations(details) and not report["verification_limitations"]:
-            report["verification_limitations"] = [
-                {
-                    "reason": "blocked_or_partial_without_details",
-                    "impact": "The run ended in a blocked or partial state without structured recovery details.",
-                    "recovery_action": "Review report risks and stdout/stderr, then rerun with explicit recovery instructions.",
-                    "fallback_evidence": f"{artifacts.stdout}; {artifacts.stderr}",
-                }
-            ]
-        return report
+        return run_orchestration_service.ensure_verification_limitations(
+            report,
+            status=status,
+            stdout_path=artifacts.stdout,
+            stderr_path=artifacts.stderr,
+        )
 
     @staticmethod
     def _task_status_for_run_result(
@@ -7347,25 +4546,7 @@ class CodingOrchestrator:
         *,
         details: dict[str, Any] | None = None,
     ) -> TaskStatus:
-        if details and details.get("structured") is False:
-            return TaskStatus.BLOCKED
-        status = normalize_agent_run_status(status, mode)
-        if mode == RunMode.DECOMPOSITION and status == AgentRunStatus.SUCCEEDED.value:
-            return TaskStatus.PLANNED
-        if mode == RunMode.PLAN_ONLY and status == AgentRunStatus.SUCCESS.value:
-            return TaskStatus.PLANNED
-        if mode in {RunMode.IMPLEMENTATION, RunMode.QA} and status in {
-            AgentRunStatus.SUCCESS.value,
-            AgentRunStatus.READY_FOR_MERGE_TEST.value,
-        }:
-            return TaskStatus.READY_FOR_MERGE_TEST
-        if mode in {RunMode.IMPLEMENTATION, RunMode.QA} and status in {
-            AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value,
-        }:
-            return TaskStatus.READY_FOR_MERGE_TEST
-        if mode == RunMode.MERGE_TEST and status == AgentRunStatus.SUCCESS.value:
-            return TaskStatus.MERGED_TEST
-        return TaskStateMachine.task_status_for_run_status(status)
+        return RunService.task_status_for_run_result(mode, status, details=details)
 
     @staticmethod
     def _task_phase_for_run_result(
@@ -7374,108 +4555,75 @@ class CodingOrchestrator:
         *,
         details: dict[str, Any] | None = None,
     ) -> TaskPhase:
-        status = normalize_agent_run_status(status, mode)
-        details = details or agent_run_status_details(status, mode)
-        if details.get("structured") is False:
-            return TaskPhase.BLOCKED
-        if CodingOrchestrator._run_details_are_runner_failed(details):
-            return TaskPhase.RUNNER_FAILED
-        if mode == RunMode.DECOMPOSITION:
-            if status == AgentRunStatus.SUCCEEDED.value:
-                return TaskPhase.PLAN_READY
-            if status == AgentRunStatus.BLOCKED.value:
-                return TaskPhase.BLOCKED
-            if status == AgentRunStatus.CANCELLED.value:
-                return TaskPhase.CANCELLED
-            return TaskPhase.FAILED
-        if mode == RunMode.PLAN_ONLY:
-            if status == AgentRunStatus.SUCCEEDED.value:
-                return TaskPhase.PLAN_READY
-            if status == AgentRunStatus.BLOCKED.value:
-                return TaskPhase.BLOCKED
-            return TaskPhase.FAILED
-        if mode == RunMode.MERGE_TEST:
-            if status == AgentRunStatus.SUCCEEDED.value:
-                return TaskPhase.MERGED_TEST
-            if status == AgentRunStatus.BLOCKED.value:
-                return TaskPhase.BLOCKED
-            if status == AgentRunStatus.CANCELLED.value:
-                return TaskPhase.CANCELLED
-            return TaskPhase.FAILED
-        if mode == RunMode.QA:
-            if status == AgentRunStatus.SUCCEEDED.value:
-                return TaskPhase.READY_TO_MERGE_TEST
-            if status == AgentRunStatus.BLOCKED.value:
-                return TaskPhase.BLOCKED
-            if status == AgentRunStatus.CANCELLED.value:
-                return TaskPhase.CANCELLED
-            return TaskPhase.FAILED
-        if status == AgentRunStatus.SUCCEEDED.value:
-            return TaskPhase.READY_TO_MERGE_TEST
-        if status == AgentRunStatus.BLOCKED.value:
-            return TaskPhase.BLOCKED
-        if status == AgentRunStatus.CANCELLED.value:
-            return TaskPhase.CANCELLED
-        return TaskPhase.FAILED
-
-    @staticmethod
-    def _json(data: Any) -> str:
-        import json
-
-        return json.dumps(data, ensure_ascii=False, indent=2)
+        return RunService.task_phase_for_run_result(mode, status, details=details)
 
     def _start_background_plan_only(self, task_id: str, gateway: Any, event: Any) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        worker = threading.Thread(
+        background_run_notifier.start_background_run(
+            task_id,
+            gateway,
+            event,
+            mode=RunMode.PLAN_ONLY,
             target=self._run_plan_only_and_notify,
-            args=(task_id, gateway, event, loop),
-            name=f"coding-plan-{task_id}",
-            daemon=True,
         )
-        worker.start()
 
     def _run_plan_only_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
-        result: dict[str, Any] = {}
-        try:
-            result = self.start_run(task_id, mode=RunMode.PLAN_ONLY)
-            result = self._wait_for_background_run_completion(task_id, result, mode=RunMode.PLAN_ONLY)
-            message = self._format_run_completion_message(task_id, result)
-        except Exception as exc:
-            self._mark_background_run_failed(task_id, exc, mode=RunMode.PLAN_ONLY)
-            message = f"[{task_id}] 计划执行失败：{exc}\n请查看任务详情和执行日志后重试。"
-        reply = self._reply_if_possible(gateway, event, message, loop=loop)
-        self._record_completion_notification(task_id, mode=RunMode.PLAN_ONLY, result=result, reply=reply)
+        mode = RunMode.PLAN_ONLY
+        background_run_notifier.run_and_notify(
+            task_id,
+            gateway,
+            event,
+            loop,
+            mode=mode,
+            execute=lambda: self._wait_for_background_run_completion(
+                task_id,
+                self.start_run(task_id, mode=mode),
+                mode=mode,
+            ),
+            format_success_message=lambda result: self._format_run_completion_message(task_id, result),
+            mark_failed=lambda exc: self._mark_background_run_failed(task_id, exc, mode=mode),
+            record_notification=lambda result, reply: self._record_completion_notification(
+                task_id,
+                mode=mode,
+                result=result,
+                reply=reply,
+            ),
+        )
 
     def _start_background_implementation(self, task_id: str, gateway: Any, event: Any) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        worker = threading.Thread(
+        background_run_notifier.start_background_run(
+            task_id,
+            gateway,
+            event,
+            mode=RunMode.IMPLEMENTATION,
             target=self._run_implementation_and_notify,
-            args=(task_id, gateway, event, loop),
-            name=f"coding-implementation-{task_id}",
-            daemon=True,
         )
-        worker.start()
 
     def _run_implementation_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
-        result: dict[str, Any] = {}
-        try:
-            result = self.start_run(task_id, mode=RunMode.IMPLEMENTATION)
-            result = self._wait_for_background_run_completion(task_id, result, mode=RunMode.IMPLEMENTATION)
-            if result.get("stale_completion"):
-                message = self._format_stale_run_completion_message(task_id, result)
-            else:
-                message = self._format_implementation_completion_message(task_id, result)
-        except Exception as exc:
-            self._mark_background_run_failed(task_id, exc, mode=RunMode.IMPLEMENTATION)
-            message = f"[{task_id}] 实现执行失败：{exc}\n请查看任务详情和执行日志后重试。"
-        reply = self._reply_if_possible(gateway, event, message, loop=loop)
-        self._record_completion_notification(task_id, mode=RunMode.IMPLEMENTATION, result=result, reply=reply)
+        mode = RunMode.IMPLEMENTATION
+        background_run_notifier.run_and_notify(
+            task_id,
+            gateway,
+            event,
+            loop,
+            mode=mode,
+            execute=lambda: self._wait_for_background_run_completion(
+                task_id,
+                self.start_run(task_id, mode=mode),
+                mode=mode,
+            ),
+            format_success_message=lambda result: (
+                self._format_stale_run_completion_message(task_id, result)
+                if result.get("stale_completion")
+                else self._format_implementation_completion_message(task_id, result)
+            ),
+            mark_failed=lambda exc: self._mark_background_run_failed(task_id, exc, mode=mode),
+            record_notification=lambda result, reply: self._record_completion_notification(
+                task_id,
+                mode=mode,
+                result=result,
+                reply=reply,
+            ),
+        )
 
     @staticmethod
     def _execution_policy_from_run_result(result: dict[str, Any]) -> dict[str, Any]:
@@ -7502,55 +4650,69 @@ class CodingOrchestrator:
         return loaded if isinstance(loaded, dict) else {}
 
     def _start_background_qa(self, task_id: str, gateway: Any, event: Any) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        worker = threading.Thread(
+        background_run_notifier.start_background_run(
+            task_id,
+            gateway,
+            event,
+            mode=RunMode.QA,
             target=self._run_qa_and_notify,
-            args=(task_id, gateway, event, loop),
-            name=f"coding-qa-{task_id}",
-            daemon=True,
         )
-        worker.start()
 
     def _run_qa_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
-        result: dict[str, Any] = {}
-        try:
-            result = self.start_run(task_id, mode=RunMode.QA)
-            result = self._wait_for_background_run_completion(task_id, result, mode=RunMode.QA)
-            message = self._format_qa_completion_message(task_id, result)
-        except Exception as exc:
-            self._mark_background_run_failed(task_id, exc, mode=RunMode.QA)
-            message = f"[{task_id}] QA 执行失败：{exc}\n请查看任务详情和执行日志后重试。"
-        reply = self._reply_if_possible(gateway, event, message, loop=loop)
-        self._record_completion_notification(task_id, mode=RunMode.QA, result=result, reply=reply)
+        mode = RunMode.QA
+        background_run_notifier.run_and_notify(
+            task_id,
+            gateway,
+            event,
+            loop,
+            mode=mode,
+            execute=lambda: self._wait_for_background_run_completion(
+                task_id,
+                self.start_run(task_id, mode=mode),
+                mode=mode,
+            ),
+            format_success_message=lambda result: self._format_qa_completion_message(task_id, result),
+            mark_failed=lambda exc: self._mark_background_run_failed(task_id, exc, mode=mode),
+            record_notification=lambda result, reply: self._record_completion_notification(
+                task_id,
+                mode=mode,
+                result=result,
+                reply=reply,
+            ),
+        )
 
     def _start_background_merge_test(self, task_id: str, gateway: Any, event: Any) -> None:
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        worker = threading.Thread(
+        background_run_notifier.start_background_run(
+            task_id,
+            gateway,
+            event,
+            mode=RunMode.MERGE_TEST,
             target=self._run_merge_test_and_notify,
-            args=(task_id, gateway, event, loop),
-            name=f"coding-merge-test-{task_id}",
-            daemon=True,
         )
-        worker.start()
 
     def _run_merge_test_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
-        result: dict[str, Any] = {}
-        try:
-            result = self.start_run(task_id, mode=RunMode.MERGE_TEST)
-            result = self._wait_for_background_run_completion(task_id, result, mode=RunMode.MERGE_TEST)
-            self._store_pending_action_from_merge_test_result(event, task_id, result)
-            message = self._format_merge_test_completion_message(task_id, result)
-        except Exception as exc:
-            self._mark_background_run_failed(task_id, exc, mode=RunMode.MERGE_TEST)
-            message = f"[{task_id}] merge-test 执行失败：{exc}\n请查看任务详情和执行日志后重试。"
-        reply = self._reply_if_possible(gateway, event, message, loop=loop)
-        self._record_completion_notification(task_id, mode=RunMode.MERGE_TEST, result=result, reply=reply)
+        mode = RunMode.MERGE_TEST
+        background_run_notifier.run_and_notify(
+            task_id,
+            gateway,
+            event,
+            loop,
+            mode=mode,
+            execute=lambda: self._wait_for_background_run_completion(
+                task_id,
+                self.start_run(task_id, mode=mode),
+                mode=mode,
+            ),
+            after_success=lambda result: self._store_pending_action_from_merge_test_result(event, task_id, result),
+            format_success_message=lambda result: self._format_merge_test_completion_message(task_id, result),
+            mark_failed=lambda exc: self._mark_background_run_failed(task_id, exc, mode=mode),
+            record_notification=lambda result, reply: self._record_completion_notification(
+                task_id,
+                mode=mode,
+                result=result,
+                reply=reply,
+            ),
+        )
 
     def _wait_for_background_run_completion(
         self,
@@ -7559,29 +4721,12 @@ class CodingOrchestrator:
         *,
         mode: RunMode,
     ) -> dict[str, Any]:
-        status = normalize_agent_run_status(result.get("status"), mode)
-        if status not in {AgentRunStatus.QUEUED.value, AgentRunStatus.RUNNING.value}:
-            return result
-        run_id = str(result.get("run_id") or "").strip()
-        if not run_id:
-            return result
-
-        deadline = time.monotonic() + self._timeout_seconds_for_mode(mode) + 60
-        while True:
-            task = self.ledger.get_task(task_id)
-            if not task:
-                return result
-            runner = (task.get("task_session") or {}).get("runner") or {}
-            active_run_id = str(runner.get("active_run_id") or "").strip()
-            if active_run_id and active_run_id != run_id:
-                return result
-
-            reconciled = self._reconcile_completed_active_run(task_id, task=task)
-            if reconciled:
-                return reconciled
-            if time.monotonic() >= deadline:
-                return result
-            time.sleep(2)
+        return run_background_orchestration.wait_for_background_run_completion(
+            self,
+            task_id,
+            result,
+            mode=mode,
+        )
 
     def _record_completion_notification(
         self,
@@ -7591,366 +4736,85 @@ class CodingOrchestrator:
         result: dict[str, Any],
         reply: dict[str, Any],
     ) -> None:
-        status = str(reply.get("status") or "unknown")
-        record = {
-            "status": status,
-            "mode": mode.value,
-            "run_id": str(result.get("run_id") or ""),
-            "task_status": str(result.get("task_status") or ""),
-            "reason": str(reply.get("reason") or ""),
-            "channel": str(reply.get("channel") or ""),
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-        }
-        try:
-            self.ledger.update_task_session(task_id, {"last_completion_notification": record})
-        except Exception:
-            pass
+        background_run_notifier.record_completion_notification(
+            self.ledger,
+            task_id,
+            mode=mode,
+            result=result,
+            reply=reply,
+        )
 
     def _mark_background_run_failed(self, task_id: str, exc: Exception, *, mode: RunMode) -> None:
-        try:
-            task = self.ledger.get_task(task_id) or {}
-            current_status = str(task.get("status") or "")
-            if current_status in {
-                TaskStatus.NEEDS_HUMAN.value,
-                TaskStatus.CANCELLED.value,
-                TaskStatus.MERGED_TEST.value,
-                TaskStatus.DONE.value,
-            }:
-                return
-            self._transition_task_status(
-                task_id,
-                TaskStatus.FAILED,
-                phase=TaskPhase.RUNNER_FAILED,
-                reason=f"{mode.value} startup failed: {exc}",
-            )
-        except ValueError as transition_exc:
-            try:
-                self.ledger.append_human_decision(
-                    task_id,
-                    {
-                        "type": "background_failure_transition_rejected",
-                        "mode": mode.value,
-                        "error": str(exc),
-                        "transition_error": str(transition_exc),
-                        "created_at": datetime.now(timezone.utc).isoformat(),
-                    },
-                )
-            except Exception:
-                pass
-        except Exception:
-            pass
+        run_background_orchestration.mark_background_run_failed(self, task_id, exc, mode=mode)
 
     def _store_pending_action_from_merge_test_result(self, event: Any | None, task_id: str, result: dict[str, Any]) -> bool:
-        artifacts = result.get("artifacts") or {}
-        report = self._read_report_json(artifacts.get("report"))
-        if not bool(report.get("human_required")):
-            return False
-        task = self.ledger.get_task(task_id) or {}
-        qa_evidence = self._qa_evidence_for_merge_test(task) if task else {}
-        qa_flag = " --confirm-qa-risk" if qa_evidence.get("requires_confirmation") == "true" else ""
-        return self._store_pending_action_for_event(
+        return run_background_orchestration.store_pending_action_from_merge_test_result(
+            self,
             event,
-            task_id=task_id,
-            action="merge_test_retry",
-            command_text=f"/coding merge-test {task_id}{qa_flag}",
-            reason=normalize_project_text(str(report.get("summary_markdown") or "merge-test 需要人工确认")),
-            run_id=str(result.get("run_id") or ""),
-            mode=RunMode.MERGE_TEST.value,
+            task_id,
+            result,
         )
 
     @staticmethod
     def _format_run_completion_message(task_id: str, result: dict[str, Any]) -> str:
-        artifacts = result.get("artifacts") or {}
-        report = CodingOrchestrator._load_report_from_artifacts(artifacts)
-        next_actions = CodingOrchestrator._completion_next_actions(report)
-        next_actions.append("请人工确认计划完整度和正确性；确认后再开始实现。")
-        risk_note = CodingOrchestrator._completion_risk_note(report)
-        summary = CodingOrchestrator._completion_user_summary(report, artifacts, summary_limit=1800)
-
-        details = CodingOrchestrator._run_status_details_from_report(report, RunMode.PLAN_ONLY)
-        if not summary and (
-            details.get("status_detail") == "completed_unstructured" or details.get("structured") is False
-        ):
-            stderr = CodingOrchestrator._read_text_excerpt(artifacts.get("stderr"), limit=1000)
-            if stderr:
-                summary = f"执行没有产出结构化计划摘要。\n执行错误摘要：{stderr}"
-
-        return render_user_update(
-            title="计划已生成",
-            task_id=task_id,
-            user_facing_summary=CodingOrchestrator._completion_user_summary_with_status(result, summary),
-            next_actions=CodingOrchestrator._dedupe_texts(next_actions),
-            risk_note=risk_note,
-        )
+        return run_completion_presenter.format_run_completion_message(task_id, result)
 
     @staticmethod
     def _format_implementation_completion_message(task_id: str, result: dict[str, Any]) -> str:
-        artifacts = result.get("artifacts") or {}
-        report = CodingOrchestrator._load_report_from_artifacts(artifacts)
-        next_actions = CodingOrchestrator._completion_next_actions(report)
-
-        status = str(result.get("task_status") or "")
-        if status == TaskStatus.READY_FOR_MERGE_TEST.value:
-            next_actions.extend(
-                (
-                    f"测试为可选项；需要继续 QA 时发送 /coding qa {task_id}。",
-                    f"如人工确认现有验证已足够，发送 /coding merge-test {task_id}。",
-                )
-            )
-        elif bool(report.get("known_gaps")):
-            next_actions.extend(
-                (
-                    f"测试为可选项；需要补验证时发送 /coding qa {task_id}。",
-                    f"如人工接受已知缺口，再发送 /coding merge-test {task_id}。",
-                )
-            )
-        next_actions.append("任务不会自动进入测试、合并或发布测试环境；QA 和 merge-test 都需要人工触发。")
-        return render_user_update(
-            title="实现已完成",
-            task_id=task_id,
-            user_facing_summary=CodingOrchestrator._completion_user_summary_with_status(
-                result,
-                CodingOrchestrator._completion_user_summary(report, artifacts, summary_limit=1600),
-            ),
-            next_actions=CodingOrchestrator._dedupe_texts(next_actions),
-            risk_note=CodingOrchestrator._completion_risk_note(report),
-        )
+        return run_completion_presenter.format_implementation_completion_message(task_id, result)
 
     @staticmethod
     def _format_qa_completion_message(task_id: str, result: dict[str, Any]) -> str:
-        artifacts = result.get("artifacts") or {}
-        report = CodingOrchestrator._load_report_from_artifacts(artifacts)
-        summary = CodingOrchestrator._completion_user_summary(report, artifacts, summary_limit=1600)
-        next_actions = CodingOrchestrator._completion_next_actions(report)
-        qa_artifacts = report.get("qa_artifacts") or {}
-        if qa_artifacts.get("report"):
-            health_score = CodingOrchestrator._qa_health_score_from_report_path(qa_artifacts.get("report"))
-            if health_score:
-                summary = f"{summary}\nQA health score：{health_score}".strip()
-
-        limitations = report.get("verification_limitations") or []
-        if limitations:
-            limitation_lines = []
-            for item in limitations[:3]:
-                if isinstance(item, dict):
-                    limitation_lines.append(f"{item.get('reason') or 'unknown'}：{item.get('recovery_action') or ''}")
-            if limitation_lines:
-                summary = f"{summary}\n已知缺口：\n" + "\n".join(f"- {item}" for item in limitation_lines)
-
-        return render_user_update(
-            title="QA 已完成",
-            task_id=task_id,
-            user_facing_summary=CodingOrchestrator._completion_user_summary_with_status(result, summary),
-            next_actions=CodingOrchestrator._dedupe_texts(next_actions),
-            risk_note=CodingOrchestrator._completion_risk_note(report),
-        )
+        return run_completion_presenter.format_qa_completion_message(task_id, result)
 
     @staticmethod
     def _format_stale_run_completion_message(task_id: str, result: dict[str, Any]) -> str:
-        artifacts = result.get("artifacts") or {}
-        summary = (
-            f"旧{CodingOrchestrator._run_mode_user_label(result.get('mode') or 'agent')}执行已完成，但任务期间已有更新执行。"
-            f"\n当前任务状态：{task_status_display(result.get('current_task_status'))}"
-            "\n本次结果仅保留用于审计，不会回退当前任务状态。"
-        )
-        return render_user_update(
-            title="旧执行已归档",
-            task_id=task_id,
-            user_facing_summary=summary,
-            next_actions=[f"查看当前最新任务状态：/coding status {task_id}"],
-        )
+        return run_completion_presenter.format_stale_run_completion_message(task_id, result)
 
     @staticmethod
     def _format_merge_test_completion_message(task_id: str, result: dict[str, Any]) -> str:
-        artifacts = result.get("artifacts") or {}
-        report = CodingOrchestrator._load_report_from_artifacts(artifacts)
-        next_actions = CodingOrchestrator._completion_next_actions(report)
-
-        if bool(report.get("human_required")):
-            next_actions.extend(
-                (
-                    f"回复“确认”继续当前 merge-test，或直接发送 /coding merge-test {task_id}。",
-                    "本次 merge-test 尚未完成；Hermes 会优先续接待确认动作，不会把确认词交给 LLM rewrite。",
-                )
-            )
-        else:
-            next_actions.extend(
-                (
-                    f"确认测试环境符合预期后，发送 /coding complete {task_id} 手动标记完成。",
-                    "已允许 merge/push test；发布测试环境仍需人工。merge-test 成功不代表 task 已完成。",
-                )
-            )
-        return render_user_update(
-            title="merge-test 已处理",
-            task_id=task_id,
-            user_facing_summary=CodingOrchestrator._completion_user_summary_with_status(
-                result,
-                CodingOrchestrator._completion_user_summary(report, artifacts, summary_limit=1600),
-            ),
-            next_actions=CodingOrchestrator._dedupe_texts(next_actions),
-            risk_note=CodingOrchestrator._completion_risk_note(report),
-        )
+        return run_completion_presenter.format_merge_test_completion_message(task_id, result)
 
     @staticmethod
     def _load_report_from_artifacts(artifacts: dict[str, Any]) -> dict[str, Any]:
-        report_path = Path(str(artifacts.get("report") or ""))
-        if not report_path.exists():
-            return {}
-        try:
-            loaded = json.loads(report_path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-        return loaded if isinstance(loaded, dict) else {}
+        return run_completion_presenter.load_report_from_artifacts(artifacts)
 
     @staticmethod
     def _completion_user_summary(report: dict[str, Any], artifacts: dict[str, Any], *, summary_limit: int) -> str:
-        for value in (
-            report.get("user_facing_summary"),
-            report.get("summary_markdown"),
-            CodingOrchestrator._read_text_excerpt(artifacts.get("summary"), limit=summary_limit),
-        ):
-            text = str(value or "").strip()
-            if text:
-                return text
-        return ""
+        return run_completion_presenter.completion_user_summary(report, artifacts, summary_limit=summary_limit)
 
     @staticmethod
     def _completion_user_summary_with_status(result: dict[str, Any], summary: str) -> str:
-        status = task_status_display(result.get("task_status"))
-        status_line = f"结果状态：{status}"
-        summary = summary.strip()
-        if summary:
-            return f"{status_line}\n{summary}"
-        return status_line
+        return run_completion_presenter.completion_user_summary_with_status(result, summary)
 
     @staticmethod
     def _completion_next_actions(report: dict[str, Any]) -> list[str]:
-        return CodingOrchestrator._dedupe_texts(report.get("next_actions") or [])
+        return run_completion_presenter.completion_next_actions(report)
 
     @staticmethod
     def _dedupe_texts(items: list[Any]) -> list[str]:
-        seen = set()
-        result = []
-        for item in items:
-            text = str(item).strip()
-            if not text or text in seen:
-                continue
-            seen.add(text)
-            result.append(text)
-        return result
+        return run_completion_presenter.dedupe_texts(items)
 
     @staticmethod
     def _completion_risk_note(report: dict[str, Any]) -> str:
-        risk_note = str(report.get("risk_note") or "").strip()
-        if risk_note:
-            return risk_note
-        risks = [str(item).strip() for item in report.get("risks") or [] if str(item).strip()]
-        return "\n".join(f"- {item}" for item in risks[:5])
+        return run_completion_presenter.completion_risk_note(report)
 
     @staticmethod
     def _merge_test_started_message(task: dict[str, Any]) -> str:
-        task_id = task["task_id"]
-        session = task.get("task_session") or {}
-        return (
-            f"[{task_id}] 已开始 merge-test。\n"
-            f"源分支：{session.get('source_branch') or '未记录'}\n"
-            f"目标分支：test\n"
-            "说明：会基于上一次实现上下文执行合入测试；发布仍然人工。"
-        )
+        return merge_test_presenter.merge_test_started_message(task)
 
     @staticmethod
     def _read_text_excerpt(path_value: Any, *, limit: int) -> str:
-        if not path_value:
-            return ""
-        path = Path(str(path_value))
-        if not path.exists():
-            return ""
-        text = path.read_text(encoding="utf-8", errors="replace").strip()
-        if len(text) <= limit:
-            return text
-        return text[:limit].rstrip() + "\n...（已截断，完整内容见 artifact）"
+        return run_completion_presenter.read_text_excerpt(path_value, limit=limit)
 
     @staticmethod
     async def _call_sender(sender: Any, *args: Any) -> None:
-        result = sender(*args)
-        if inspect.isawaitable(result):
-            await result
+        await background_run_notifier.call_sender(sender, *args)
 
     @staticmethod
     def _schedule_sender(sender: Any, args: tuple[Any, ...], loop: Any | None) -> dict[str, Any]:
-        if loop is not None and getattr(loop, "is_running", lambda: False)():
-            future = asyncio.run_coroutine_threadsafe(CodingOrchestrator._call_sender(sender, *args), loop)
-            try:
-                future.result(timeout=15)
-            except Exception as exc:
-                return {
-                    "status": "failed",
-                    "reason": f"{exc.__class__.__name__}: {exc}",
-                }
-            return {"status": "ok"}
-
-        discovered_loop = None
-        if loop is None:
-            try:
-                discovered_loop = asyncio.get_running_loop()
-            except RuntimeError:
-                discovered_loop = None
-        if discovered_loop is not None and getattr(discovered_loop, "is_running", lambda: False)():
-            discovered_loop.call_soon_threadsafe(
-                lambda: asyncio.create_task(CodingOrchestrator._call_sender(sender, *args))
-            )
-            return {"status": "scheduled", "reason": "scheduled_on_current_event_loop"}
-        try:
-            asyncio.run(CodingOrchestrator._call_sender(sender, *args))
-        except RuntimeError as exc:
-            if "asyncio.run() cannot be called from a running event loop" not in str(exc):
-                return {
-                    "status": "failed",
-                    "reason": f"{exc.__class__.__name__}: {exc}",
-                }
-            try:
-                result = sender(*args)
-            except Exception as send_exc:
-                return {
-                    "status": "failed",
-                    "reason": f"{send_exc.__class__.__name__}: {send_exc}",
-                }
-            if inspect.isawaitable(result):
-                close = getattr(result, "close", None)
-                if callable(close):
-                    close()
-                return {
-                    "status": "failed",
-                    "reason": f"{exc.__class__.__name__}: awaitable sender could not be awaited",
-                }
-            return {"status": "ok"}
-        except Exception as exc:
-            return {
-                "status": "failed",
-                "reason": f"{exc.__class__.__name__}: {exc}",
-            }
-        return {"status": "ok"}
+        return background_run_notifier.schedule_sender(sender, args, loop)
 
     @staticmethod
     def _reply_if_possible(gateway: Any, event: Any, message: str, *, loop: Any | None = None) -> dict[str, Any]:
-        # Gateway reply APIs differ by platform. The plugin command path returns
-        # text directly; the hook path is best-effort but records delivery status.
-        sender = getattr(gateway, "send_message", None)
-        if callable(sender):
-            try:
-                result = CodingOrchestrator._schedule_sender(sender, (getattr(event, "source", None), message), loop)
-            except Exception as exc:
-                result = {"status": "failed", "reason": f"{exc.__class__.__name__}: {exc}"}
-            return {**result, "channel": "gateway.send_message"}
-        source = getattr(event, "source", None)
-        adapters = getattr(gateway, "adapters", {}) if gateway is not None else {}
-        adapter = adapters.get(getattr(source, "platform", None)) if isinstance(adapters, dict) else None
-        chat_id = getattr(source, "chat_id", None)
-        send = getattr(adapter, "send", None)
-        if not callable(send) or not chat_id:
-            return {"status": "skipped", "reason": "gateway_sender_unavailable", "channel": ""}
-        try:
-            result = CodingOrchestrator._schedule_sender(send, (chat_id, message), loop)
-        except Exception as exc:
-            result = {"status": "failed", "reason": f"{exc.__class__.__name__}: {exc}"}
-        return {**result, "channel": "adapter.send"}
+        return background_run_notifier.reply_if_possible(gateway, event, message, loop=loop)

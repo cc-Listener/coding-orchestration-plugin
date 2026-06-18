@@ -6,6 +6,7 @@ from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
+from coding_orchestration.ports import SourceResult
 from coding_orchestration.project_workitem_binding import ProjectWorkitemIdentity
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
 
@@ -22,7 +23,15 @@ class FakeFeishuProjectReader:
 
 class FakeProjectMcpAdapter:
     def __init__(self, *, enabled=True, result=None, results=None):
-        self.config = type("Config", (), {"transport": "stdio", "domain": "https://project.feishu.cn"})()
+        self.config = type(
+            "Config",
+            (),
+            {
+                "transport": "stdio",
+                "domain": "https://project.feishu.cn",
+                "token": "fake_value_for_unit_test",
+            },
+        )()
         self.allowed_tools = {
             "search_project_info",
             "search_by_mql",
@@ -161,6 +170,44 @@ class OrchestratorToolsTest(unittest.TestCase):
             self.assertIn(result["source_status"], {"auth_needed", "deferred"})
             self.assertNotEqual(result.get("task_status"), "blocked")
             self.assertIn("needs_refresh", result["error"])
+
+    def test_tool_source_resolve_prefers_source_result_contract(self):
+        class SourceResultResolver:
+            def __init__(self):
+                self.calls = []
+
+            def resolve_source_result(self, args, gateway=None):
+                self.calls.append((args, gateway))
+                return SourceResult.from_context(
+                    {
+                        "read_status": "success",
+                        "source_type": "feishu_docx",
+                        "url": "https://example.feishu.cn/docx/DocxToken",
+                        "title": "接口文档",
+                        "summary_markdown": "文档正文",
+                    }
+                )
+
+            def resolve_source(self, args, gateway=None):
+                raise AssertionError("tool_source_resolve should use resolve_source_result")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            resolver = SourceResultResolver()
+            orchestrator = CodingOrchestrator(
+                ledger=TaskLedger(root / "ledger.db"),
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                source_resolver=resolver,
+            )
+
+            result = orchestrator.tool_source_resolve({"url": "https://example.feishu.cn/docx/DocxToken"})
+
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["source_status"], "ok")
+            self.assertEqual(result["source_type"], "feishu_docx")
+            self.assertEqual(result["title"], "接口文档")
+            self.assertEqual(len(resolver.calls), 1)
 
     def test_tool_task_create_indexes_source_without_blocking(self):
         with tempfile.TemporaryDirectory() as tmp:
