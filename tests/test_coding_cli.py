@@ -1,7 +1,7 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
@@ -59,16 +59,47 @@ def make_orchestrator(root: Path, source_result=None) -> CodingOrchestrator:
 class CodingCliTest(unittest.TestCase):
     def test_coding_cli_doctor_reports_lark_kanban_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
-            orchestrator = make_orchestrator(Path(tmp))
+            orchestrator = make_orchestrator(
+                Path(tmp),
+                source_result={
+                    "ok": False,
+                    "status": "permission_missing",
+                    "recovery_action": "请补充飞书文档读取权限",
+                    "missing_scopes": [
+                        "docx:document:readonly",
+                        "wiki:node:read or wiki:node:retrieve",
+                    ],
+                },
+            )
 
             output = orchestrator.command_coding_cli(["doctor"])
 
-            self.assertIn("飞书", output)
-            self.assertIn("项目管理", output)
-            self.assertIn("看板", output)
-            self.assertIn("Hermes 执行入口", output)
-            self.assertIn("Codex 后端", output)
-            self.assertIn("定时检查建议", output)
+            self.assertIn("\n\n飞书文档读取\n状态：❌ 不可用", output)
+            self.assertIn("原因：缺少必要权限", output)
+            self.assertIn("缺少权限：\n- docx:document:readonly\n- wiki:node:read 或 wiki:node:retrieve", output)
+            self.assertIn(
+                '修复命令：\nrtk lark-cli auth login --scope "docx:document:readonly wiki:node:read wiki:node:retrieve"',
+                output,
+            )
+            self.assertIn("rtk python3 scripts/install_symlink.py --hermes-home ~/.hermes", output)
+            self.assertIn("验证命令：\nrtk hermes coding lark-preflight", output)
+            self.assertIn("\n\n飞书项目 MCP\n状态：❌ 未启用", output)
+            self.assertIn("修复配置：\n~/.hermes/coding-orchestration/mcp.json", output)
+            self.assertIn("验证命令：\nrtk hermes coding project-mcp-preflight", output)
+            self.assertIn("\n\nHermes\n状态：✅ 可用", output)
+            self.assertIn("看板同步：✅ 可用", output)
+            self.assertIn("执行入口：✅ 可用", output)
+            self.assertIn("验证命令：\nrtk proxy curl -sS http://127.0.0.1:8642/health", output)
+            self.assertIn("\n\nCodex\n状态：✅ 可用", output)
+            self.assertIn("执行方式：codex_cli / hermes_terminal_codex_cli", output)
+            self.assertNotIn("permission_missing", output)
+            self.assertNotIn("disabled", output)
+            self.assertNotIn("任务账本", output)
+            self.assertNotIn("ledger.db", output)
+            self.assertNotIn("定时检查建议", output)
+            self.assertNotIn("默认执行器", output)
+            self.assertNotIn("Codex 后端", output)
+            self.assertNotIn("MEEGLE_CLI", output)
 
     def test_coding_cli_lark_preflight_returns_actionable_message(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -76,10 +107,61 @@ class CodingCliTest(unittest.TestCase):
 
             output = orchestrator.command_coding_cli(["lark-preflight"])
 
-            self.assertIn("auth_needed", output)
+            self.assertIn("飞书权限检查\n状态：❌ 不可用", output)
+            self.assertIn("原因：需要重新授权或刷新登录", output)
             self.assertIn("lark-cli", output)
-            self.assertIn("恢复动作", output)
+            self.assertIn("修复说明：\nrun lark-cli auth refresh", output)
+            self.assertIn("验证命令：\nrtk lark-cli auth status --verify", output)
+            self.assertNotIn("auth_needed", output)
             self.assertNotIn("recovery_action:", output)
+
+    def test_coding_cli_doctor_reports_lark_verified_needs_refresh_as_concrete_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            orchestrator = make_orchestrator(
+                Path(tmp),
+                source_result={
+                    "ok": True,
+                    "status": "ok",
+                    "needs_refresh": True,
+                    "missing_scopes": [],
+                    "warning": "lark-cli user tokenStatus=needs_refresh，但 --verify 已确认可自动刷新。",
+                },
+            )
+
+            output = orchestrator.command_coding_cli(["doctor"])
+
+            self.assertIn("\n\n飞书文档读取\n状态：✅ 可用", output)
+            self.assertIn("提醒：lark-cli user tokenStatus=needs_refresh", output)
+            self.assertNotIn("缺少权限", output)
+            self.assertNotIn("缺少 scope", output)
+            self.assertNotIn("permission_missing", output)
+
+    def test_coding_cli_doctor_reports_lark_verify_failed_reason(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            orchestrator = make_orchestrator(
+                Path(tmp),
+                source_result={
+                    "ok": False,
+                    "status": "verify_failed",
+                    "needs_refresh": False,
+                    "missing_scopes": [],
+                    "error": (
+                        "lark-cli 用户身份校验失败（verify_failed）：User identity: verify failed: "
+                        "dial tcp: lookup open.feishu.cn: no such host"
+                    ),
+                    "recovery_action": "请先修复当前终端访问 open.feishu.cn 的网络、DNS 或代理问题。",
+                },
+            )
+
+            output = orchestrator.command_coding_cli(["doctor"])
+
+            self.assertIn("\n\n飞书文档读取\n状态：❌ 不可用", output)
+            self.assertIn("原因：lark-cli 用户身份校验失败（verify_failed）", output)
+            self.assertIn("open.feishu.cn", output)
+            self.assertIn("修复说明：\n请先修复当前终端访问 open.feishu.cn 的网络、DNS 或代理问题。", output)
+            self.assertIn("验证命令：\nrtk hermes coding lark-preflight", output)
+            self.assertNotIn("缺少权限", output)
+            self.assertNotIn("permission_missing", output)
 
     def test_coding_cli_source_resolve_returns_actionable_message(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -96,23 +178,32 @@ class CodingCliTest(unittest.TestCase):
             self.assertNotIn("source_status:", output)
             self.assertNotIn("recovery_action:", output)
 
-    def test_coding_cli_project_mcp_preflight_reports_missing_token_ref(self):
+    def test_coding_cli_project_mcp_preflight_reports_missing_mcp_json_token(self):
         with tempfile.TemporaryDirectory() as tmp:
-            with patch.dict(
-                "os.environ",
-                {
-                    "FEISHU_PROJECT_MCP_ENABLED": "1",
-                    "FEISHU_PROJECT_MCP_TOKEN_REF": "",
-                },
-                clear=False,
-            ):
-                orchestrator = make_orchestrator(Path(tmp))
+            root = Path(tmp)
+            (root / "mcp.json").write_text(
+                json.dumps(
+                    {
+                        "mcpServers": {
+                            "feishu-project": {
+                                "enabled": True,
+                                "command": "npx",
+                                "args": ["-y", "@lark-project/mcp"],
+                                "domain": "https://project.feishu.cn",
+                                "env": {},
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            orchestrator = make_orchestrator(root)
 
             output = orchestrator.command_coding_cli(["project-mcp-preflight"])
 
             self.assertIn("飞书项目 MCP 检查", output)
-            self.assertIn("FEISHU_PROJECT_MCP_TOKEN_REF", output)
-            self.assertIn("invalid_config", output)
+            self.assertIn("mcpServers.feishu-project.env.MCP_USER_TOKEN", output)
+            self.assertIn("状态：❌ 不可用", output)
 
     def test_coding_gateway_doctor_command_reports_dependencies(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -123,7 +214,8 @@ class CodingCliTest(unittest.TestCase):
             self.assertIn("编码流程健康检查", output)
             self.assertIn("飞书", output)
             self.assertIn("看板", output)
-            self.assertIn("Hermes 执行入口", output)
+            self.assertIn("Hermes", output)
+            self.assertIn("执行入口：✅ 可用", output)
 
 
 if __name__ == "__main__":

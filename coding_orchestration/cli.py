@@ -44,7 +44,7 @@ def _handle_coding_cli(orchestrator: Any, args: Any) -> int:
 
     output = orchestrator.command_coding_cli(parts)
     print(output)
-    if command == "project-mcp-preflight" and "可用：否" in output:
+    if command == "project-mcp-preflight" and "状态：❌" in output:
         return 1
     return 2 if output.startswith("Usage:") else 0
 
