@@ -8,16 +8,33 @@
 - `/commands` 能看到 `/coding help`、`/coding task`、`/coding project list`、`/coding status`、`/coding delete`。
 - `CODEX_CLI_COMMAND` 指向可用 Codex CLI 绝对路径。
 - `lark-cli` 默认 appId 与 Hermes `FEISHU_APP_ID` 一致，并已授权 Docx/Wiki 读取 scope。
-- 飞书项目 MCP 如需启用，只配置 token 引用，不写 token 值：
+- 飞书项目 MCP 如需启用，只配置插件运行根下的 `mcp.json`，不改 Hermes 全局环境：
 
-```text
-FEISHU_PROJECT_MCP_ENABLED=1
-FEISHU_PROJECT_MCP_DOMAIN=https://project.feishu.cn
-FEISHU_PROJECT_MCP_TRANSPORT=stdio
-FEISHU_PROJECT_MCP_TOKEN_REF=env:FEISHU_PROJECT_MCP_TOKEN
+```json
+{
+  "mcpServers": {
+    "feishu-project": {
+      "enabled": true,
+      "command": "npx",
+      "args": ["-y", "@lark-project/mcp"],
+      "domain": "https://project.feishu.cn",
+      "env": {
+        "MCP_USER_TOKEN": "<MCP_USER_TOKEN_VALUE>"
+      }
+    }
+  }
+}
 ```
 
-实际 token 只放在启动 Hermes Gateway 的进程环境里。不要把 token 写入仓库、`.env`、prompt、测试 fixture、日志或 LLM Wiki。
+文件路径固定为 `~/.hermes/coding-orchestration/mcp.json`。配置后执行：
+
+```bash
+rtk chmod 600 ~/.hermes/coding-orchestration/mcp.json
+rtk hermes gateway restart
+rtk hermes coding project-mcp-preflight
+```
+
+不要把真实 token 写入仓库、`.env`、prompt、测试 fixture、日志或 LLM Wiki。
 
 ## 任务分级
 

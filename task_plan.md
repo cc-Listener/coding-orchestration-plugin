@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 90：Feishu 来源新需求 rewrite 阻断修复（complete）
+阶段 168：解耦架构 completed run summary artifact read service 扩展（complete，Task 30 继续）
 
 ## 各阶段
 
@@ -700,6 +700,605 @@
 - [x] 验证：focused source/install/docs tests、py_compile、`git diff --check`、全量 unittest 通过。
 - **状态：** complete
 
+### 阶段 96：解耦架构 presentation presenter 拆分
+- [x] 实现：新增 `coding_orchestration/task_list_presenter.py`，承接 `/coding list` 任务摘要、项目标签和描述摘要。
+- [x] 实现：新增 `coding_orchestration/run_completion_presenter.py`，承接 plan/implementation/QA/merge-test/stale run completion 消息、summary/risk/next_actions fallback。
+- [x] 兼容：`CodingOrchestrator._format_task_list()`、`_task_project_label()`、`_task_description_label()`、`_format_*completion_message()` 和 `_completion_*()` 保留 wrapper，避免旧测试和外部调用断裂。
+- [x] 测试：新增 presenter contract tests，并跑相关 completion/plan/implementation/gateway safety flow。
+- [x] 治理：更新解耦设计、实施计划、项目地图、组件合同和约定；`orchestrator.py` 从 6534 行降至 6334 行，architecture guard 仍只 watch legacy orchestrator。
+- **状态：** complete
+
+### 阶段 97：解耦架构 task status presenter 拆分
+- [x] 实现：新增 `coding_orchestration/task_status_presenter.py`，承接 `/coding status` 任务详情、Kanban 同步、完成回传、QA report、QA health score 和 known gaps 展示。
+- [x] 兼容：`CodingOrchestrator._format_task_status_details()`、`_kanban_sync_status_display()`、`_completion_notification_status_display()`、`_latest_qa_run()`、`_read_report_json()` 和 `_qa_health_score_from_report_path()` 保留 wrapper，避免旧测试和内部调用断裂。
+- [x] 测试：新增 `tests/test_task_status_presenter.py`，并跑 `tests.test_status_reconcile_flow` 相邻主流程测试。
+- [x] 治理：更新解耦设计、实施计划、项目地图、组件合同和约定；`orchestrator.py` 从 6334 行降至 6244 行，architecture guard 仍只 watch legacy orchestrator。
+- **状态：** complete
+
+### 阶段 98：解耦架构 gateway rewrite presenter 拆分
+- [x] 实现：新增 `coding_orchestration/gateway_rewrite_presenter.py`，承接 Coding Mode rewrite 确认、低置信度补充和 handoff 用户可见文案。
+- [x] 兼容：`CodingOrchestrator._rewrite_confirmation_message()`、`_rewrite_needs_human_confirmation_message()`、`_rewrite_rejection_user_text()` 和 `_rewrite_handoff_to_hermes_message()` 保留 wrapper/上下文收集，避免旧测试和内部调用断裂。
+- [x] 测试：新增 `tests/test_gateway_rewrite_presenter.py`，并跑 rewrite/pending confirmation/natural language command 相邻主流程测试。
+- [x] 治理：更新解耦设计、实施计划、项目地图、组件合同和约定；`orchestrator.py` 从 6244 行降至 6171 行，architecture guard 仍只 watch legacy orchestrator。
+- **状态：** complete
+
+### 阶段 99：解耦架构 run start presenter 拆分
+- [x] 实现：新增 `coding_orchestration/run_start_presenter.py`，承接 plan-only/implementation/QA 启动 ACK、active run 重复启动和 cannot-start 恢复提示。
+- [x] 兼容：`CodingOrchestrator._implementation_started_message()`、`_qa_started_message()`、`_implementation_blocked_before_plan_ready_message()`、`_plan_only_started_message()`、`_plan_only_already_running_message()`、`_cannot_start_run_message()` 和 `_active_run_already_running_message()` 保留 wrapper，避免旧测试和内部调用断裂。
+- [x] 测试：新增 `tests/test_run_start_presenter.py`，并跑 command run、plan run、QA flow 和 RunService 相邻主流程测试。
+- [x] 治理：更新解耦设计、实施计划、项目地图、组件合同和约定；`orchestrator.py` 从 6171 行降至 6131 行，architecture guard 仍只 watch legacy orchestrator。
+- **状态：** complete
+
+### 阶段 100：解耦架构 feedback presenter 拆分
+- [x] 实现：新增 `coding_orchestration/feedback_presenter.py`，承接 `/coding continue/change/bugfix` 反馈、需求变更、图片未捕获和人工澄清用户可见文案。
+- [x] 兼容：`CodingOrchestrator._missing_feedback_media_message()`、`_plan_feedback_received_message()`、`_blocked_plan_feedback_received_message()`、`_requirement_change_received_message()`、`_requirement_change_queued_message()`、`_implementation_feedback_received_message()`、`_runtime_feedback_received_message()`、`_human_clarification_received_message()` 和 `_human_clarification_project_resolved_message()` 保留 wrapper，避免旧测试和内部调用断裂。
+- [x] 测试：新增 `tests/test_feedback_presenter.py`，并跑 gateway feedback、change/continue、task control 和 natural language command 相邻主流程测试。
+- [x] 治理：更新解耦设计、实施计划、项目地图、组件合同和约定；`orchestrator.py` 从 6131 行降至 6095 行，architecture guard 仍只 watch legacy orchestrator。
+- **状态：** complete
+
+### 阶段 101：解耦架构 merge-test presenter 拆分
+- [x] 实现：新增 `coding_orchestration/merge_test_presenter.py`，承接 prepare/merge-test 状态提示、blocked 风险确认、风险放行说明、QA 风险确认和 merge-test 启动 ACK。
+- [x] 兼容：`CodingOrchestrator._blocked_merge_test_risk_confirmation_message()`、`_blocked_merge_test_release_note()`、`_fallback_evidence_user_line()`、`_merge_test_qa_risk_confirmation_message()` 和 `_merge_test_started_message()` 保留 wrapper，避免旧测试和内部调用断裂。
+- [x] 测试：新增 `tests/test_merge_test_presenter.py`，并跑 merge-test basic、blocked、QA gate、readiness 和 natural language command 相邻主流程测试。
+- [x] 治理：更新解耦设计、实施计划、项目地图、组件合同和约定；`orchestrator.py` 从 6095 行降至 6056 行，architecture guard 仍只 watch legacy orchestrator。
+- **状态：** complete
+
+### 阶段 102：解耦架构后台 run 通知服务化
+- [x] 实现：新增 `coding_orchestration/background_run_notifier.py`，承接后台线程启动、sender 调度、reply fallback、失败通知模板和 completion notification 记录构造。
+- [x] 兼容：`CodingOrchestrator._start_background_*()`、`_run_*_and_notify()`、`_reply_if_possible()`、`_schedule_sender()`、`_call_sender()` 和 `_record_completion_notification()` 保留 wrapper/回调入口，避免旧测试和内部调用断裂。
+- [x] 边界：`start_run()`、等待 run 完成、任务状态推进、merge-test pending action 和失败状态 transition 仍留在 orchestrator，不让通知服务承载业务决策。
+- [x] 测试：新增 `tests/test_background_run_notifier.py`，并跑 plan run、QA flow、merge-test QA gate 和 command run 相邻主流程测试。
+- [x] 治理：更新解耦设计、实施计划、项目地图、组件合同和约定；`orchestrator.py` 从 6056 行降至 6003 行，architecture guard 仍只 watch legacy orchestrator。
+- **状态：** complete
+
+### 阶段 103：解耦架构 gateway binding service 拆分
+- [x] 实现：新增 `coding_orchestration/gateway_binding_service.py`，承接 gateway event source、binding key、active task、coding mode、active project、pending rewrite 和 pending action 的存取。
+- [x] 兼容：`CodingOrchestrator._event_source_for_ledger()`、`_binding_key_for_event()`、`_active_task_id_for_event()`、`active_task_for_session()`、`_coding_mode_*()`、`_active_project_*()`、`_pending_rewrite_*()` 和 `_pending_action_*()` 保留 wrapper，避免旧测试和内部调用断裂。
+- [x] 边界：pending action 的确认后命令执行、cancelled task gate、active project 应用到 task、rewrite 上下文组装仍留在 orchestrator，binding service 只负责会话绑定存取和过期 binding 清理。
+- [x] 测试：新增 `tests/test_gateway_binding_service.py`，并跑 coding mode、pending confirmation、active project/task、rewrite 和 natural language command 相邻主流程测试。
+- [x] 治理：更新解耦设计、实施计划、项目地图、组件合同和约定；`orchestrator.py` 从 6003 行降至 5843 行，architecture guard 仍只 watch legacy orchestrator。
+- **状态：** complete
+
+### 阶段 104：解耦架构全线阶段与长期职责固化
+- [x] 梳理：确认设计文档已有 0-17 全线阶段、阶段责任矩阵、阶段执行合同和长期职责模型。
+- [x] 实施计划：补充 Task 28-36 长期执行队列，覆盖 workspace/git/diff checkpoint service、Command/Gateway controller、Run orchestration service、SourcePort 消费闭环、Tool/MCP dispatcher、Skill 零耦合复查、orchestrator façade 降载、legacy test final cleanup 和 release readiness。
+- [x] 职责：明确每个后续任务的主责域、覆盖设计阶段、状态和退出标准，避免后续新能力重新堆回 `orchestrator.py`。
+- [x] 验证：运行文档/架构检查、architecture guard、空白检查和敏感值扫描；只剩 `orchestrator.py` 已登记 legacy large-file watch。
+- **状态：** complete
+
+### 阶段 105：解耦架构 workspace checkpoint service 拆分
+- [x] 实现：新增 `coding_orchestration/workspace_checkpoint_service.py`，承接 implementation workspace 复用/创建、source branch/base branch、QA artifact 收集、clean-tree checkpoint、git HEAD 和 diff guard QA artifact 过滤。
+- [x] 兼容：`CodingOrchestrator._implementation_workspace()`、`_merge_test_workspace()`、`_workspace_clean_checkpoint()`、`_git_head()`、`_source_branch_for_task()`、`_source_base_branch_for_task()` 和 `_collect_qa_artifacts()` 保留 wrapper，避免旧调用断裂。
+- [x] 测试迁移：新增 `tests/test_workspace_checkpoint_service.py`，并把纯 source branch helper 私有测试从 `tests/test_implementation_workspace_flow.py` 迁到 service contract tests。
+- [x] 边界：runner 启动、状态映射、diff guard violation 到 report/status 的风险注入仍留在 orchestrator，workspace service 不承载业务状态推进。
+- [x] 治理：更新解耦设计、实施计划、项目地图、组件合同和约定，并运行聚焦测试、完整单测、architecture guard、空白检查和敏感扫描。
+- **状态：** complete
+
+### 阶段 106：解耦架构 run manifest service 拆分
+- [x] 实现：新增 `coding_orchestration/run_manifest_service.py`，承接 run-manifest 基础字段、artifact record、Codex attach/resume 展示命令、controlled bypass 权限 profile、source elevated plan 权限判断和 manifest session metadata 回写。
+- [x] 兼容：当时 `CodingOrchestrator._build_manifest()`、`_artifact_record()`、`_codex_attach_command()`、`_codex_resume_command()`、`_permission_profile()`、`_run_uses_controlled_bypass()` 和 `_update_manifest_session_metadata()` 保留 wrapper，避免旧调用断裂；阶段 157 已删除无调用的 permission/bypass wrapper。
+- [x] 测试迁移：新增 `tests/test_run_manifest_service.py`，并把 plan-only resume command 私有 helper 测试从 `tests/test_orchestrator_run_flow.py` 迁到 service contract tests。
+- [x] 边界：runner 启动、状态映射、diff guard violation 到 report/status 的风险注入仍留在 orchestrator，run manifest service 不承载业务状态推进或 subprocess 执行。
+- [x] 治理：更新解耦设计、实施计划、项目地图、组件合同和约定，并运行聚焦测试、architecture guard、空白检查和敏感扫描。
+- **状态：** complete
+
+### 阶段 107：解耦架构 gateway command controller 第一切片
+- [x] 实现：新增 `coding_orchestration/gateway_command_controller.py`，承接 `/coding` 命令归一化、project 子命令映射、确认/取消词分类、rewrite 风险确认、plugin-generated message 过滤、Gateway event dedupe key/cache 和授权探测。
+- [x] 兼容：`CodingOrchestrator._normalize_coding_gateway_command()`、`_rewrite_requires_confirmation()`、`_is_*confirmation*()`、`_looks_like_*()`、`_dedupe_gateway_event()`、`_gateway_event_dedupe_key()` 和 `_gateway_user_is_authorized()` 保留 wrapper，避免旧调用断裂。
+- [x] 测试：新增 `tests/test_gateway_command_controller.py`，覆盖 command alias、project 子命令、确认/取消分类、风险确认、dedupe、授权兜底和 wrapper 兼容。
+- [x] 边界：`_handle_explicit_gateway_command()` 大分发、ledger/runner 副作用、状态 gate 和消息回复仍留在 orchestrator；后续 Task 29 继续按命令分发职责拆迁。
+- [x] 治理：更新解耦设计、实施计划、项目地图、组件合同和约定；运行 controller/相邻 Gateway flow、文档/架构、完整单测、空白检查和敏感扫描；`orchestrator.py` 从 5600 行降至 5486 行，architecture guard 仍只 watch legacy orchestrator。
+- **状态：** complete
+
+### 阶段 108：解耦架构 gateway command controller 第二切片
+- [x] 实现：`gateway_command_controller.py` 新增显式 `/coding` / `/commands` 解析、merge-test 参数解析和 rewrite canonical command 规则。
+- [x] 兼容：`CodingOrchestrator._handle_explicit_gateway_command()`、`_handle_commands_gateway_command()`、`command_coding_merge_test()` 和 `_canonical_rewrite_command()` 委托 controller 纯解析；命令执行、状态 gate、pending action、ledger/runner 副作用仍留在 orchestrator。
+- [x] 测试：扩展 `tests/test_gateway_command_controller.py`，覆盖显式命令解析、`/commands` 参数、merge-test flag/task fallback、rewrite canonical command 和 wrapper 兼容。
+- [x] 边界：本切片仍不把 `_handle_explicit_gateway_command()` 大分发表整体搬出；下一步可抽命令分发 plan/route table，再按 handler 逐步迁移。
+- [x] 治理：更新解耦设计、实施计划、项目地图、组件合同和约定；`orchestrator.py` 从 5486 行降至 5447 行，architecture guard 仍只 watch legacy orchestrator。
+- **状态：** complete
+
+### 阶段 109：解耦架构全线阶段技术方案固化
+- [x] 方案：在 `PLUGIN_TECHNICAL_SOLUTION.md` 新增“解耦改造工作阶段全线图”，面向团队评审列出 A-D 四个批次、0-17 全线阶段、Task 28-36 长期执行队列、职责归属和退出标准。
+- [x] 治理：明确大文件与 hard code 是专项治理对象，`orchestrator.py` 先降到 3000 行以内，再退出 legacy large-file watchlist；新增业务模块超过 600 行需说明边界，超过 1000 行必须拆分或登记例外。
+- [x] 职责：再次固化 core/service/tool 层不得新增 Hermes 命令、`lark-cli`、`Path.home()`、`os.getenv()`、`subprocess`、token key 或真实 secret 模式；hard code 只允许落在 config、adapter binding、domain policy 或明确 fixture。
+- [x] 验证：本阶段为文档方案固化，执行 `git diff --check`、文档/架构测试、architecture guard 和敏感扫描。
+- **状态：** complete
+
+### 阶段 110：解耦架构 gateway command controller 第三切片
+- [x] 实现：`gateway_command_controller.py` 新增 `GatewayCommandRoute`、`route_coding_gateway_command()` 和 `gateway_route_task_id()`，集中维护命令族、task id 来源策略和 pending action 清理元数据。
+- [x] 兼容：`CodingOrchestrator._handle_explicit_gateway_command()` 改为消费 route plan；具体命令执行、状态 gate、pending action、ledger/runner 副作用和消息回复仍留在 orchestrator。
+- [x] 测试：扩展 `tests/test_gateway_command_controller.py`，覆盖 project route、active task fallback route、merge-test flags/active fallback route 和 task id 解析。
+- [x] 治理：更新解耦设计、实施计划、项目地图、组件合同和约定；记录 `gateway_command_controller.py` 为 348 行，`orchestrator.py` 当前 5458 行，下一步继续按 route family 收敛 `_handle_explicit_gateway_command()` 大分支。
+- **状态：** complete
+
+### 阶段 111：解耦架构 gateway command controller 第四切片
+- [x] 实现：`gateway_command_controller.py` 扩展 route metadata，新增 handler key 与 reply mode，明确哪些命令属于 immediate reply，哪些仍走 custom complex dispatch。
+- [x] 兼容：`CodingOrchestrator._handle_explicit_gateway_command()` 新增 `_handle_gateway_immediate_route()`，集中处理 help、diagnostic、list、project、use、exit、status、complete、cancel、restore 和 delete；task/run/implement/QA/prepare/merge-test 等复杂副作用仍留在原分支。
+- [x] 行为修正：Gateway 层 `/coding lark-preflight` 与 `/coding source-resolve <url>` 现在会被插件诊断分支截获并回复，不再因缺显式分支落回 Hermes 主 agent。
+- [x] 测试：扩展 `tests/test_gateway_command_controller.py` 与 `tests/test_gateway_command_group_flow.py`，覆盖 route handler/reply metadata 和 diagnostic immediate reply。
+- [x] 验证：相邻 Gateway/command/merge-test 回归 73 tests passed；完整单测 639 tests passed；`architecture_guard.py` passed，仅 watch `orchestrator.py: 5457 lines`；`git diff --check` passed；敏感扫描无命中。
+- [x] 边界：Task 29 仍是 In Progress；复杂命令 handler 副作用、pending action 执行、active project/task 应用和 runner/ledger 状态推进尚未迁出 orchestrator。
+- **状态：** complete
+
+### 阶段 112：解耦架构 gateway command executor 第五切片
+- [x] 实现：新增 `coding_orchestration/gateway_command_executor.py`，作为 Gateway custom route 的 host shell helper，消费 controller route metadata。
+- [x] 迁移：将 task creation、feedback、plan run、delivery、implementation、QA、prepare merge-test 和 merge-test 的 custom route 分发从 `CodingOrchestrator._handle_explicit_gateway_command()` 迁出。
+- [x] 兼容：`CodingOrchestrator._handle_explicit_gateway_command()` 现在只保留 route parsing、pending action 清理、immediate dispatch 和 executor 委托；ledger/runner/status/pending action 副作用仍通过 orchestrator façade/callback 调用，不塞进纯 controller。
+- [x] 测试：新增 `tests/test_gateway_command_executor.py`，覆盖 immediate route 不处理、plan run active task fallback 和 delivery route handler key 分发；相邻 Gateway/command/merge-test flow 继续保护主流程。
+- [x] 治理：`orchestrator.py` 从 5457 行降至 5283 行；新增 executor 230 行，低于大文件 watch；Task 29 仍是 In Progress，pending action 路由、active context 应用和 run orchestration 副作用还未完全迁出。
+- [x] 验证：相邻 Gateway/command/merge-test 回归 76 tests passed；完整单测 642 tests passed；`architecture_guard.py` passed，仅 watch `orchestrator.py: 5283 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 113：解耦架构全线阶段责任矩阵补强
+- [x] 方案：在 `PLUGIN_TECHNICAL_SOLUTION.md` 的“解耦改造工作阶段全线图”中补充阶段责任矩阵，覆盖 0-17 阶段的主责、协作和长期沉淀。
+- [x] 合同：补充阶段执行合同，明确每轮只迁移一个职责域、先补 contract/main-flow tests、orchestrator 只做 façade、core/service/tool 层不得新增 host/hard-code 细节。
+- [x] 治理：保持 Task 28-36 长期队列不变，继续把大文件和 hard code 作为专项治理对象；本阶段只补文档，不改运行行为。
+- [x] 验证：`git diff --check` passed；文档/架构相关测试 17 tests passed；`architecture_guard.py` passed，仅 watch `orchestrator.py: 5283 lines`；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 114：解耦架构 gateway pending action executor 第六切片
+- [x] 实现：新增 `coding_orchestration/gateway_pending_action_executor.py`，作为 Gateway pending action 的 host shell helper。
+- [x] 迁移：将 pending action 确认/取消、latest human_required merge-test fallback、取消任务 gate 和确认后显式命令续接从 `CodingOrchestrator._handle_pending_action_gateway_message()` 迁出。
+- [x] 兼容：`CodingOrchestrator._handle_pending_action_gateway_message()` 和 `_pending_action_from_latest_human_required_run()` 保留 wrapper，仍通过 orchestrator façade/callback 调用 binding、ledger、消息回复和显式命令执行；controller 继续只做纯解析/分类。
+- [x] 测试：新增 `tests/test_gateway_pending_action_executor.py`，覆盖绑定确认、取消、latest human_required fallback 和失效候选命令提示；相邻 pending/rewrite/cancel/merge-test flow 继续保护主流程。
+- [x] 验证：聚焦 pending/rewrite/cancel/merge-test 回归 46 tests passed；完整单测 646 tests passed；`architecture_guard.py` passed，仅 watch `orchestrator.py: 5238 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 115：解耦架构 gateway active context helper 第七切片
+- [x] 实现：新增 `coding_orchestration/gateway_active_context.py`，作为 Gateway active context 的 host helper。
+- [x] 迁移：将 active project 应用到缺项目 task 的 project context 回填和 human decision 记录从 `CodingOrchestrator._apply_active_project_to_task_if_missing()` 迁出。
+- [x] 兼容：`CodingOrchestrator._apply_active_project_to_task_if_missing()` 保留 wrapper；active project binding 存取仍归属 `gateway_binding_service.py`，项目初始化和项目画像生成不迁入该 helper。
+- [x] 测试：新增 `tests/test_gateway_active_context.py`，覆盖 active project 回填、已有 project_path 不覆盖、无 active project 不改 task；相邻 active project / natural language / command run flow 继续保护主流程。
+- [x] 验证：聚焦 active project / natural language / command run 回归 25 tests passed；完整单测 649 tests passed；`architecture_guard.py` passed，仅 watch `orchestrator.py: 5212 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 116：解耦架构 run orchestration service 第一切片
+- [x] 实现：新增 `coding_orchestration/run_orchestration_service.py`，作为 Run orchestration 迁移期 application helper。
+- [x] 迁移：将后台 queued/running 等待完成、后台启动失败状态收敛、merge-test `human_required` 转会话级 pending action 从 `CodingOrchestrator` 迁出。
+- [x] 兼容：`CodingOrchestrator._wait_for_background_run_completion()`、`_mark_background_run_failed()` 和 `_store_pending_action_from_merge_test_result()` 保留 wrapper；`start_run()`、runner 启动、report 写回、diff guard 和完整 run result 映射仍留在 orchestrator，后续 Task 30 继续迁。
+- [x] 测试：新增 `tests/test_run_orchestration_service.py`，覆盖等待完成 reconcile、stale active run、后台失败 transition、终态保护、transition rejected decision 记录、merge-test 非人工确认忽略和 QA 风险 pending action flag。
+- [x] 文档：同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md` 和 `findings.md`。
+- [x] 治理：`orchestrator.py` 从 5212 行降至 5154 行；新增 helper 99 行、测试 171 行，均低于大文件阈值。
+- [x] 验证：新增 helper tests 7 tests passed；相邻 run/QA/merge-test 回归 41 tests passed；完整单测 656 tests passed；`architecture_guard.py` passed，仅 watch `orchestrator.py: 5154 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 117：解耦架构 run completion projection 第二切片
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `RunCompletionProjection` 和 `project_run_completion()`。
+- [x] 迁移：将 run completion 后的 task status、task phase、run_still_active 和 report `run_status/status/task_status` 字段投影从 `CodingOrchestrator.start_run()` 迁出。
+- [x] 兼容：新 helper 复用 `RunService.task_status_for_run_result()` 与 `RunService.task_phase_for_run_result()`；保留 running override 和 merge-test `human_required` 回到 `ready_for_merge_test` 的人工续接语义；orchestrator 继续负责 report 写回、ledger transition、artifact/agent_run append 和 session metadata 更新。
+- [x] 测试：扩展 `tests/test_run_orchestration_service.py`，覆盖 plan success 映射、running phase 保留、merge-test `human_required` 可重试、failed merge-test 不因 human_required 被放行。
+- [x] 文档：同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md` 和 `findings.md`。
+- [x] 治理：`orchestrator.py` 从 5154 行降至 5149 行；`run_orchestration_service.py` 当前 151 行、测试 227 行，均低于大文件阈值。
+- [x] 验证：新增/相邻 run/status/QA/merge-test 回归 50 tests passed；后续完整验证见 `progress.md`。
+- **状态：** complete
+
+### 阶段 118：解耦架构 agent run record 构造第三切片
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `build_agent_run_record()`。
+- [x] 迁移：将 `CodingOrchestrator.start_run()` 中 agent run record 的纯数据构造迁出；orchestrator 仍负责 artifact append、agent_run append、merge record、session metadata 和 summary/writeback。
+- [x] 兼容：helper 保留 plan-only 不写 source/target/implementation checkpoint、implementation 保留 source branch/checkpoint、merge-test 写 target branch/stale completion/diff guard 的既有字段合同。
+- [x] 测试：扩展 `tests/test_run_orchestration_service.py`，覆盖 plan-only record、implementation record 和 merge-test target/stale completion record。
+- [x] 文档：同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md` 和 `findings.md`。
+- [x] 治理：`orchestrator.py` 从 5149 行降至 5143 行；`run_orchestration_service.py` 当前 195 行、测试 310 行，均低于大文件阈值。
+- [x] 验证：新增 helper tests 14 tests passed；相邻 run/status/QA/merge-test 回归 53 tests passed；后续完整验证见 `progress.md`。
+- **状态：** complete
+
+### 阶段 119：解耦架构长期阶段操作模型补强
+- [x] 方案：在 `PLUGIN_TECHNICAL_SOLUTION.md` 的全线阶段图后补充长期迭代操作模型，明确定域、建基线、先测、façade 迁移、旧耦合处理、文档同步和治理回流七步闭环。
+- [x] 执行计划：在 `docs/plans/2026-06-16-decoupled-architecture-implementation.md` 补充长期迭代操作模型和硬性职责归属规则，确保 Task 30 以后仍按职责域推进。
+- [x] 职责：明确 controller、run orchestration helper、background notifier、services、adapter、presenter/binding skill 的边界，避免后续把状态推进、subprocess、host 文案或 hard code 写回错误层。
+- [x] 验证：`git diff --check` passed；文档/架构测试 17 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5143 lines`；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 120：解耦架构 runner session update 构造第四切片
+- [x] TDD：先在 `tests/test_run_orchestration_service.py` 增加 runner session update 合同测试，并确认 helper 缺失导致 3 个预期失败。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `build_runner_session_update()`，统一维护 completed/reconciled run 的 runner session update 纯数据构造。
+- [x] 迁移：`CodingOrchestrator.start_run()` 和 `_reconcile_completed_active_run()` 改为消费 helper；orchestrator 继续负责 ledger update、attach command 字符串生成、summary 和 writeback。
+- [x] 兼容：helper 保持 completed 时清理 active run、保留可恢复 session、runner_failed 时清空 session、still-running 时不覆盖 active run 字段的既有语义。
+- [x] 文档：同步项目地图、约定、组件合同、machine-readable project context、解耦设计、实施计划和技术方案。
+- [x] 验证：新增 helper tests 17 tests passed；相邻 run/status/QA/merge-test 回归 56 tests passed；完整单测 666 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5129 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 121：解耦架构 merge-test run record 构造第五切片
+- [x] TDD：先在 `tests/test_run_orchestration_service.py` 增加 merge-test run record 合同测试，并确认 helper 缺失导致 1 个预期失败。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `build_merge_test_run_record()`。
+- [x] 迁移：`CodingOrchestrator.start_run()` 中 merge-test run record 的纯数据构造改为消费 helper；orchestrator 继续负责 stale completion gate、ledger append 和 created_at 时间注入。
+- [x] 文档：同步项目地图、约定、组件合同、machine-readable project context、解耦设计、实施计划和技术方案。
+- [x] 验证：新增 helper tests 18 tests passed；相邻 run/status/QA/merge-test 回归 57 tests passed；完整单测 667 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5127 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 122：解耦架构 start_run result payload 构造第六切片
+- [x] TDD：先在 `tests/test_run_orchestration_service.py` 增加 start_run final result payload 合同测试，并确认 helper 缺失导致 2 个预期失败。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `build_start_run_result_payload()`。
+- [x] 迁移：`CodingOrchestrator.start_run()` 尾部 final return payload 改为消费 helper；orchestrator 继续负责 project writeback、summary 写入、ledger append/update、runner 启动和 report 写回副作用。
+- [x] 文档：同步项目地图、约定、组件合同、machine-readable project context、解耦设计、实施计划和技术方案。
+- [x] 验证：新增 helper tests 20 tests passed；相邻 run/status/QA/merge-test 回归 59 tests passed；完整单测 669 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5126 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 123：解耦架构 project writeback payload 构造第七切片
+- [x] TDD：先在 `tests/test_run_orchestration_service.py` 增加 project writeback payload 合同测试，并确认 helper 缺失导致 1 个预期失败。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `build_project_writeback_payload()`。
+- [x] 迁移：`CodingOrchestrator.start_run()` 中传给 `_writeback_project_bugfix_completion()` 的 run result payload 改为消费 helper；orchestrator 继续负责 stale completion skip、实际 workitem writeback、summary 写入、ledger append/update、runner 启动和 report 写回副作用。
+- [x] 文档：同步项目地图、约定、组件合同、machine-readable project context、解耦设计、实施计划和技术方案。
+- [x] 验证：新增 helper tests 21 tests passed；bugfix writeback 相邻 flow 17 tests passed；相邻 run/status/QA/merge-test/bugfix 回归 61 tests passed；完整单测 670 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5126 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 124：解耦架构 completion report payload 构造第八切片
+- [x] TDD：先在 `tests/test_run_orchestration_service.py` 增加 completion report payload 合同测试，并确认 helper 缺失和 merge-test `human_required` 未标 `known_gaps` 导致 2 个预期失败。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `build_completion_report_payload()`，并让 `project_run_completion()` 统一构造写回 report payload。
+- [x] 迁移：`CodingOrchestrator._reconcile_completed_active_run()` 改为复用 `project_run_completion()`，不再内联 `run_status/status/task_status` 写回和 merge-test `human_required` 特判；orchestrator 继续负责实际 `report.json` 写入、状态 transition、summary 写入、ledger update 和 runner/report 副作用。
+- [x] 文档：同步项目地图、约定、组件合同、machine-readable project context、解耦设计、实施计划和技术方案。
+- [x] 验证：新增 helper tests 23 tests passed；相邻 run/status/QA/merge-test/bugfix 回归 63 tests passed；完整单测 672 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5121 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 125：解耦架构 reconciled agent run record 构造第九切片
+- [x] TDD：先在 `tests/test_run_orchestration_service.py` 增加 reconciled agent run record 合同测试，并确认 helper 缺失导致 1 个预期失败。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `build_reconciled_agent_run_record()`，统一维护 active run reconcile 时的 agent run upsert payload。
+- [x] 迁移：`CodingOrchestrator._reconcile_completed_active_run()` 中 `merged_run` 字典构造改为消费 helper；orchestrator 继续负责 `upsert_agent_run()`、artifact upsert、状态 transition、summary 写入和 runner session update。
+- [x] 文档：同步项目地图、约定、组件合同、machine-readable project context、解耦设计、实施计划和技术方案。
+- [x] 验证：新增 helper tests 24 tests passed；相邻 run/status/QA/merge-test/bugfix 回归 64 tests passed；完整单测 673 tests passed；文档/架构测试 17 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5107 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 126：解耦架构 reconcile result payload 构造第十切片
+- [x] TDD：先在 `tests/test_run_orchestration_service.py` 增加 reconcile result payload 合同测试，并确认 helper 缺失导致 1 个预期失败。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `build_reconcile_result_payload()`，统一维护 active run reconcile 返回给调用方的纯 payload。
+- [x] 迁移：`CodingOrchestrator._reconcile_completed_active_run()` 尾部 return dict 改为消费 helper；orchestrator 继续负责 `report.json` 写入、状态 transition、artifact/agent_run upsert、summary 写入和 runner session update。
+- [x] 验证：新增 helper tests 25 tests passed；相邻 run/status/QA/merge-test/bugfix 回归 65 tests passed；完整单测 674 tests passed；文档/架构测试 17 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5106 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 127：解耦架构 existing run reconcile rules 第十一切片
+- [x] TDD：先在 `tests/test_run_orchestration_service.py` 增加 existing run mode 和 changed files 合同测试，并确认 helper 缺失导致 2 个预期失败。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `run_mode_for_existing_run()` 和 `changed_files_for_existing_run()`，统一维护 active run reconcile 的 mode 优先级和 modified_files fallback 规则。
+- [x] 迁移：`CodingOrchestrator._reconcile_completed_active_run()` 改为直接消费 service helper，并删除 orchestrator 内的 `_run_mode_for_existing_run()` / `_changed_files_for_existing_run()` 私有实现；orchestrator 继续负责 report 写回、状态 transition、artifact/agent_run upsert、summary 写入和 runner session update。
+- [x] 验证：新增 helper tests 27 tests passed；相邻 run/status/QA/merge-test/bugfix 回归 67 tests passed；完整单测 676 tests passed；文档/架构测试 17 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5076 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 128：解耦架构 start_run observation rules 第十二切片
+- [x] TDD：新增 `tests/test_run_orchestration_start_rules.py`，覆盖 observed run report 观测字段构造和 stale completion 判定，并确认 helper 缺失导致 4 个预期错误。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `StaleCompletionObservation`、`build_observed_run_report()` 和 `observe_stale_completion()`。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费 service helper 构造 `modified_files` / QA artifact / tested commit 字段，并复用 helper 判定 active run mismatch 或 cancelled task 的 stale completion；orchestrator 继续负责 diff guard、QA artifact 收集、git HEAD、report 写回、状态 transition、artifact/agent_run append、summary 和 project writeback。
+- [x] 测试治理：新增 80 行小测试文件，避免继续扩写 566 行的 `tests/test_run_orchestration_service.py`。
+- [x] 验证：新增 start rules tests 4 tests passed；run orchestration helper tests 31 tests passed；相邻 run/status/QA/merge-test/bugfix 回归 71 tests passed；完整单测 680 tests passed；文档/架构测试 17 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5073 lines`；`git diff --check` passed。
+- **状态：** complete
+
+### 阶段 129：解耦架构 start_run blocked report rules 第十三切片
+- [x] TDD：扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 diff guard violation blocked report 和 implementation commit missing blocked report，并确认 helper 缺失导致 2 个预期错误。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `BlockedReportProjection`、`build_diff_guard_blocked_report()` 和 `build_implementation_commit_missing_report()`。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费 service helper 拼装 diff guard 越权与 implementation 未提交的 blocked report；orchestrator 继续负责 diff guard 收集、uncommitted changes 判断、checkpoint、report 写回、状态 transition、artifact/agent_run append、summary 和 project writeback。
+- [x] 测试治理：继续把 start_run 规则合同放在 131 行的 `tests/test_run_orchestration_start_rules.py`，避免扩写 566 行的 `tests/test_run_orchestration_service.py`。
+- [x] 验证：新增 start rules tests 6 tests passed；run orchestration 合同 33 tests passed；相邻 run/status/QA/merge-test/bugfix 回归 73 tests passed；完整单测 682 tests passed；文档/架构测试 17 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5056 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 130：解耦架构 plan report session fields 第十四切片
+- [x] TDD：扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 plan-only report 写入 `task_session.plan_report` 的白名单字段，并确认 helper 缺失导致 2 个预期错误。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `build_plan_report_session_fields()`。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费 service helper 构造 plan report session payload；`CodingOrchestrator._plan_report_session_fields()` 保留兼容 wrapper 并委托 helper；orchestrator 继续负责 `ledger.update_task_session()`、manifest/context 消费和后续 implementation branch 策略。
+- [x] 测试治理：继续把 start_run 规则合同放在 169 行的 `tests/test_run_orchestration_start_rules.py`，避免扩写 566 行的 `tests/test_run_orchestration_service.py`。
+- [x] 验证：新增 start rules tests 8 tests passed；run orchestration 合同 35 tests passed；implementation/status/plan/command 相邻 flow 27 tests passed；完整单测 684 tests passed；文档/架构测试 17 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5049 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 131：解耦架构 execution policy decision 读取第十五切片
+- [x] TDD：扩展 `tests/test_run_orchestration_start_rules.py`，覆盖从 `task_session.plan_report.execution_policy_decision` 读取 Codex plan report 决策，以及 plan_report/decision 非 dict 时返回空对象，并确认 helper 缺失导致 2 个预期错误。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `latest_execution_policy_decision()`，统一维护 start_run 读取 plan report 决策的纯规则。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费 service helper；`CodingOrchestrator._latest_execution_policy_decision()` 保留兼容 wrapper 并委托 helper；orchestrator 继续负责 `control_policy_for_mode()` 调用、timeout 选择、manifest/context 写入、ledger 更新和 runner 启动。
+- [x] 测试治理：继续把 start_run 纯规则合同放在 `tests/test_run_orchestration_start_rules.py`；文件当前 208 行，仍低于大文件阈值。
+- [x] 验证：新增 start rules tests 10 tests passed；run orchestration 合同 37 tests passed；status/plan/command/implementation session 相邻 flow 28 tests passed；完整单测 686 tests passed；文档/架构测试 17 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5044 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 132：解耦架构 run diff guard violations 第十六切片
+- [x] TDD：扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 plan-only run 对 changed files 追加写入违规说明，且不修改原始 violations；非 plan-only mode 保持既有 violations 不变，并确认 helper 缺失导致 2 个预期错误。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `build_run_diff_guard_violations()`，统一维护 start_run 的 run-level diff guard violations 纯列表组合规则。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费 service helper；orchestrator 继续负责 diff snapshot、changed files 收集、allowed/forbidden path 检查、diff summary 写入、blocked report 构造、状态推进和 ledger 更新。
+- [x] 测试治理：继续把 start_run 纯规则合同放在 `tests/test_run_orchestration_start_rules.py`；文件当前 236 行，仍低于大文件阈值。
+- [x] 验证：新增 start rules tests 12 tests passed；run orchestration 合同 39 tests passed；plan/status/command/implementation session 相邻 flow 28 tests passed；完整单测 688 tests passed；文档/架构测试 17 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5044 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 133：解耦架构 verification limitations fallback 第十七切片
+- [x] TDD：扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 blocked/partial report 缺少结构化 `verification_limitations` 时追加恢复详情，且不修改原始 report；已有恢复详情时保持不覆盖，并确认 helper 缺失导致 2 个预期错误。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `ensure_verification_limitations()`，统一维护 start_run / reconcile completion report 的 verification limitations 兜底投影规则。
+- [x] 迁移：`CodingOrchestrator._ensure_verification_limitations()` 改为兼容 wrapper 并委托 service helper；orchestrator 继续负责 artifact 路径提供、`report.json` 写入、状态推进、summary 和 ledger 更新。
+- [x] 测试治理：继续把 start_run 纯规则合同放在 `tests/test_run_orchestration_start_rules.py`；文件当前 271 行，仍低于大文件阈值。
+- [x] 验证：start rules 定向测试 14 tests passed；编译通过；run orchestration 合同 41 tests passed；plan/status/command/implementation/QA 相邻 flow 39 tests passed；完整单测 690 tests passed；文档/架构测试 17 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5033 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 134：解耦架构 run background orchestration host helper 第十八切片
+- [x] TDD：新增 `tests/test_run_background_orchestration.py`，覆盖后台 queued/running 等待完成、后台启动失败状态收敛和 merge-test `human_required` pending action 写入，并确认新模块缺失导致 1 个预期 ImportError。
+- [x] 实现：新增 `coding_orchestration/run_background_orchestration.py`，把后台 host orchestration 从 `run_orchestration_service.py` 拆出。
+- [x] 迁移：`CodingOrchestrator._wait_for_background_run_completion()`、`_mark_background_run_failed()` 和 `_store_pending_action_from_merge_test_result()` 改为委托 `run_background_orchestration.py`；`run_orchestration_service.py` 回到纯 run projection / payload 组合边界。
+- [x] 测试治理：`tests/test_run_orchestration_service.py` 从 566 行降到 404 行，`coding_orchestration/run_orchestration_service.py` 从 589 行降到 496 行，避免新增模块进入 600 行 watch。
+- [x] 验证：已完成 RED；新模块定向测试 7 tests passed；run orchestration/start/reconcile 合同 34 tests passed；相邻后台/run/status/QA/merge-test flow 53 tests passed；编译通过；完整单测 690 tests passed；文档/架构测试 17 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5034 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 135：解耦架构 run manifest session metadata projection 第十九切片
+- [x] TDD：扩展 `tests/test_run_manifest_service.py`，覆盖 Codex / non-Codex runner 的 session metadata 字段投影、既有 resume session 保留和可见性策略，并确认 helper 缺失导致 1 个预期 ImportError。
+- [x] 实现：在 `coding_orchestration/run_manifest_service.py` 新增纯 session metadata projection helper `build_manifest_session_fields()`。
+- [x] 迁移：`CodingOrchestrator.start_run()` 初始 resume session 和 runner 完成后的 manifest session 字段拼装改为委托 run manifest service；orchestrator 继续负责 session id 来源探测和 manifest 文件写回。
+- [x] 文档：同步项目地图、约定、组件合同、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：新增 manifest tests 11 tests passed；相邻 implementation/QA/merge-test session flow 38 tests passed；文档/架构测试 17 tests passed；完整单测 693 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 5034 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 136：解耦架构 pre-run failure report payload 第二十切片
+- [x] TDD：扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 runner 异常和 QA/merge-test checkpoint 失败的结构化 report payload，并确认 helper 缺失导致 2 个预期 AttributeError。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `RunFailureReportProjection`、`build_runner_failed_report_payload()` 和 `build_checkpoint_failed_report_payload()`。
+- [x] 迁移：`CodingOrchestrator._runner_failed_result()` 和 `_checkpoint_failed_result()` 改为消费 service helper；orchestrator 继续只负责 artifact 文件写入和 `RunResult` 包装。
+- [x] 治理：`orchestrator.py` 降至 4986 行；`run_orchestration_service.py` 增至 593 行，已接近 600 行阈值，下一轮继续增长前应优先拆分或压缩。
+- [x] 验证：start rules 定向测试 16 tests passed；run orchestration/start/reconcile 合同 36 tests passed；plan/run/QA/merge-test 相邻 flow 33 tests passed；文档/架构测试 17 tests passed；完整单测 695 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4986 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 137：解耦架构 run failure report projection 模块拆分
+- [x] TDD：新增 `tests/test_run_failure_report_projection.py`，要求 failure report projection 可从独立模块导入，并确认新模块缺失导致 1 个预期 ImportError。
+- [x] 实现：新增 `coding_orchestration/run_failure_report_projection.py`，承接 `RunFailureReportProjection`、`build_runner_failed_report_payload()` 和 `build_checkpoint_failed_report_payload()`。
+- [x] 兼容：`coding_orchestration/run_orchestration_service.py` 改为 re-export 新模块 helper，旧调用点和旧 tests 不改名。
+- [x] 治理：`run_orchestration_service.py` 从 593 行降至 500 行，新增 projection 模块 104 行，避免 run service 越过 600 行阈值。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：新增/相邻 contract 38 tests passed；plan/run/QA/merge-test 相邻 flow 33 tests passed；文档/架构测试 17 tests passed；完整单测 697 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4986 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 138：解耦架构 run report refinement projection 第二十二切片
+- [x] TDD：扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 diff guard blocked 优先级、implementation 成功后要求 host dirty-check、以及 host 确认未提交后生成 implementation commit missing blocked report，并确认 helper 缺失导致 3 个预期 AttributeError。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `RunReportRefinement` 和 `refine_run_report_projection()`，统一维护 start_run 的 observed report status details、diff guard blocked、implementation 状态归一和 commit-missing blocked 选择。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费 refinement helper；orchestrator 继续负责 session metadata、workspace dirty 检查、checkpoint manifest 写入、report 写入、状态 transition、artifact/agent_run append、summary 和 project writeback。
+- [x] 治理：`orchestrator.py` 从 4986 行降至 4978 行；`run_orchestration_service.py` 从 500 行增至 561 行，仍低于 600 行阈值，下一轮继续增长前需要谨慎评估是否拆出更小 projection 模块。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：新增 start rules tests 19 tests passed；run orchestration/start/reconcile 合同 41 tests passed；plan/run/QA/merge-test 相邻 flow 33 tests passed；文档/架构测试 17 tests passed；完整单测 700 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4978 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 139：解耦架构 run report refinement projection 模块拆分
+- [x] TDD：新增 `tests/test_run_report_refinement_projection.py`，要求 run report refinement projection 可从独立模块导入，并确认新模块缺失导致预期 ImportError。
+- [x] 实现：新增 `coding_orchestration/run_report_refinement_projection.py`，承接 `BlockedReportProjection`、`RunReportRefinement`、`build_diff_guard_blocked_report()`、`build_implementation_commit_missing_report()` 和 `refine_run_report_projection()`。
+- [x] 兼容：`coding_orchestration/run_orchestration_service.py` 改为 re-export 新模块 helper，旧调用点和旧 tests 不改名。
+- [x] 治理：`run_orchestration_service.py` 从 561 行降至 438 行，新增 projection 模块 136 行，避免 run service 接近 600 行阈值并明确 projection 职责。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：新增/相邻 contract 43 tests passed；plan/run/QA/merge-test 相邻 flow 33 tests passed；文档/架构测试 17 tests passed；完整单测 702 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4978 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 140：解耦架构 run start session update projection 第二十四切片
+- [x] TDD：扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 run 启动前 base session update、implementation workspace session update、QA/merge-test resume session update 和非 workspace mode 空更新，并确认 helper 缺失导致 4 个预期 AttributeError。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `build_run_start_base_session_update()` 和 `build_run_start_workspace_session_update()`，统一维护 `start_run()` 里的 `project_name`、runner provider/last mode、source branch/base、worktree 和 QA/merge-test resume session payload。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费 run start session update helper；orchestrator 继续负责 workspace 选择/创建、source branch 计算、ledger 写入、manifest/prompt、runner 启动和状态推进。
+- [x] 治理：`orchestrator.py` 从 4978 行降至 4976 行；`run_orchestration_service.py` 从 438 行增至 475 行，仍低于 600 行阈值。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：新增 start rules 23 tests passed；相邻 implementation/session/QA/merge-test/run service 46 tests passed；文档/架构测试 17 tests passed；完整单测 706 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4976 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 141：解耦架构 active run session update projection 第二十五切片
+- [x] TDD：扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 runner 启动前 active run session update payload，并确认 helper 缺失导致 1 个预期 AttributeError。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `build_active_run_session_update()`，统一维护 `active_run_id` 和 `active_mode` 字段合同。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费 active run session update helper；orchestrator 继续负责 ledger 写入、running phase、状态 transition、runner 启动和失败清理。
+- [x] 治理：`orchestrator.py` 从 4976 行降至 4974 行；`run_orchestration_service.py` 从 475 行增至 488 行，仍低于 600 行阈值。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：新增 start rules 24 tests passed；run orchestration/start/reconcile contract 44 tests passed；文档/架构测试 17 tests passed；完整单测 707 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4974 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 142：解耦架构 run context source projection 第二十六切片
+- [x] TDD：扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 implementation、QA、merge-test、plan-only 和 decomposition 的 run context source 选择，并确认 helper 缺失导致 1 个预期 AttributeError。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `run_context_source_for_mode()` 和 context source 常量，统一维护 `RunMode -> confirmed_plan / merge_test_context / 空` 的纯规则。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为先读取 context source，再调用 `_confirmed_plan_for_task()` 或 `_merge_test_context_for_task()`；orchestrator 继续负责实际上下文读取、context artifacts、prompt 构造和 runner 启动。
+- [x] 治理：`orchestrator.py` 保持 4974 行；`run_orchestration_service.py` 增至 500 行；`tests/test_run_orchestration_start_rules.py` 增至 505 行，仍低于 600 行治理阈值。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：新增 start rules 25 tests passed；run orchestration/start/reconcile contract 45 tests passed；相邻 plan/command/session/QA/merge-test flow 35 tests passed；文档/架构测试 17 tests passed；完整单测 708 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4974 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 143：解耦架构 run checkpoint selection projection 第二十七切片
+- [x] TDD：扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 QA/merge-test checkpoint 选择和失败判定，并确认 helper 缺失导致 2 个预期 AttributeError。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `run_checkpoint_for_mode()` 和 `run_checkpoint_failed()`，统一维护 `RunMode -> qa_checkpoint / merge_test_checkpoint / None` 以及 failed checkpoint dict 判定。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费 checkpoint helper；orchestrator 继续负责 checkpoint 准备、checkpoint failure result 包装、runner 启动、manifest 写入和状态推进。
+- [x] 治理：`orchestrator.py` 降至 4971 行；`run_orchestration_service.py` 增至 517 行；`tests/test_run_orchestration_start_rules.py` 增至 540 行，仍低于 600 行治理阈值。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：新增 start rules 27 tests passed；run orchestration/start/reconcile contract 47 tests passed；文档/架构测试 17 tests passed；完整单测 710 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4971 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 144：解耦架构 QA evidence observation selection projection 第二十八切片
+- [x] TDD：扩展 `tests/test_run_orchestration_start_rules.py`，覆盖只有 QA mode 需要观测 QA artifacts/tested commit，并确认 helper 缺失导致 1 个预期 AttributeError。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `run_observes_qa_evidence()`，统一维护 `RunMode.QA -> True`、其他 mode 为 False 的纯规则。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为先消费 QA evidence observation helper，再由 orchestrator 负责实际 `_collect_qa_artifacts()` 和 `_git_head()` 调用；helper 不读取文件、不访问 git、不写 report、不更新 ledger。
+- [x] 治理：`orchestrator.py` 当前 4972 行；`run_orchestration_service.py` 增至 521 行；`tests/test_run_orchestration_start_rules.py` 增至 547 行，仍低于 600 行治理阈值。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：start rules 28 tests passed；run orchestration/start/reconcile contract 48 tests passed；文档/架构测试 17 tests passed；完整单测 711 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4972 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 145：解耦架构 run source branch recording selection projection 第二十九切片
+- [x] TDD：扩展 `tests/test_run_orchestration_start_rules.py`，覆盖只有 implementation / QA / merge-test mode 需要记录 source branch，并确认 helper 缺失导致 1 个预期 AttributeError。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `run_records_source_branch()`，统一维护 run mode 到是否记录 source branch 的纯规则。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为先消费 source branch recording helper，再由 orchestrator 负责实际 `_source_branch_for_task()` 调用；helper 不计算 branch、不读取 workspace、不写 ledger。
+- [x] 治理：`orchestrator.py` 当前 4972 行；`run_orchestration_service.py` 增至 525 行；`tests/test_run_orchestration_start_rules.py` 增至 554 行，仍低于 600 行治理阈值。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：start rules 29 tests passed；run orchestration/start/reconcile contract 49 tests passed；文档/架构测试 17 tests passed；完整单测 712 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4972 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 146：解耦架构 run project path requirement selection projection 第三十切片
+- [x] TDD：扩展 `tests/test_run_orchestration_start_rules.py`，覆盖只有 decomposition mode 可以在缺少 project_path 时继续，其他 run mode 必须要求 project_path。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `run_requires_project_path()`，统一维护 run mode 到 project_path gate 的纯规则。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费 project path requirement helper；orchestrator 继续负责状态 transition、错误消息、项目路径解析和 runner 启动。
+- [x] 治理：`orchestrator.py` 当前 4972 行；`run_orchestration_service.py` 增至 529 行；`tests/test_run_orchestration_start_rules.py` 增至 561 行，仍低于 600 行治理阈值。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：start rules 30 tests passed；run orchestration/start/reconcile contract 50 tests passed；delivery/command/plan 相邻 flow 37 tests passed；文档/架构测试 17 tests passed；完整单测 713 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4972 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 147：解耦架构 run workspace selection projection 第三十一切片
+- [x] TDD：新增 `tests/test_run_orchestration_workspace_rules.py`，覆盖 `RunMode -> workspace selection`、准备 phase 和缺失 workspace 错误投影，避免继续扩写 561 行的 start rules 测试文件。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `RunWorkspaceSelection`、workspace kind 常量和 `run_workspace_selection_for_mode()`；helper 只维护 mode 选择规则，不创建/查找 workspace。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费 workspace selection helper；orchestrator 继续负责 `_implementation_workspace()`、`_merge_test_workspace()`、状态 transition、ledger 写入和 runner 启动。
+- [x] 治理：`orchestrator.py` 降至 4945 行；`run_orchestration_service.py` 558 行；新增 workspace rules 测试 50 行；start rules 测试保持 561 行。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：RED 先出现 4 个预期 AttributeError；workspace rules 3 tests passed；run orchestration/start/reconcile contract 53 tests passed；implementation/session/QA/merge-test 相邻 flow 34 tests passed；文档/架构测试 17 tests passed；完整单测 716 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4945 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 148：解耦架构 run start selection projection 模块拆分
+- [x] TDD：新增 `tests/test_run_start_selection_projection.py`，要求 start-run mode selection 规则可从独立模块导入，并确认新模块缺失导致预期 ImportError。
+- [x] 实现：新增 `coding_orchestration/run_start_selection_projection.py`，承接 context source、checkpoint selection、QA evidence observation、source branch recording、project path requirement 和 workspace selection 纯规则。
+- [x] 兼容：`coding_orchestration/run_orchestration_service.py` 改为 re-export 新模块 helper，旧 orchestrator 调用点和旧 tests 不改名。
+- [x] 治理：`run_orchestration_service.py` 从 558 行回落到 503 行，远离 600 行 watch 阈值；新增 projection 模块 76 行。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：新增 contract、run orchestration start/reconcile/service、implementation/session/QA/merge-test 相邻 flow、文档/架构测试、architecture guard、diff check、敏感扫描和完整单测。
+- **状态：** complete
+
+### 阶段 149：解耦架构 run manifest checkpoint preparation selection projection
+- [x] TDD：扩展 `tests/test_run_start_selection_projection.py`，覆盖 QA / merge-test / plan-only / implementation 的 manifest checkpoint preparation 选择规则，并确认 helper 缺失导致 2 个预期 AttributeError。
+- [x] 实现：扩展 `coding_orchestration/run_start_selection_projection.py`，新增 manifest target/checkpoint preparation 纯 projection；只返回目标分支、manifest 字段和 checkpoint kind，不读取 workspace、不准备 checkpoint、不写 manifest。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费 preparation projection；实际 `_prepare_qa_checkpoint()`、`_prepare_merge_test_checkpoint()` 和 manifest 文件写入继续留在 orchestrator。
+- [x] 治理：当前行数为 `orchestrator.py` 4953 行，`run_orchestration_service.py` 508 行，`run_start_selection_projection.py` 101 行，`tests/test_run_start_selection_projection.py` 149 行。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：新增 contract 6 tests passed；run orchestration/start/reconcile/service contract 59 tests passed；implementation/session/QA/merge-test 相邻 flow 34 tests passed；文档/架构测试 17 tests passed；完整单测 722 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4953 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 150：解耦架构 plan report session writeback projection
+- [x] TDD：先扩展 `tests/test_run_orchestration_start_rules.py`，覆盖只有非 stale 的 plan-only run 会生成 `{"plan_report": ...}` session update，implementation/QA/merge-test/stale completion 均不写回 plan report，并确认 helper 缺失导致 2 个预期 AttributeError。
+- [x] 实现：扩展 `coding_orchestration/run_orchestration_service.py`，新增 `build_plan_report_session_update()`；helper 只返回 ledger update payload，不写 ledger、不读 artifact、不推进状态。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费该 projection；orchestrator 继续负责实际 `ledger.update_task_session()` 和 runner session update 写入。
+- [x] 治理：将 plan report session fields / writeback contract 拆到新增 `tests/test_run_orchestration_plan_report_session.py`，避免 `tests/test_run_orchestration_start_rules.py` 超过 600 行；当前 start rules 523 行，新测试 108 行。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：plan report/start/service/reconcile contract 52 tests passed；plan/command/status/source-plan 相邻 flow 26 tests passed；文档/架构测试 17 tests passed；完整单测 724 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4956 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 151：解耦架构零耦合集成责任矩阵补强
+- [x] 方案：补充工具端、MCP / WorkItem、Skill、Hermes host shell、runner、source、storage/knowledge 的横向责任矩阵，明确权威层、Hermes 只做集成的范围、禁止回流和验收信号。
+- [x] 治理：把大文件和 hard code 作为跨阶段硬门禁写入同一矩阵，避免后续只按文件大小机械拆分或把 host 细节写回 core/service。
+- [x] 文档：同步 `PLUGIN_TECHNICAL_SOLUTION.md`、解耦设计文档、实施计划、发现和进度日志。
+- [x] 验证：文档/架构测试 17 tests passed；`architecture_guard.py` passed，仅 watch legacy `orchestrator.py`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 152：解耦架构 completion session update projection
+- [x] TDD：新增 completion session update contract，覆盖 fresh plan-only 同时写 `plan_report` 与 runner、fresh non-plan 只写 runner、stale completion 不写 session，并确认 helper 缺失时先出现 3 个预期 `AttributeError`。
+- [x] 实现：在 `run_orchestration_service.py` 新增 `build_completion_session_update()`，组合既有 plan report session update 与 runner session update；helper 只返回 payload。
+- [x] 迁移：`CodingOrchestrator.start_run()` 收尾改为消费 completion session update；orchestrator 继续负责实际 `ledger.update_task_session()`。
+- [x] 治理：当前 `orchestrator.py` 4952 行，`run_orchestration_service.py` 553 行，`tests/test_run_orchestration_plan_report_session.py` 181 行，均未新增超过 600 行的非 legacy 文件。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：plan report session contract 7 tests passed；run orchestration/start/reconcile/service contract 55 tests passed；plan/command/status/source-plan/implementation session 相邻 flow 34 tests passed；文档/架构测试 17 tests passed；完整单测 727 tests passed；`architecture_guard.py` passed，仅 watch `coding_orchestration/orchestrator.py: 4952 lines`；`git diff --check` passed；敏感扫描无命中。
+- **状态：** complete
+
+### 阶段 153：解耦架构 run session projection 模块拆分
+- [x] TDD：新增 `tests/test_run_session_projection.py`，要求 session payload helper 可从独立 `coding_orchestration.run_session_projection` 导入，并确认模块缺失时先出现预期 `ModuleNotFoundError`。
+- [x] 实现：新增 `coding_orchestration/run_session_projection.py`，承接 plan report session fields 白名单、plan report session update、runner session update 和 completion session update 纯 payload。
+- [x] 兼容：`coding_orchestration/run_orchestration_service.py` 改为 re-export session projection helper，旧调用点和兼容测试不改名。
+- [x] 治理：`run_orchestration_service.py` 从 553 行降到 465 行，新增 `run_session_projection.py` 99 行；`orchestrator.py` 仍为 4952 行 legacy watch。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：run session / plan report session / run orchestration service 聚焦 contract 28 tests passed；py_compile passed；后续收尾已运行相邻 flow、文档/架构、architecture guard、diff check、敏感扫描和完整单测。
+- **状态：** complete
+
+### 阶段 154：解耦架构 run start session projection 扩展
+- [x] TDD：扩展 `tests/test_run_session_projection.py`，要求 `build_run_start_base_session_update()`、`build_run_start_workspace_session_update()` 和 `build_active_run_session_update()` 从 `run_session_projection.py` 直接导入，并确认 helper 缺失时先出现预期 ImportError。
+- [x] 实现：将 run 启动前 base/workspace session update 和 active run session update 纯 payload helper 从 `run_orchestration_service.py` 迁入 `run_session_projection.py`。
+- [x] 兼容：`run_orchestration_service.py` 继续 re-export 三个 helper，旧 orchestrator 调用点和 `test_run_orchestration_start_rules.py` 不改名。
+- [x] 治理：`run_orchestration_service.py` 从 465 行降到 418 行，`run_session_projection.py` 增至 149 行，`tests/test_run_session_projection.py` 158 行，均低于 600 行治理阈值。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：run session/start rules contract 32 tests passed；后续收尾运行 py_compile、run orchestration contract、相邻 flow、文档/架构、architecture guard、diff check、敏感扫描和完整单测。
+- **状态：** complete
+
+### 阶段 155：解耦架构 run prompt projection 拆分
+- [x] TDD：新增 `tests/test_run_prompt_projection.py`，要求 prompt 构造选择可从独立 `coding_orchestration.run_prompt_projection` 导入，并确认模块/helper 缺失时先出现预期失败。
+- [x] 实现：新增 `coding_orchestration/run_prompt_projection.py`，承接 `start_run()` 中首次 prompt 与增量 prompt 的选择规则和参数合同。
+- [x] 兼容：`run_orchestration_service.py` re-export prompt projection helper，`CodingOrchestrator.start_run()` 只委托 helper；prompt artifact 写文件仍留在 orchestrator。
+- [x] 治理：helper 只调用传入的 prompt builder 构造字符串，不写 `input-prompt.md`、不生成 context artifacts、不写 manifest、不启动 runner、不写 ledger。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 prompt projection contract、run orchestration service/start 相关 contract、prompt/implementation/plan 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 156：解耦架构 run context artifact service 拆分
+- [x] TDD：新增 `tests/test_run_context_artifact_service.py`，要求 context artifact 写入可从独立 `coding_orchestration.run_context_artifact_service` 导入，并确认模块缺失时先出现预期失败。
+- [x] 实现：新增 `coding_orchestration/run_context_artifact_service.py`，承接 wiki context、confirmed plan / implementation context、assembled context、run instructions、execution policy 和 context index 写入。
+- [x] 兼容：`CodingOrchestrator._write_prompt_context_artifacts()` 保留 wrapper，改为委托 service；`start_run()` 调用点不改名。
+- [x] 治理：service 可以写 run_dir 下的 context artifact 文件，但不得写 ledger、manifest、report、summary，不得启动 runner，不得推进 task/run 状态。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 context artifact service contract、prompt/plan/implementation/status/QA 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 157：解耦架构 run manifest start update projection
+- [x] TDD：扩展 `tests/test_run_manifest_service.py`，覆盖启动期 manifest update projection，包括 resume session、受控高权限字段和 merge-test target branch。
+- [x] 实现：在 `coding_orchestration/run_manifest_service.py` 增加纯 helper，统一生成启动期 manifest 字段 update；helper 不写文件、不准备 checkpoint、不启动 runner、不更新 ledger。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费该 projection；checkpoint 准备、manifest 文件写入、runner 启动和状态推进继续留在 orchestrator，并删除已无调用的 manifest permission 私有 wrapper。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 manifest service contract、run/start 相关相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 158：解耦架构 run start artifact service 拆分
+- [x] TDD：新增 `tests/test_run_start_artifact_service.py`，覆盖 `report.schema.json`、`input-prompt.md` 和 `run-manifest.json` 启动 artifact 写入边界。
+- [x] 实现：新增 `coding_orchestration/run_start_artifact_service.py`，只写 run_dir 下启动 artifact；不准备 checkpoint、不写 ledger/report/summary、不启动 runner、不推进状态。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费 service；manifest 内容构造、checkpoint 准备、runner 启动和状态推进继续留在 orchestrator。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run start artifact service contract、plan/source/implementation/QA/merge-test 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 159：解耦架构 run report artifact service 拆分
+- [x] TDD：新增 `tests/test_run_report_artifact_service.py`，覆盖 `report.json` 写回边界和非 report artifact 不写入约束。
+- [x] 实现：新增 `coding_orchestration/run_report_artifact_service.py`，只写指定 report artifact；不写 manifest/summary、不写 ledger、不启动 runner、不推进状态。
+- [x] 迁移：`CodingOrchestrator.start_run()` 改为消费 service 写回 observed/completion report；report payload 构造、状态 transition、artifact/agent_run append、summary 和 project writeback 继续留在原边界。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run report artifact service contract、status/plan/source/implementation/QA/merge-test 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 160：解耦架构 run summary artifact service 拆分
+- [x] TDD：新增 `tests/test_run_summary_artifact_service.py`，覆盖 `summary.md` 写回边界和非 summary artifact 不写入约束。
+- [x] 实现：新增 `coding_orchestration/run_summary_artifact_service.py`，只写指定 summary artifact；不写 report/manifest、不写 ledger、不启动 runner、不推进状态。
+- [x] 迁移：`CodingOrchestrator` 中 active run reconcile、runner failed 和 checkpoint failed 的 `summary.md` 写回改为消费 service；summary 内容来源、状态 transition、artifact/agent_run append 和 project writeback 继续留在原边界。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run summary artifact service contract、status/plan/source/implementation/QA/merge-test 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 161：解耦架构 run manifest artifact writeback service 拆分
+- [x] TDD：新增 `tests/test_run_manifest_artifact_service.py`，覆盖 `run-manifest.json` 写回边界和非 manifest artifact 不写入约束。
+- [x] 实现：新增 `coding_orchestration/run_manifest_artifact_service.py`，只写指定 manifest artifact；不写 report/summary/ledger、不启动 runner、不推进状态。
+- [x] 迁移：`CodingOrchestrator.start_run()` 中 implementation dirty-check checkpoint 后的 manifest 写回改为消费 service；checkpoint 生成、状态 transition、artifact/agent_run append 和 project writeback 继续留在原边界。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run manifest artifact service contract、implementation/QA/merge-test 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 162：解耦架构 run stderr artifact service 拆分
+- [x] TDD：新增 `tests/test_run_stderr_artifact_service.py`，覆盖 `stderr.log` 写回边界和非 stderr artifact 不写入约束。
+- [x] 实现：新增 `coding_orchestration/run_stderr_artifact_service.py`，只写指定 stderr artifact；不写 report/summary/manifest/ledger、不启动 runner、不推进状态。
+- [x] 迁移：`CodingOrchestrator` 中 runner failed 和 checkpoint failed 的 `stderr.log` 写回改为消费 service；failure payload、RunResult 包装、状态 transition、artifact/agent_run append 和 project writeback 继续留在原边界。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run stderr artifact service contract、failure projection/start rules/QA/merge-test 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 163：解耦架构 run ledger writeback projection 拆分
+- [x] TDD：新增 `tests/test_run_ledger_projection.py`，覆盖 artifact / agent_run / merge-test record 写回 payload 聚合边界。
+- [x] 实现：新增 `coding_orchestration/run_ledger_projection.py`，只构造 run ledger writeback records；不调用 ledger、不写 artifact、不启动 runner、不推进状态。
+- [x] 迁移：`CodingOrchestrator.start_run()` 中 artifact record、agent_run record 和 merge-test record 的纯 payload 聚合改为消费 projection；实际 `append_artifact()`、`append_agent_run()`、`append_merge_record()` 继续留在 orchestrator host 边界。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run ledger projection contract、run orchestration service contract、implementation/QA/merge-test/status 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 164：解耦架构 reconciled run ledger writeback projection 扩展
+- [x] TDD：扩展 `tests/test_run_ledger_projection.py`，覆盖 active run reconcile 的 artifact / merged agent_run upsert payload 聚合边界。
+- [x] 实现：扩展 `coding_orchestration/run_ledger_projection.py`，新增 reconciled run ledger writeback records projection；不调用 ledger、不写 artifact、不启动 runner、不推进状态。
+- [x] 迁移：`CodingOrchestrator._reconcile_completed_active_run()` 中 artifact record 和 merged agent run payload 聚合改为消费 projection；实际 `upsert_artifact()`、`upsert_agent_run()` 继续留在 orchestrator host 边界。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run ledger projection contract、run orchestration service/reconcile contract、status/implementation/QA/merge-test 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 165：解耦架构 reconciled run summary writeback projection 拆分
+- [x] TDD：新增 `tests/test_run_summary_projection.py`，覆盖 active run reconcile 的 run summary writer payload 聚合边界。
+- [x] 实现：新增 `coding_orchestration/run_summary_projection.py`，只构造 run summary writeback payload；不写 LLM Wiki、不调用 summary writer、不写 ledger、不推进状态。
+- [x] 迁移：`CodingOrchestrator._reconcile_completed_active_run()` 中 run summary writer 参数组装改为消费 projection；实际 `summary_writer.write_run_summary()` 继续留在 orchestrator host 边界。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run summary projection contract、status reconcile/run orchestration 相邻 contract、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 166：解耦架构 completed run summary writeback projection 扩展
+- [x] TDD：扩展 `tests/test_run_summary_projection.py`，覆盖 `start_run()` completed path 的 run summary writer payload 聚合边界。
+- [x] 实现：扩展 `coding_orchestration/run_summary_projection.py`，新增 completed run summary writeback projection；不读取 summary artifact、不写 LLM Wiki、不调用 summary writer、不写 ledger、不推进状态。
+- [x] 迁移：`CodingOrchestrator.start_run()` 中 run summary writer 参数组装改为消费 projection；summary artifact 读取和实际 `summary_writer.write_run_summary()` 继续留在 orchestrator host 边界。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run summary projection contract、plan/status/run orchestration 相邻 contract、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 167：解耦架构 run artifact path projection 拆分
+- [x] TDD：新增 `tests/test_run_artifact_paths.py`，覆盖 run_dir artifact contract、existing run 记录路径优先和缺失字段 fallback，并确认模块缺失时先出现预期 `ModuleNotFoundError`。
+- [x] 实现：新增 `coding_orchestration/run_artifact_paths.py`，集中构造 `ArtifactSet` 路径合同；只返回路径，不读写 artifact 文件、不写 ledger、不启动 runner、不推进状态。
+- [x] 迁移：`CodingOrchestrator._artifact_set_for_run_dir()` 和 `_artifact_set_for_existing_run()` 改为委托 path projection；existing run fallback 补齐 `context_manifest`。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run artifact path contract、status/report/summary/stderr 相邻 artifact flow、plan/run orchestration 相邻 contract、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 168：解耦架构 completed run summary artifact read service 扩展
+- [x] TDD：扩展 `tests/test_run_summary_artifact_service.py`，要求 summary artifact service 能读取存在的 `summary.md`，缺失时返回空字符串，并确认 helper 缺失时先出现预期 `ImportError`。
+- [x] 实现：扩展 `coding_orchestration/run_summary_artifact_service.py`，新增 `read_run_summary_artifact()`；service 只读写指定 summary artifact，不生成 summary、不写 report/manifest/ledger、不启动 runner、不推进状态。
+- [x] 迁移：`CodingOrchestrator.start_run()` completed path 的 `summary.md` 读取改为消费 summary artifact service；summary writer payload projection 和实际 `summary_writer.write_run_summary()` 边界不变。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run summary artifact service contract、plan/status/run summary projection 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
 ## 关键问题
 1. Coding Mode 是否默认只在当前会话生效，还是可跨会话保持？建议先做当前会话级。
 2. Codex 可见 session 的具体 attach/resume 命令需要以当前 Codex CLI 实际支持为准。
@@ -735,6 +1334,7 @@
 | 初始无规划文件 | 1 | 已创建 `task_plan.md`、`findings.md`、`progress.md` |
 | session catchup 未实现 Codex 原生解析 | 1 | 记录为无阻断；继续基于规划文件和 git 状态恢复 |
 | `rtk python3 -m unittest` 未发现测试 | 1 | 改用 `rtk python3 -m unittest discover -s tests`，94 tests passed |
+| status presenter 测试误用 `AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value` | 1 | 该 enum value 会归一为 `succeeded`；测试改用原始 status 字符串 `ready_for_merge_test_with_known_gaps` 保护用户可见展示 |
 
 ## 备注
 - 当前仓库结构很小，优先补测试和局部实现，避免重排模块。

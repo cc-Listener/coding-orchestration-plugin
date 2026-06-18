@@ -1,5 +1,1194 @@
 # 进度日志
 
+## 会话：2026-06-16
+
+### 阶段 168：解耦架构 completed run summary artifact read service 扩展
+- **状态：** complete
+- 背景：
+  - 阶段 167 后 run artifact path contract 已迁出，但 `CodingOrchestrator.start_run()` completed path 仍直接对 `result.artifacts.summary` 调用 `exists()` / `read_text()`。
+  - summary artifact 读取是 run artifact 文件边界；读取后的 summary writer payload 构造已归属 `run_summary_projection.py`，实际 LLM Wiki 写入仍归属 `RunSummaryWriter` / `KnowledgePort` 和 orchestrator host 边界。
+- 当前边界：
+  - `run_summary_artifact_service.read_run_summary_artifact()` 只读取指定 `summary.md`，缺失时返回空字符串。
+  - `run_summary_artifact_service.write_run_summary_artifact()` 继续只写指定 `summary.md`。
+  - service 不生成 summary 内容、不写 report/manifest/ledger、不启动 runner、不推进 task/run 状态、不调用 summary writer。
+- 执行的操作：
+  - 扩展 `tests/test_run_summary_artifact_service.py`，覆盖 summary artifact 读取存在/缺失两种路径。
+  - RED 已确认：首次运行时因 `read_run_summary_artifact` 缺失出现预期 `ImportError`。
+  - 扩展 `coding_orchestration/run_summary_artifact_service.py`，新增 `read_run_summary_artifact()`。
+  - `CodingOrchestrator.start_run()` completed path 的 summary artifact 读取改为调用 service；summary writer payload projection 和实际 `summary_writer.write_run_summary()` 调用继续留在原边界。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4820 行。
+  - `coding_orchestration/run_summary_artifact_service.py`：17 行。
+  - `tests/test_run_summary_artifact_service.py`：47 行。
+  - `coding_orchestration/run_orchestration_service.py`：419 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_summary_artifact_service -v`：预期 `ImportError`。
+  - `rtk proxy python3 -m unittest tests.test_run_summary_artifact_service -v`：3 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_summary_artifact_service.py coding_orchestration/orchestrator.py tests/test_run_summary_artifact_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_summary_artifact_service tests.test_plan_run_flow tests.test_status_reconcile_flow tests.test_run_summary_projection -v`：20 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4820 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：760 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：run lifecycle 仍保留 runner 调用、diff guard、状态 transition、ledger append/upsert、report artifact 读取、summary writer 调用、project writeback 等 host 副作用闭环。
+  - 下一切片可继续拆 active run reconcile 的 report loading host boundary、summary writer host façade、runner result finalization projection，或建立 run lifecycle host side effect façade / port；仍不得把 artifact 文件读写、ledger mutation、subprocess、workspace/git mutation 或 Gateway 发送塞进 projection。
+
+### 阶段 167：解耦架构 run artifact path projection 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 166 后 summary writer payload 已继续迁出，但 `CodingOrchestrator` 仍直接维护 run artifact path contract，包括 fresh run_dir 和 existing run record fallback。
+  - artifact path 构造是纯路径 projection，不需要读写 artifact 文件、写 ledger、启动 runner、推进状态或执行 project writeback。
+- 当前边界：
+  - `run_artifact_paths.artifact_set_for_run_dir()` 只基于 run_dir 构造标准 `ArtifactSet`。
+  - `run_artifact_paths.artifact_set_for_existing_run()` 优先使用 ledger 记录路径，缺失字段按 run_dir 标准合同 fallback，并补齐 `context_manifest`。
+  - projection 不读文件、不创建目录、不写 report/summary/manifest/stderr、不调用 ledger、不启动 runner、不推进 task/run 状态。
+- 执行的操作：
+  - 新增 `tests/test_run_artifact_paths.py`，覆盖 fresh run_dir path contract、recorded path 优先、缺失字段 fallback 和 `context_manifest` fallback。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_artifact_paths` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_artifact_paths.py`。
+  - `CodingOrchestrator._artifact_set_for_run_dir()` 和 `_artifact_set_for_existing_run()` 改为委托 path projection；orchestrator 继续保留兼容 wrapper。
+  - 同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、`task_plan.md`、`findings.md` 和 `progress.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4820 行。
+  - `coding_orchestration/run_artifact_paths.py`：52 行。
+  - `tests/test_run_artifact_paths.py`：66 行。
+  - `coding_orchestration/run_orchestration_service.py`：419 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_artifact_paths -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m unittest tests.test_run_artifact_paths -v`：3 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_artifact_paths.py coding_orchestration/orchestrator.py tests/test_run_artifact_paths.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_artifact_paths tests.test_status_reconcile_flow tests.test_run_stderr_artifact_service tests.test_run_report_artifact_service tests.test_run_summary_artifact_service -v`：15 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_run_orchestration_service tests.test_run_ledger_projection -v`：28 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4820 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：759 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：run lifecycle 仍保留 runner 调用、diff guard、状态 transition、ledger append/upsert、summary artifact 读取、summary writer 调用、project writeback 等 host 副作用闭环。
+  - 下一切片可继续拆 active run reconcile 的 path/report loading host boundary、summary artifact 读取 façade、runner result finalization projection，或建立 run lifecycle host side effect façade / port；仍不得把 artifact 文件读写、ledger mutation、subprocess、workspace/git mutation 或 Gateway 发送塞进 path projection。
+
+### 阶段 166：解耦架构 completed run summary writeback projection 扩展
+- **状态：** complete
+- 背景：
+  - 阶段 165 后 active run reconcile 的 run summary writer payload 聚合已迁出，但 `CodingOrchestrator.start_run()` 收尾仍内联给 `RunSummaryWriter.write_run_summary()` 的参数组装。
+  - 本轮只迁移 completed run 的 writer payload projection；summary artifact 读取和实际 `summary_writer.write_run_summary()` 继续属于 orchestrator host 边界。
+- 当前边界：
+  - `run_summary_projection.build_completed_run_summary_writeback_payload()` 只构造 `RunSummaryWritebackPayload`。
+  - projection 不读取 summary artifact、不调用 summary writer、不写 LLM Wiki、不写 ledger、不启动 runner、不推进状态。
+- 执行的操作：
+  - 扩展 `tests/test_run_summary_projection.py`，覆盖 completed run summary writer payload 聚合、report copy 语义和空 runner/project 归一化。
+  - RED 已确认：首次运行时因 `build_completed_run_summary_writeback_payload` 缺失出现预期 `ImportError`。
+  - 扩展 `coding_orchestration/run_summary_projection.py`，新增 `build_completed_run_summary_writeback_payload()`。
+  - `CodingOrchestrator.start_run()` 改为消费 completed summary projection；实际 `summary_writer.write_run_summary()` 调用继续留在 orchestrator。
+  - 同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、`task_plan.md`、`findings.md` 和 `progress.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4841 行。
+  - `coding_orchestration/run_summary_projection.py`：65 行。
+  - `tests/test_run_summary_projection.py`：89 行。
+  - `coding_orchestration/run_orchestration_service.py`：419 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_summary_projection -v`：预期 `ImportError`。
+  - `rtk proxy python3 -m unittest tests.test_run_summary_projection -v`：4 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_summary_projection.py coding_orchestration/orchestrator.py tests/test_run_summary_projection.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_summary_projection tests.test_plan_run_flow tests.test_status_reconcile_flow tests.test_run_orchestration_service -v`：35 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4841 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：756 tests passed。
+- 遇到的错误：
+  - 一次 `rtk rg` 扫描命令使用双引号包裹含反引号的 pattern，zsh 触发命令替换并报 `permission denied` / `unmatched \"`；已改用单引号和简化 pattern 重新扫描，未影响代码。
+- 剩余风险：
+  - Task 30 仍是 In Progress：run lifecycle 仍保留 runner 调用、diff guard、状态 transition、ledger append/upsert、summary artifact 读取、summary writer 调用、project writeback 等 host 副作用闭环。
+  - 下一切片可继续拆 runner result artifact finalization 聚合、active run reconcile 的 runner session update host boundary，或建立 run lifecycle host side effect façade / port；仍不得把 summary writer / ledger mutation、subprocess、workspace/git mutation 或 Gateway 发送塞进 projection。
+
+### 阶段 165：解耦架构 reconciled run summary writeback projection 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 164 后 active run reconcile 的 ledger writeback payload 聚合已迁出，但 `_reconcile_completed_active_run()` 仍内联给 `RunSummaryWriter.write_run_summary()` 的参数组装。
+  - run summary writer payload 是写入 LLM Wiki 前的纯投影；实际 `summary_writer.write_run_summary()` 仍属于 orchestrator host 边界。
+- 当前边界：
+  - `run_summary_projection.build_reconciled_run_summary_writeback_payload()` 只构造 `RunSummaryWritebackPayload`。
+  - projection 不调用 summary writer、不写 LLM Wiki、不写 ledger、不启动 runner、不推进 task/run 状态。
+- 执行的操作：
+  - 新增 `tests/test_run_summary_projection.py`，覆盖 active run reconcile summary writer payload 聚合、session project 优先级、source project fallback 和 report copy 语义。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_summary_projection` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_summary_projection.py`。
+  - `CodingOrchestrator._reconcile_completed_active_run()` 改为消费 `build_reconciled_run_summary_writeback_payload()`；实际 `summary_writer.write_run_summary()` 调用继续留在 orchestrator。
+  - 同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、`task_plan.md`、`findings.md` 和 `progress.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4840 行。
+  - `coding_orchestration/run_summary_projection.py`：46 行。
+  - `tests/test_run_summary_projection.py`：48 行。
+  - `coding_orchestration/run_orchestration_service.py`：419 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_summary_projection -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_summary_projection.py coding_orchestration/orchestrator.py tests/test_run_summary_projection.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_summary_projection -v`：2 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_summary_projection tests.test_status_reconcile_flow tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：28 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4840 lines`。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：754 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：run lifecycle 仍保留 runner 调用、diff guard、状态 transition、ledger append/upsert、summary writer 调用、project writeback 等 host 副作用闭环。
+  - 下一切片可继续拆 start_run 的 run summary writer payload、runner result artifact finalization 聚合、active run reconcile 的 runner session update host boundary，或建立 run lifecycle host side effect façade / port；仍不得把 summary writer / ledger mutation、subprocess、workspace/git mutation 或 Gateway 发送塞进 projection。
+
+### 阶段 164：解耦架构 reconciled run ledger writeback projection 扩展
+- **状态：** complete
+- 背景：
+  - 阶段 163 后 `CodingOrchestrator.start_run()` 尾部 ledger writeback payload 聚合已迁到 `run_ledger_projection.py`，但 active run reconcile 路径仍在 `_reconcile_completed_active_run()` 内联 artifact record 和 merged agent_run upsert payload 聚合。
+  - 这些 payload 仍是 ledger upsert 前的纯 projection；实际 `upsert_artifact()` 和 `upsert_agent_run()` 属于 orchestrator host 边界。
+- 当前边界：
+  - `run_ledger_projection.build_reconciled_run_ledger_writeback_records()` 只构造 `artifact_record` 和 merged `agent_run_record`。
+  - projection 不调用 ledger、不写 artifact、不启动 runner、不推进 task/run 状态。
+- 执行的操作：
+  - 扩展 `tests/test_run_ledger_projection.py`，覆盖 active run reconcile 的 artifact / merged agent_run upsert payload 聚合边界。
+  - RED 已确认：首次运行时因 `build_reconciled_run_ledger_writeback_records` 缺失出现预期 `ImportError`。
+  - 扩展 `coding_orchestration/run_ledger_projection.py`，新增 `ReconciledRunLedgerWritebackRecords` 和 `build_reconciled_run_ledger_writeback_records()`。
+  - `CodingOrchestrator._reconcile_completed_active_run()` 改为消费 reconciled ledger writeback projection；ledger upsert 调用继续留在 orchestrator。
+  - 同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、`task_plan.md`、`findings.md` 和 `progress.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4837 行。
+  - `coding_orchestration/run_ledger_projection.py`：103 行。
+  - `coding_orchestration/run_orchestration_service.py`：419 行。
+  - `tests/test_run_ledger_projection.py`：192 行。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_run_ledger_projection tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：23 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_status_reconcile_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow -v`：27 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4837 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：752 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：run lifecycle 仍保留 runner 调用、diff guard、状态 transition、ledger append/upsert、project writeback 等 host 副作用闭环。
+  - 下一切片可继续拆 runner result artifact finalization 聚合、active run reconcile 的 runner session update / summary writer host boundary，或建立 run lifecycle host side effect façade / port；仍不得把 ledger mutation、subprocess、workspace/git mutation 或 Gateway 发送塞进 projection。
+
+### 阶段 163：解耦架构 run ledger writeback projection 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 162 后 run artifact 文件写入已继续从 orchestrator 迁出，但 `CodingOrchestrator.start_run()` 尾部仍内联 artifact record、agent_run record 和 fresh merge-test record 的写回 payload 聚合。
+  - 这些 record 是 ledger 写回前的纯 projection；实际 `append_artifact()`、`append_agent_run()` 和 `append_merge_record()` 仍属于 orchestrator host 边界。
+- 当前边界：
+  - `run_ledger_projection.build_run_ledger_writeback_records()` 只构造 `artifact_record`、`agent_run_record` 和 fresh merge-test 的 `merge_test_record`。
+  - projection 不调用 ledger、不写 artifact、不启动 runner、不推进 task/run 状态。
+- 执行的操作：
+  - 新增 `tests/test_run_ledger_projection.py`，覆盖 artifact / agent_run / merge-test record 写回 payload 聚合，以及 stale merge-test 不生成 merge record。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_ledger_projection` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_ledger_projection.py`。
+  - `CodingOrchestrator.start_run()` 尾部改为消费 `build_run_ledger_writeback_records()`；ledger append 调用继续留在 orchestrator。
+  - `run_orchestration_service.build_agent_run_record()` 的 `exit_code` 类型放宽为 `int | None`，匹配 failure path 的既有调用形态。
+  - 同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4836 行。
+  - `coding_orchestration/run_ledger_projection.py`：69 行。
+  - `coding_orchestration/run_orchestration_service.py`：419 行。
+  - `tests/test_run_ledger_projection.py`：135 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_ledger_projection -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_ledger_projection.py coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_ledger_projection.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_ledger_projection tests.test_run_orchestration_service -v`：20 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_implementation_session_flow tests.test_implementation_workspace_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_status_reconcile_flow -v`：34 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4836 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：751 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 和 run lifecycle 仍保留 runner 调用、diff guard、状态 transition、ledger append/upsert、project writeback 等 host 副作用闭环。
+  - 下一切片可继续拆 active run reconcile ledger writeback projection、runner result artifact finalization 聚合，或建立 run lifecycle host side effect façade / port；仍不得把 ledger mutation、subprocess、workspace/git mutation 或 Gateway 发送塞进 projection。
+
+### 阶段 162：解耦架构 run stderr artifact service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 161 后 `run-manifest.json` artifact 写回已从 orchestrator 迁出，但 runner failed 和 checkpoint failed 路径仍直接写 `stderr.log`。
+  - `stderr.log` 落盘是 run artifact 文件写入边界；failure payload 构造、`RunResult` 包装、状态 transition、artifact/agent_run append 和 project writeback 不属于 stderr writer。
+- 当前边界：
+  - `run_stderr_artifact_service.write_run_stderr_artifact()` 只写指定 `stderr.log` 并返回 stderr path。
+  - service 校验 stderr 必须是字符串，不写 `report.json` / `summary.md` / `run-manifest.json` / ledger，不启动 runner，不推进 task/run 状态。
+- 执行的操作：
+  - 新增 `tests/test_run_stderr_artifact_service.py`，覆盖 `stderr.log` 写回、返回路径、不写 report/summary/manifest 和非字符串 stderr 拒绝。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_stderr_artifact_service` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_stderr_artifact_service.py`。
+  - `CodingOrchestrator._runner_failed_result()` 和 `_checkpoint_failed_result()` 的 `stderr.log` 写回改为调用 `run_stderr_artifact_service.write_run_stderr_artifact()`。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4841 行。
+  - `coding_orchestration/run_stderr_artifact_service.py`：11 行。
+  - `tests/test_run_stderr_artifact_service.py`：41 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_stderr_artifact_service -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m unittest tests.test_run_stderr_artifact_service -v`：2 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_stderr_artifact_service.py coding_orchestration/orchestrator.py tests/test_run_stderr_artifact_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_stderr_artifact_service tests.test_run_failure_report_projection tests.test_run_orchestration_start_rules tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_command_run_flow -v`：52 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4841 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：749 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 和 run lifecycle 仍保留 runner 调用、diff guard、状态 transition、artifact/agent_run append、ledger/project writeback 等副作用闭环。
+  - 下一切片可继续选择 ledger artifact/agent_run append payload/host boundary、runner result artifact finalization，或 summary/report/stderr/manifest artifact finalization 聚合；仍不得把 subprocess、workspace/git mutation、Gateway 发送或 ledger mutation 塞进 artifact service。
+
+### 阶段 161：解耦架构 run manifest artifact writeback service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 160 后 `report.json` / `summary.md` artifact 写回已从 orchestrator 迁出，但 `start_run()` 的 implementation dirty-check 分支仍直接写 `run-manifest.json`。
+  - dirty-check 后写回 implementation checkpoint 属于 run manifest artifact 文件写入边界；checkpoint 生成、dirty 判断、状态 transition、artifact/agent_run append 和 project writeback 不属于 artifact writer。
+- 当前边界：
+  - `run_manifest_artifact_service.write_run_manifest_artifact()` 只写指定 `run-manifest.json` 并返回 manifest path。
+  - service 支持 manifest dict 或带 `to_dict()` 的 manifest 对象；拒绝非 dict manifest payload。
+  - service 不生成 checkpoint、不写 `report.json` / `summary.md` / ledger，不启动 runner，不推进 task/run 状态。
+- 执行的操作：
+  - 新增 `tests/test_run_manifest_artifact_service.py`，覆盖 `run-manifest.json` 写回、返回路径、不写 report/summary 和非 manifest payload 拒绝。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_manifest_artifact_service` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_manifest_artifact_service.py`。
+  - `CodingOrchestrator.start_run()` 中 implementation dirty-check checkpoint 后的 manifest 写回改为调用 `run_manifest_artifact_service.write_run_manifest_artifact()`。
+  - 删除迁移后无调用的 `CodingOrchestrator._json()` helper。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4840 行。
+  - `coding_orchestration/run_manifest_artifact_service.py`：24 行。
+  - `tests/test_run_manifest_artifact_service.py`：49 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_manifest_artifact_service -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m unittest tests.test_run_manifest_artifact_service -v`：2 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_manifest_artifact_service.py coding_orchestration/orchestrator.py tests/test_run_manifest_artifact_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_manifest_artifact_service tests.test_run_manifest_service tests.test_run_start_artifact_service tests.test_implementation_workspace_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow -v`：46 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4840 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：747 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 和 run lifecycle 仍保留 runner 调用、diff guard、状态 transition、artifact/agent_run append、ledger/project writeback 等副作用闭环。
+  - 下一切片可继续选择 runner result artifact finalization、stderr failure artifact writer、ledger artifact/agent_run append payload/host boundary，或继续把 run lifecycle host side effect 按 façade port 下沉；仍不得把 subprocess、workspace/git mutation、Gateway 发送或 ledger mutation 塞进 artifact service。
+
+### 阶段 160：解耦架构 run summary artifact service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 159 后 `report.json` 写回已从 orchestrator 迁出，但 active run reconcile、runner failed 和 checkpoint failed 路径仍直接写 `summary.md`。
+  - `summary.md` 落盘是 run artifact 文件写入边界，不应继续散落在 orchestrator；summary 内容生成、状态 transition、artifact/agent_run append 和 project writeback 仍不属于 artifact writer。
+- 当前边界：
+  - `run_summary_artifact_service.write_run_summary_artifact()` 只写指定 `summary.md` 并返回 summary path。
+  - service 校验 summary 必须是字符串，不写 `report.json` / `run-manifest.json` / ledger，不启动 runner，不推进 task/run 状态。
+  - orchestrator 继续负责 summary 内容来源、状态推进、ledger artifact/agent_run 更新、runner session metadata 和 project writeback。
+- 执行的操作：
+  - 新增 `tests/test_run_summary_artifact_service.py`，覆盖 `summary.md` 写回、返回路径、不写 report/manifest 和非字符串 summary 拒绝。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_summary_artifact_service` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_summary_artifact_service.py`。
+  - `CodingOrchestrator._reconcile_completed_active_run()`、`_runner_failed_result()` 和 `_checkpoint_failed_result()` 改为调用 `run_summary_artifact_service.write_run_summary_artifact()`。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4845 行。
+  - `coding_orchestration/run_summary_artifact_service.py`：11 行。
+  - `tests/test_run_summary_artifact_service.py`：34 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_summary_artifact_service -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m unittest tests.test_run_summary_artifact_service -v`：2 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_summary_artifact_service.py coding_orchestration/orchestrator.py tests/test_run_summary_artifact_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_summary_artifact_service tests.test_status_reconcile_flow tests.test_plan_run_flow tests.test_command_run_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_run_failure_report_projection -v`：45 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4845 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：745 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 和 run lifecycle 仍保留 manifest checkpoint 写回、runner 调用、diff guard、状态 transition、artifact/agent_run append、ledger/project writeback 等副作用闭环。
+  - 下一切片可继续选择 manifest checkpoint dirty-check 写回、runner result artifact finalization、ledger artifact/agent_run append payload/host boundary，或 summary/report artifact finalization 聚合；仍不得把 subprocess、workspace/git mutation、Gateway 发送或 ledger mutation 塞进 artifact service。
+
+### 阶段 159：解耦架构 run report artifact service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 158 后 run start artifact 写入已从 `CodingOrchestrator.start_run()` 拆出，但 active run reconcile、`start_run()` observed/completion report、runner failed 和 checkpoint failed 路径仍直接写 `report.json`。
+  - `report.json` 落盘是 run artifact 文件写入边界，不应继续散落在 orchestrator；但 report payload 构造、状态 transition、artifact/agent_run append、summary 和 project writeback 仍不属于 artifact writer。
+- 当前边界：
+  - `run_report_artifact_service.write_run_report_artifact()` 只写指定 `report.json` 并返回 report path。
+  - service 校验 report 必须是 dict，不写 `run-manifest.json` / `summary.md` / ledger，不启动 runner，不推进 task/run 状态。
+  - orchestrator 继续负责 report payload 构造、状态推进、summary 写入、ledger artifact/agent_run 更新、runner session metadata 和 project writeback。
+- 执行的操作：
+  - 新增 `tests/test_run_report_artifact_service.py`，覆盖 `report.json` 写回、返回路径、不写 manifest/summary 和非 dict report 拒绝。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_report_artifact_service` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_report_artifact_service.py`。
+  - `CodingOrchestrator._reconcile_completed_active_run()`、`start_run()`、`_runner_failed_result()` 和 `_checkpoint_failed_result()` 改为调用 `run_report_artifact_service.write_run_report_artifact()`。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4844 行。
+  - `coding_orchestration/run_report_artifact_service.py`：17 行。
+  - `tests/test_run_report_artifact_service.py`：40 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_report_artifact_service -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m unittest tests.test_run_report_artifact_service -v`：2 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_report_artifact_service.py coding_orchestration/orchestrator.py tests/test_run_report_artifact_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_report_artifact_service tests.test_status_reconcile_flow tests.test_plan_run_flow tests.test_command_run_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_run_failure_report_projection -v`：45 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4844 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：743 tests passed。
+- 遇到的错误：
+  - 一次 `rg` 查询 pattern 使用双引号且包含反引号，zsh 误尝试执行反引号内容；已改用不含反引号的检索结果继续核对，后续避免在双引号 pattern 中放 Markdown 反引号。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍保留 manifest checkpoint 写回、runner 调用、diff guard、状态 transition、artifact/agent_run append、summary 和 project writeback 等副作用闭环。
+  - 下一切片可继续选择 summary artifact 写入、manifest checkpoint dirty-check 写回、runner result artifact finalization 或 ledger artifact/agent_run append payload/host boundary；仍不得把 subprocess、workspace/git mutation、Gateway 发送或 ledger mutation 塞进 artifact service。
+
+### 阶段 158：解耦架构 run start artifact service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 157 后启动期 manifest update projection 已从 `CodingOrchestrator.start_run()` 拆出，但 `start_run()` 仍直接写 `report.schema.json`、`input-prompt.md` 和 `run-manifest.json`。
+  - 这三个文件属于 run_dir 启动 artifact 写入边界，不需要准备 checkpoint、不需要写 ledger/report/summary、不需要启动 runner，也不应推进 task/run 状态。
+- 当前边界：
+  - `run_start_artifact_service.write_run_start_artifacts()` 只写 `report.schema.json`、`input-prompt.md` 和 `run-manifest.json`。
+  - service 支持 manifest dict 或带 `to_dict()` 的 manifest 对象，并返回写入路径。
+  - manifest 内容构造、checkpoint 准备、runner 启动、diff guard、report 写回、状态推进、artifact/agent_run append、summary 和 project writeback 继续留在 orchestrator / 既有 service 边界。
+- 执行的操作：
+  - 新增 `tests/test_run_start_artifact_service.py`，覆盖 schema writer 调用、中文 prompt 写入、manifest JSON 写入、dict manifest 支持，以及不写 `report.json` / `summary.md`。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_start_artifact_service` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_start_artifact_service.py`，承接启动 artifact 文件写入。
+  - `CodingOrchestrator.start_run()` 改为调用 `run_start_artifact_service.write_run_start_artifacts()`；原有 manifest 构造、checkpoint 准备、runner 启动和状态推进不迁入 service。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4843 行。
+  - `coding_orchestration/run_start_artifact_service.py`：41 行。
+  - `tests/test_run_start_artifact_service.py`：67 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_start_artifact_service -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m unittest tests.test_run_start_artifact_service -v`：2 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_start_artifact_service.py coding_orchestration/orchestrator.py tests/test_run_start_artifact_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_source_plan_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow -v`：34 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4843 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：741 tests passed。
+- 遇到的错误：
+  - 一次 `rg` 查询 pattern 使用双引号且包含反引号，zsh 报 `unmatched "`；已改用单引号和不含反引号的 pattern 重新检索。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍保留 checkpoint 准备、runner 调用、diff guard、report 写回、状态 transition、artifact/agent_run append、summary 和 project writeback 等副作用闭环。
+  - 下一切片可继续选择 report 写回 service、runner result artifact finalization 或 manifest checkpoint dirty-check 写回边界；仍不得把 subprocess、workspace/git mutation、Gateway 发送或 ledger mutation 塞进 artifact service。
+
+### 阶段 157：解耦架构 run manifest start update projection
+- **状态：** complete
+- 背景：
+  - 阶段 156 后 context artifact 写入已从 orchestrator 拆出，但 `CodingOrchestrator.start_run()` 仍内联启动期 manifest 字段拼装：resume session、controlled bypass 权限字段和 merge-test target branch。
+  - 这些字段属于 run manifest/session policy projection，不需要准备 checkpoint、不需要写 manifest 文件、不需要启动 runner，也不应写 ledger 或推进状态。
+- 当前边界：
+  - `run_manifest_service.build_start_manifest_updates()` 只返回 manifest 字段 update。
+  - helper 可以组合 `build_manifest_session_fields()`、controlled bypass 权限 profile/source boundary 和 checkpoint target branch。
+  - checkpoint 准备、manifest 文件写入、runner 启动、diff guard、report 写回和状态推进继续留在 orchestrator。
+- 执行的操作：
+  - 扩展 `tests/test_run_manifest_service.py`，覆盖 merge-test resume + bypass + target branch、外部来源 plan-only 提权和普通 plan-only 空 update。
+  - RED 已确认：`build_start_manifest_updates` 缺失时 `tests.test_run_manifest_service` 出现预期 ImportError。
+  - `coding_orchestration/run_manifest_service.py` 新增 `build_start_manifest_updates()`。
+  - `CodingOrchestrator.start_run()` 改为消费该 helper，并删除 `_mode_uses_controlled_bypass()`、`_run_uses_controlled_bypass()`、`_source_requires_codex_plan_permissions()`、`_permission_profile()`、`_elevated_permissions_reason()`、`_elevated_permission_scope()` 和 `_source_modification_boundary()` 等已无调用 wrapper。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4842 行。
+  - `coding_orchestration/run_manifest_service.py`：355 行。
+  - `tests/test_run_manifest_service.py`：298 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_manifest_service -v`：预期 ImportError。
+  - `rtk proxy python3 -m unittest tests.test_run_manifest_service -v`：14 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_manifest_service.py coding_orchestration/orchestrator.py tests/test_run_manifest_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_manifest_service tests.test_run_orchestration_service tests.test_run_orchestration_start_rules tests.test_run_start_selection_projection -v`：66 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_source_plan_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow -v`：34 tests passed。
+  - 清理 wrapper 后复跑 `rtk proxy python3 -m unittest tests.test_run_manifest_service tests.test_plan_run_flow tests.test_source_plan_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow -v`：48 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：739 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4842 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+- 遇到的错误：
+  - 一次 `rg` 查询 pattern 使用双引号且包含反引号，zsh 误尝试执行反引号内容；已改用单引号重新运行相关扫描。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍保留 report schema / input prompt / manifest 文件写入、runner 调用、report 写回、状态 transition、artifact/agent_run append、summary 和 project writeback 等副作用闭环。
+  - 下一切片应继续选择单一职责边界，例如 run artifact 文件写入或 report 写回 service；仍不得把 runner subprocess、workspace/git mutation、Gateway 发送或 ledger mutation 塞入 manifest service。
+
+### 阶段 156：解耦架构 run context artifact service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 155 后 `run_prompt_projection.py` 已承接首次/增量 prompt 选择，但 `CodingOrchestrator._write_prompt_context_artifacts()` 仍在 orchestrator 内写入 wiki context、confirmed plan / implementation context、assembled context、run instructions、execution policy 和 context index。
+  - 这些写入只属于 run_dir 下的 context artifact 边界，不需要写 ledger、manifest、report、summary，不应启动 runner 或推进 task/run 状态。
+- 当前边界：
+  - `run_context_artifact_service.py` 可以写 run_dir 下的 context artifact 文件。
+  - `run_context_artifact_service.py` 不写 ledger、manifest、report、summary，不启动 runner，不推进 task/run 状态。
+  - `CodingOrchestrator._write_prompt_context_artifacts()` 保留兼容 wrapper，只负责传入 `ContextAssembler`、`PromptBuilder`、dependency tasks 和 sibling tasks。
+- 执行的操作：
+  - 新增 `tests/test_run_context_artifact_service.py`，覆盖 implementation context index 合同、wiki context、confirmed plan、assembled context、run instructions、execution policy，以及 QA implementation context fallback。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_context_artifact_service` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_context_artifact_service.py`，承接 `_write_prompt_context_artifacts()` 的 context artifact 文件写入逻辑。
+  - `coding_orchestration/orchestrator.py` import 新 service，并把 `_write_prompt_context_artifacts()` 改为委托 `write_run_context_artifacts()`。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4879 行。
+  - `coding_orchestration/run_context_artifact_service.py`：109 行。
+  - `coding_orchestration/run_orchestration_service.py`：419 行。
+  - `tests/test_run_context_artifact_service.py`：110 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_context_artifact_service -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m unittest tests.test_run_context_artifact_service -v`：2 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_context_artifact_service.py coding_orchestration/orchestrator.py tests/test_run_context_artifact_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_context_artifact_service tests.test_prompt_templates tests.test_plan_run_flow tests.test_implementation_session_flow tests.test_status_reconcile_flow tests.test_qa_flow -v`：35 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4879 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：736 tests passed。
+- 遇到的错误：
+  - 一次 `rg` 查询 pattern 使用双引号且包含反引号，zsh 尝试执行反引号内容并报 `command not found`；后续改用单引号或避免反引号 pattern。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍保留 manifest 写入、runner 调用、report 写回、状态 transition、artifact/agent_run append、summary 和 project writeback 等副作用闭环。
+  - 下一切片应继续选择单一职责边界，优先考虑 manifest 写入闭环、runner 调度接线或 report/ledger 收尾中的可分离部分，不能把 subprocess、workspace/git mutation、Gateway 发送或 ledger mutation 塞进 context artifact service。
+
+### 阶段 155：解耦架构 run prompt projection 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 154 后 `run_session_projection.py` 已承接 run start/session payload，但 `CodingOrchestrator.start_run()` 仍内联首次 prompt 与增量 prompt 的分支选择。
+  - 这段逻辑只是在已准备好的 `context_artifacts`、`confirmed_context`、`resume_session_id`、`workflow` 和 `PromptBuilder` 之间选择调用 `build()` 或 `build_incremental()`；不需要写文件、不需要生成 context artifact、不需要写 manifest、不需要启动 runner。
+  - 本阶段目标是把 prompt 构造选择规则迁出 `start_run()`，为后续继续拆 context artifact 写入、manifest 写入和 runner 调度副作用铺路。
+- 当前边界：
+  - `run_prompt_projection.py` 只调用传入的 `PromptBuilder` 生成 prompt 字符串。
+  - 该模块不写 `input-prompt.md`、不生成 context artifacts、不写 manifest、不启动 runner、不写 ledger、不推进 task/run 状态。
+  - `run_orchestration_service.py` 仅 re-export 迁移后的 helper，兼容旧调用路径。
+- 执行的操作：
+  - 新增 `tests/test_run_prompt_projection.py`，验证 prompt projection 位于独立模块，同时确认 `run_orchestration_service` 兼容 re-export。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_prompt_projection` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_prompt_projection.py`，承接 `build_run_prompt_text()`，覆盖 resume session 时使用增量 prompt、无 resume session 时使用首次 prompt 的参数合同。
+  - `coding_orchestration/run_orchestration_service.py` import/re-export 新 helper。
+  - `CodingOrchestrator.start_run()` 删除内联 prompt 分支，改为调用 `run_orchestration_service.build_run_prompt_text()`；实际 `input-prompt.md` 写入仍留在 orchestrator。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4943 行。
+  - `coding_orchestration/run_orchestration_service.py`：419 行。
+  - `coding_orchestration/run_prompt_projection.py`：52 行。
+  - `tests/test_run_prompt_projection.py`：102 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_prompt_projection -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m unittest tests.test_run_prompt_projection -v`：3 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_prompt_projection.py coding_orchestration/run_orchestration_service.py coding_orchestration/orchestrator.py tests/test_run_prompt_projection.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_prompt_projection tests.test_run_orchestration_service tests.test_run_orchestration_start_rules -v`：49 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_prompt_templates tests.test_plan_run_flow tests.test_implementation_session_flow -v`：20 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4943 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：734 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍保留 context artifact 文件写入、manifest 写入、runner 调用、report 写回、状态 transition、artifact/agent_run append、summary 和 project writeback 等副作用闭环。
+  - 下一切片应继续从 `start_run()` 中挑单一职责边界，优先考虑 context artifact 写入投影/服务化或 manifest 写入闭环，而不是把 subprocess、workspace/git mutation、Gateway 发送或 ledger mutation 塞进 projection。
+  - `orchestrator.py` 仍是唯一 legacy large-file watchlist 债务，目标仍是先降到 3000 行以内并逐步退出豁免。
+
+### 阶段 154：解耦架构 run start session projection 扩展
+- **状态：** complete
+- 背景：
+  - 阶段 153 后 `run_session_projection.py` 已承接 plan report session fields、plan report session update、runner session update 和 completion session update。
+  - `run_orchestration_service.py` 仍保留 run 启动前 base/workspace session update 与 active run session update helper；这些 helper 只是 `project/mode/workspace/run -> task_session update payload` 的纯投影，不应继续留在 run orchestration 主 helper。
+  - 本阶段继续压低 `run_orchestration_service.py`，同时避免把 workspace 选择、branch 计算、ledger 写入、manifest/prompt、runner 启动和状态推进迁入 projection 模块。
+- 当前边界：
+  - `run_session_projection.py` 只返回 session update payload。
+  - 该模块不选择 workspace、不计算 source branch、不写 ledger、不写 manifest、不启动 runner、不推进 task/run 状态、不读取 artifact。
+  - `run_orchestration_service.py` 仅 re-export 迁移后的 helper，兼容旧 orchestrator 调用点和旧测试。
+- 执行的操作：
+  - 扩展 `tests/test_run_session_projection.py`，直接从 `coding_orchestration.run_session_projection` 导入 `build_run_start_base_session_update()`、`build_run_start_workspace_session_update()` 和 `build_active_run_session_update()`，并验证 `run_orchestration_service` 兼容 re-export。
+  - RED 已确认：首次运行时因 `build_active_run_session_update` 不能从 `run_session_projection` 导入，出现预期导入失败。
+  - `coding_orchestration/run_session_projection.py` 新增 run start base/workspace session update 与 active run session update helper。
+  - `coding_orchestration/run_orchestration_service.py` 删除本地实现，改为从 `run_session_projection.py` import/re-export。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4952 行。
+  - `coding_orchestration/run_orchestration_service.py`：418 行。
+  - `coding_orchestration/run_session_projection.py`：149 行。
+  - `tests/test_run_session_projection.py`：158 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_session_projection -v`：预期导入失败。
+  - `rtk proxy python3 -m unittest tests.test_run_session_projection tests.test_run_orchestration_start_rules -v`：32 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_session_projection.py coding_orchestration/run_orchestration_service.py tests/test_run_session_projection.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_session_projection tests.test_run_orchestration_plan_report_session tests.test_run_orchestration_service tests.test_run_orchestration_start_rules tests.test_run_orchestration_reconcile_rules -v`：59 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_source_plan_flow tests.test_implementation_session_flow -v`：34 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4952 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：额外 `rg` 只命中 guard 正则、测试 fixture、历史扫描命令和 redacted 示例；未发现真实凭据值。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：731 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍保留 runner 启动、manifest/prompt/report 写回、状态 transition、artifact/agent_run append、summary 和 project writeback 等副作用闭环。
+  - 下一切片应继续按单一职责迁移 `start_run()` 的 runner/manifest/prompt/report/ledger 副作用，避免把 subprocess、workspace/git mutation、Gateway 发送或 ledger 写入塞进 projection/service。
+  - `orchestrator.py` 仍是唯一 legacy large-file watchlist 债务，目标仍是先降到 3000 行以内并逐步退出豁免。
+
+### 阶段 153：解耦架构 run session projection 模块拆分
+- **状态：** complete
+- 背景：
+  - 阶段 152 后 `run_orchestration_service.py` 已到 553 行，低于 600 行 watch 阈值但接近上限。
+  - plan report session fields 白名单、plan report session update、runner session update 和 completion session update 都是 `mode/report/stale/session -> task_session update payload` 的纯投影，不需要继续驻留在 run orchestration 主 helper。
+  - 实际 `ledger.update_task_session()`、attach command 生成、artifact append、summary writer、project writeback 和状态推进仍应留在 orchestrator / 既有 service。
+- 当前边界：
+  - 本阶段只拆 session payload projection 模块。
+  - `run_session_projection.py` 不写 ledger、不生成 attach command、不读取 artifact、不推进状态、不启动 runner。
+  - `run_orchestration_service.py` 只保留兼容 re-export，避免旧调用点和旧测试一次性大改。
+- 执行的操作：
+  - 新增 `tests/test_run_session_projection.py`，验证 session projection 位于独立模块，同时确认 `run_orchestration_service` 兼容 re-export。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_session_projection` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_session_projection.py`，承接 `build_plan_report_session_fields()`、`build_plan_report_session_update()`、`build_runner_session_update()` 和 `build_completion_session_update()`。
+  - `coding_orchestration/run_orchestration_service.py` 改为 import/re-export 新模块 helper，并删除迁移后不再使用的 `run_details_are_runner_failed` import。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4952 行。
+  - `coding_orchestration/run_orchestration_service.py`：465 行。
+  - `coding_orchestration/run_session_projection.py`：99 行。
+  - `tests/test_run_session_projection.py`：87 行。
+  - `tests/test_run_orchestration_plan_report_session.py`：181 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_session_projection -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m unittest tests.test_run_session_projection tests.test_run_orchestration_plan_report_session tests.test_run_orchestration_service tests.test_run_orchestration_start_rules tests.test_run_orchestration_reconcile_rules -v`：58 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_session_projection.py coding_orchestration/run_orchestration_service.py tests/test_run_session_projection.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_source_plan_flow tests.test_implementation_session_flow -v`：34 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4952 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：额外 `rg` 只命中 guard 正则、测试 fixture 和历史文档中的扫描命令；未发现真实凭据值。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：730 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍保留 runner 启动、manifest/prompt/report 写回、状态 transition、artifact/agent_run append、summary 和 project writeback 等副作用；后续仍应按单一职责域继续迁移。
+  - `orchestrator.py` 仍是唯一 legacy large-file watchlist 债务，目标仍是先降到 3000 行以内并逐步退出豁免。
+
+### 阶段 152：解耦架构 completion session update projection
+- **状态：** complete
+- 背景：
+  - 阶段 150 后 `CodingOrchestrator.start_run()` 收尾仍分别构造 plan report session update 和 runner session update。
+  - 这段仍是 `mode + stale_completion + report + runner fields -> task_session update payload` 的纯投影；实际 ledger 写入仍应留在 orchestrator。
+  - `TaskRepository.update_task_session()` 使用 deep merge，合并 `plan_report` 和 `runner` 到同一个 payload 不会覆盖其他 session 字段。
+- 当前边界：
+  - 本阶段只新增 completion session update projection。
+  - 不迁移 ledger 写入、attach command 生成、runner 启动、artifact append、summary writer 或 project writeback。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_plan_report_session.py`，覆盖 fresh plan-only 同时写 `plan_report` 与 `runner`、fresh QA/implementation/merge-test 只写 `runner`、stale completion 不写 session。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_plan_report_session -v` 因 `build_completion_session_update()` 缺失出现 3 个预期 `AttributeError`。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `build_completion_session_update()`，复用 `build_plan_report_session_update()` 和 `build_runner_session_update()` 组合 session update payload。
+  - `CodingOrchestrator.start_run()` 改为消费 completion session update helper；实际 `ledger.update_task_session()`、artifact append、summary writer 和 project writeback 仍留在 orchestrator。
+  - 同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和任务计划。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4952 行。
+  - `coding_orchestration/run_orchestration_service.py`：553 行。
+  - `tests/test_run_orchestration_plan_report_session.py`：181 行。
+  - `tests/test_run_orchestration_start_rules.py`：523 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_plan_report_session -v`：3 个预期 `AttributeError`。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_plan_report_session -v`：7 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_plan_report_session.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_plan_report_session tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：55 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_source_plan_flow tests.test_implementation_session_flow -v`：34 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4952 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：727 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍保留 runner 启动、manifest/prompt/report 写回、状态 transition、artifact/agent_run append、summary 和 project writeback 等副作用；后续仍应只按单一职责域迁移。
+  - `run_orchestration_service.py` 当前 553 行，低于 600 行 watch 阈值但已经接近；下一轮继续迁入前优先评估是否应拆更小 projection 模块。
+
+### 阶段 151：解耦架构零耦合集成责任矩阵补强
+- **状态：** complete
+- 背景：
+  - 用户继续要求把工具端、MCP Skill 与 Hermes 的耦合进一步降低，最好做到 Hermes 只做集成。
+  - 现有设计已经列出 0-17 全线阶段和 Task 28-36 长期队列，但横向切面仍需要更明确说明：工具端、MCP / WorkItem、Skill core、Hermes binding、Gateway、run orchestration、source、storage/knowledge、presentation、大文件/hard code 分别由谁负责。
+- 当前边界：
+  - 本阶段只补文档与治理矩阵，不改运行代码。
+  - 目标是形成后续每轮都可复用的职责判定表，避免按文件大小机械拆分或把 host 细节写回 core/service。
+- 执行中的操作：
+  - 在 `task_plan.md` 登记阶段 151。
+  - 在 `docs/plans/2026-06-16-decoupled-architecture-design.md` 补充“零耦合集成责任矩阵”。
+  - 在 `PLUGIN_TECHNICAL_SOLUTION.md` 补充“跨切面零耦合集成矩阵”。
+  - 在 `docs/plans/2026-06-16-decoupled-architecture-implementation.md` 补充执行归属矩阵。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4956 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+- 剩余风险：
+  - 本阶段只补方案与治理矩阵，不降低 `orchestrator.py` 行数。Task 30 仍是 In Progress，后续仍需继续拆 `start_run()` 剩余副作用闭环，并最终推动 `orchestrator.py` 低于 3000 行。
+
+### 阶段 150：解耦架构 plan report session writeback projection
+- **状态：** complete
+- 背景：
+  - 阶段 149 后 `CodingOrchestrator.start_run()` 仍在收尾阶段内联判断：只有非 stale 的 plan-only run 才把 plan report 安全字段写回 `task_session.plan_report`。
+  - 该判断只是 `mode + stale_completion + report -> session update payload` 的纯投影，不需要读取 artifact、不需要写 ledger、不需要推进状态。
+- 当前边界：
+  - 本阶段只新增 plan report session writeback projection。
+  - `ledger.update_task_session()`、runner session update、artifact append、summary writer 和 project writeback 继续留在 orchestrator / 现有 service。
+- 执行的操作：
+  - 先扩展 `tests/test_run_orchestration_start_rules.py`，要求 `build_plan_report_session_update()` 存在并覆盖 plan-only、非 plan-only 和 stale completion。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `build_plan_report_session_update()` 缺失出现 2 个预期 AttributeError。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `build_plan_report_session_update()`，复用 `build_plan_report_session_fields()` 白名单，只返回 session update payload。
+  - `CodingOrchestrator.start_run()` 改为消费 plan report session update projection；实际 `ledger.update_task_session()` 和 runner session update 写入继续留在 orchestrator。
+  - 新增 `tests/test_run_orchestration_plan_report_session.py` 并迁出 plan report session fields / writeback contract，让 `tests/test_run_orchestration_start_rules.py` 从 621 行回落到 523 行。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4956 行。
+  - `coding_orchestration/run_orchestration_service.py`：522 行。
+  - `tests/test_run_orchestration_start_rules.py`：523 行。
+  - `tests/test_run_orchestration_plan_report_session.py`：108 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：2 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：32 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py tests/test_run_orchestration_plan_report_session.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_plan_report_session tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：52 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_source_plan_flow -v`：26 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4956 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：724 tests passed。
+- 遇到的错误：
+  - 一次 `rg` 查询包含反引号且外层使用双引号，zsh 将反引号内容误当命令执行；已改用单引号重新检索。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍有 prompt 构造、runner 启动、diff guard、report 写回、artifact/agent_run append、summary writer 和 project writeback 等副作用闭环；下一轮继续挑纯 projection 或拆应用服务闭环。
+
+### 阶段 149：解耦架构 run manifest checkpoint preparation selection projection
+- **状态：** complete
+- 背景：
+  - 阶段 148 已把 start-run mode selection 规则迁到 `run_start_selection_projection.py`，`run_orchestration_service.py` 回落到 503 行。
+  - `CodingOrchestrator.start_run()` 仍内联 QA / merge-test 对 manifest 的 target branch 与 checkpoint preparation 选择；其中“哪个 mode 需要哪个 manifest checkpoint 字段”是纯规则，实际 checkpoint 准备和 manifest 写文件不是纯规则。
+- 当前边界：
+  - 本阶段只新增 manifest checkpoint preparation selection projection。
+  - `_prepare_qa_checkpoint()`、`_prepare_merge_test_checkpoint()`、workspace/git 读取、manifest 文件写入、runner 启动和 ledger 推进继续留在 orchestrator / 现有 service。
+- 执行的操作：
+  - 扩展 `tests/test_run_start_selection_projection.py`，覆盖 QA / merge-test / plan-only / implementation 的 manifest checkpoint preparation 选择规则，并验证 `run_orchestration_service` 兼容 re-export。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_start_selection_projection -v` 因 `run_manifest_checkpoint_preparation_for_mode()` 与 `RunManifestCheckpointPreparation` 缺失出现 2 个预期 AttributeError。
+  - `coding_orchestration/run_start_selection_projection.py` 新增 `RunManifestCheckpointPreparation`、`RUN_MANIFEST_CHECKPOINT_NONE`、`RUN_MANIFEST_CHECKPOINT_QA`、`RUN_MANIFEST_CHECKPOINT_MERGE_TEST` 和 `run_manifest_checkpoint_preparation_for_mode()`。
+  - `coding_orchestration/run_orchestration_service.py` re-export 新 projection 数据结构、常量和 helper，保留旧调用习惯。
+  - `CodingOrchestrator.start_run()` 改为消费 preparation projection；orchestrator 继续负责实际 `_prepare_qa_checkpoint()`、`_prepare_merge_test_checkpoint()`、manifest 写文件、runner 启动和状态推进。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4953 行。
+  - `coding_orchestration/run_orchestration_service.py`：508 行。
+  - `coding_orchestration/run_start_selection_projection.py`：101 行。
+  - `tests/test_run_start_selection_projection.py`：149 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_start_selection_projection -v`：2 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_start_selection_projection -v`：6 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_start_selection_projection.py coding_orchestration/run_orchestration_service.py tests/test_run_start_selection_projection.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_start_selection_projection tests.test_run_orchestration_workspace_rules tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：59 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_implementation_workspace_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：34 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4953 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：722 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍有 prompt 构造、runner 启动、diff guard、report 写回、artifact/agent_run append 和 project writeback 等副作用闭环；下一轮应继续挑纯 projection 或拆应用服务闭环，避免 `run_orchestration_service.py` 再次接近 600 行。
+
+### 阶段 148：解耦架构 run start selection projection 模块拆分
+- **状态：** complete
+- 背景：
+  - 阶段 147 后 `run_orchestration_service.py` 已到 558 行，继续新增 start-run 规则前会接近 600 行 watch 阈值。
+  - context source、checkpoint selection、QA evidence observation、source branch recording、project path requirement 和 workspace selection 都是纯 `RunMode` projection，不需要驻留在 run service 主模块。
+- 当前边界：
+  - 新模块只承接 start-run mode selection / shape check 规则。
+  - runner subprocess、Gateway 发送、workspace/git mutation、manifest 文件写入、ledger 写入、checkpoint 准备、prompt 构造和 report 写回继续留在 orchestrator / 对应 service。
+- 执行中的操作：
+  - 新增 `tests/test_run_start_selection_projection.py`，要求 `coding_orchestration.run_start_selection_projection` 独立模块存在，并验证 `run_orchestration_service` 保留兼容 re-export。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_start_selection_projection -v` 因 `coding_orchestration.run_start_selection_projection` 缺失出现预期 ImportError。
+  - 新增 `coding_orchestration/run_start_selection_projection.py`，承接 context source、checkpoint selection、checkpoint failed 判定、QA evidence observation、source branch recording、project path requirement 和 workspace selection 纯规则。
+  - `coding_orchestration/run_orchestration_service.py` 改为 re-export 新模块 helper，保留旧调用点和旧 tests 兼容。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4945 行。
+  - `coding_orchestration/run_orchestration_service.py`：503 行。
+  - `coding_orchestration/run_start_selection_projection.py`：76 行。
+  - `tests/test_run_start_selection_projection.py`：112 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_start_selection_projection -v`：1 个预期 ImportError。
+  - `rtk proxy python3 -m unittest tests.test_run_start_selection_projection -v`：5 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_start_selection_projection.py coding_orchestration/run_orchestration_service.py tests/test_run_start_selection_projection.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_start_selection_projection tests.test_run_orchestration_workspace_rules tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：58 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_implementation_workspace_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：34 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4945 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：721 tests passed。
+- 遇到的错误：
+  - 一次 `rg` 查询用双引号包裹且包含反引号，zsh 将反引号内容误当命令执行并输出 `command not found`；已改用单引号重新检索。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍有 manifest checkpoint 准备、prompt 构造、runner 启动、report 写回、artifact/agent_run append 和 project writeback 等副作用闭环；下一轮可继续迁纯 projection 或拆应用服务，但不要让 `run_orchestration_service.py` 回到 600 行附近。
+
+### 阶段 147：解耦架构 run workspace selection projection 第三十一切片
+- **状态：** complete
+- 背景：
+  - 阶段 146 已把 project path requirement 的 mode gate 迁到 `run_orchestration_service.py`。
+  - `CodingOrchestrator.start_run()` 仍内联 implementation / QA / merge-test 三段 workspace selection 分支，其中只有 mode 到 workspace 类型、准备 phase 和缺失 workspace 错误文案是纯规则。
+  - `tests/test_run_orchestration_start_rules.py` 已 561 行，继续扩写会接近 600 行治理阈值；本阶段新增小测试文件承接 workspace selection contract。
+- 当前边界：
+  - 新 helper 只能返回 workspace selection projection。
+  - `_implementation_workspace()`、`_merge_test_workspace()`、状态 transition、ledger 写入、manifest/prompt、runner 启动仍留在 orchestrator / workspace service。
+- 执行的操作：
+  - 新增 `tests/test_run_orchestration_workspace_rules.py`，覆盖 implementation 创建工作区、QA/merge-test 复用 existing implementation worktree、plan-only/decomposition 不需要 workspace 的纯规则。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_workspace_rules -v` 因 `run_workspace_selection_for_mode()` 缺失出现 4 个预期 AttributeError。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `RunWorkspaceSelection`、`RUN_WORKSPACE_NONE`、`RUN_WORKSPACE_CREATE_IMPLEMENTATION`、`RUN_WORKSPACE_EXISTING_IMPLEMENTATION` 和 `run_workspace_selection_for_mode()`。
+  - `CodingOrchestrator.start_run()` 改为消费 workspace selection helper，并合并 implementation / QA / merge-test 的 workspace session update 分支；实际 `_implementation_workspace()`、`_merge_test_workspace()`、状态 transition、ledger 写入和 runner 启动仍在 orchestrator。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4945 行。
+  - `coding_orchestration/run_orchestration_service.py`：558 行。
+  - `tests/test_run_orchestration_workspace_rules.py`：50 行。
+  - `tests/test_run_orchestration_start_rules.py`：561 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_workspace_rules -v`：4 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_workspace_rules -v`：3 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_workspace_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_workspace_rules tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：53 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_implementation_workspace_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：34 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4945 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：716 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍有 manifest checkpoint 准备、prompt 构造、runner 启动、report 写回、artifact/agent_run append 和 project writeback 等副作用闭环；下一轮应继续选择纯 projection 或拆更小模块，避免 `run_orchestration_service.py` 超过 600 行阈值。
+
+
+### 阶段 108：解耦架构 gateway command controller 第二切片
+- **状态：** complete
+- 背景：
+  - 阶段 107 已将 Gateway command 的第一批纯规则迁到 `gateway_command_controller.py`。
+  - `orchestrator.py` 仍直接解析显式 `/coding` / `/commands` 文本、重复解析 merge-test flags，并在 `_canonical_rewrite_command()` 中维护 internal command 到 canonical action 的映射。
+- 执行的操作：
+  - `gateway_command_controller.py` 新增 `CodingGatewayCommand`、`CommandsGatewayCommand`、`MergeTestCommandArgs` 数据结构。
+  - 新增 `parse_coding_gateway_command()`、`parse_commands_gateway_command()`、`parse_merge_test_command_args()` 和 `canonical_rewrite_command()`。
+  - `CodingOrchestrator._handle_explicit_gateway_command()`、`_handle_commands_gateway_command()`、`command_coding_merge_test()` 和 `_canonical_rewrite_command()` 改为委托 controller 解析。
+  - 保留命令执行分支、状态 gate、pending action、ledger/runner 副作用和消息回复在 orchestrator，避免 controller 承担业务副作用。
+  - 扩展 `tests/test_gateway_command_controller.py`，覆盖显式命令解析、`/commands` 参数、merge-test flags/active fallback、canonical rewrite 和 wrapper 兼容。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`docs/plans/2026-06-16-decoupled-architecture-design.md` 和 `docs/plans/2026-06-16-decoupled-architecture-implementation.md`。
+- 创建/修改的文件：
+  - `coding_orchestration/gateway_command_controller.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_gateway_command_controller.py`
+  - `docs/project-map.md`
+  - `docs/component-contract.md`
+  - `docs/conventions.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-design.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-implementation.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - controller tests：`rtk proxy python3 -m unittest tests.test_gateway_command_controller -v`：13 tests OK。
+  - py_compile：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/gateway_command_controller.py tests/test_gateway_command_controller.py`：passed。
+  - 相邻 Gateway/rewrite/merge-test flow：`rtk proxy python3 -m unittest tests.test_gateway_command_controller tests.test_gateway_rewrite_flow tests.test_gateway_pending_confirmation_flow tests.test_cancel_restore_flow tests.test_gateway_command_group_flow tests.test_merge_test_basic_flow tests.test_merge_test_blocked_flow tests.test_merge_test_qa_gate_flow -v`：61 tests OK。
+  - 行数：`orchestrator.py` 从 5486 行降至 5447 行；`gateway_command_controller.py` 为 272 行；`tests/test_gateway_command_controller.py` 为 180 行。
+- 剩余风险：
+  - Task 29 仍是 In Progress：本切片迁出解析和 canonicalization，但 `_handle_explicit_gateway_command()` 大分发表、pending action 执行、active project/task 应用和业务副作用仍在 orchestrator。
+
+### 阶段 107：解耦架构 gateway command controller 第一切片
+- **状态：** complete
+- 背景：
+  - Task 29 要把 Command/Gateway controller 从 `orchestrator.py` 中逐步拆出。
+  - `_handle_explicit_gateway_command()` 仍承载 ledger、runner、状态 gate 和回复副作用，直接迁移风险较高；本切片先迁纯规则和可独立测试的 host command controller。
+- 执行的操作：
+  - 新增 `coding_orchestration/gateway_command_controller.py`，承接 `/coding` 命令归一化、project 子命令映射、确认/取消词分类、rewrite 风险确认、plugin-generated message 过滤、Gateway event dedupe key/cache 和授权探测。
+  - `CodingOrchestrator` 保留 `_normalize_coding_gateway_command()`、`_rewrite_requires_confirmation()`、`_is_rewrite_confirmation()`、`_is_rewrite_cancellation()`、`_is_human_confirmation_reply()`、`_is_human_cancellation_reply()`、`_looks_like_plugin_generated_message()`、`_looks_like_task()`、`_dedupe_gateway_event()`、`_gateway_event_dedupe_key()` 和 `_gateway_user_is_authorized()` 兼容 wrapper 并委托 controller。
+  - 新增 `tests/test_gateway_command_controller.py`，覆盖 alias/project subcommand、确认/取消分类、rewrite 风险确认、dedupe key/cache、授权 fail-open 和 wrapper 兼容。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`docs/plans/2026-06-16-decoupled-architecture-design.md` 和 `docs/plans/2026-06-16-decoupled-architecture-implementation.md`。
+- 创建/修改的文件：
+  - `coding_orchestration/gateway_command_controller.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_gateway_command_controller.py`
+  - `docs/project-map.md`
+  - `docs/component-contract.md`
+  - `docs/conventions.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-design.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-implementation.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - 新增 controller tests：`rtk proxy python3 -m unittest tests.test_gateway_command_controller -v`：9 tests OK。
+  - py_compile：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/gateway_command_controller.py tests/test_gateway_command_controller.py`：passed。
+  - 相邻 Gateway flow：`rtk proxy python3 -m unittest tests.test_gateway_command_controller tests.test_gateway_coding_mode_lifecycle_flow tests.test_gateway_rewrite_flow tests.test_gateway_pending_confirmation_flow tests.test_gateway_command_group_flow tests.test_cancel_restore_flow -v`：42 tests OK。
+  - 文档与 guard tests：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests OK。
+  - architecture guard：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5486 lines`。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：630 tests OK。
+  - 空白检查：`rtk proxy git diff --check`：passed。
+  - 敏感扫描：`rtk rg -n 'MCP_USER_TOKEN=[A-Za-z0-9_./+=-]{20,}|Bearer [A-Za-z0-9._-]{20,}|FEISHU_APP_SECRET=[A-Za-z0-9_./+=-]{20,}|CODEX_CLI_COMMAND=/Users/[A-Za-z0-9._/-]{8,}' coding_orchestration tests docs task_plan.md progress.md findings.md README.md PLUGIN_USAGE.md PLUGIN_PREREQUISITES.md PLUGIN_TECHNICAL_SOLUTION.md`：无命中。
+  - 行数：`orchestrator.py` 从 5600 行降至 5486 行；新增 `gateway_command_controller.py` 179 行；新增 `tests/test_gateway_command_controller.py` 127 行。
+- 剩余风险：
+  - Task 29 仍是 In Progress：本切片只迁出纯规则；Gateway 大命令分发、pending action 执行、active project/task 应用、ledger/runner 副作用仍在 orchestrator。
+
+### 阶段 106：解耦架构 run manifest service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 105 已将 workspace/git/checkpoint helper 从 `orchestrator.py` 迁出。
+  - run-manifest 基础字段、Codex session attach/resume 展示命令、权限 profile、source elevated plan 权限判断和 artifact record 仍是纯 helper 形态，但散落在 `orchestrator.py`。
+- 执行的操作：
+  - 新增 `coding_orchestration/run_manifest_service.py`，承接 run-manifest 基础字段、artifact record、Codex attach/resume 展示命令、controlled bypass 权限 profile、source elevated plan 权限判断和 manifest session metadata 回写。
+  - `CodingOrchestrator` 新增 `run_manifest_service` 依赖，当时原 `_build_manifest()`、`_artifact_record()`、`_codex_attach_command()`、`_codex_resume_command()`、`_mode_uses_controlled_bypass()`、`_run_uses_controlled_bypass()`、`_source_requires_codex_plan_permissions()`、`_permission_profile()`、`_elevated_permissions_reason()`、`_elevated_permission_scope()`、`_source_modification_boundary()` 和 `_update_manifest_session_metadata()` 保留兼容 wrapper 并委托 service；阶段 157 已删除无调用的 permission/bypass wrapper。
+  - 新增 `tests/test_run_manifest_service.py`，覆盖 read-only/bypass resume command、外部来源 plan-only 提权、manifest 构建、session metadata 回写和 artifact record。
+  - 从 `tests/test_orchestrator_run_flow.py` 移除直接绑定 `CodingOrchestrator._codex_resume_command()` 的旧私有 helper 测试，等价覆盖迁到 service contract tests。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`docs/plans/2026-06-16-decoupled-architecture-design.md` 和 `docs/plans/2026-06-16-decoupled-architecture-implementation.md`。
+- 创建/修改的文件：
+  - `coding_orchestration/run_manifest_service.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_run_manifest_service.py`
+  - `tests/test_orchestrator_run_flow.py`
+  - `docs/project-map.md`
+  - `docs/component-contract.md`
+  - `docs/conventions.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-design.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-implementation.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - 新增 service tests：`rtk proxy python3 -m unittest tests.test_run_manifest_service -v`：8 tests OK。
+  - py_compile：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_manifest_service.py tests/test_run_manifest_service.py tests/test_orchestrator_run_flow.py`：passed。
+  - manifest/session 相关主流程：`rtk proxy python3 -m unittest tests.test_run_manifest_service tests.test_orchestrator_run_flow tests.test_implementation_session_flow tests.test_plan_run_flow tests.test_source_plan_flow tests.test_qa_flow -v`：39 tests OK。
+  - Codex command/workspace 相邻测试：`rtk proxy python3 -m unittest tests.test_codex_command tests.test_codex_cli_command_facade tests.test_workspace_checkpoint_service -v`：27 tests OK。
+  - 文档与 guard tests：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests OK。
+  - architecture guard：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5600 lines`。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：621 tests OK。
+  - 空白检查：`rtk proxy git diff --check`：passed。
+  - 敏感扫描：`rtk rg -n 'MCP_USER_TOKEN=[A-Za-z0-9_./+=-]{20,}|Bearer [A-Za-z0-9._-]{20,}|FEISHU_APP_SECRET=[A-Za-z0-9_./+=-]{20,}|CODEX_CLI_COMMAND=/Users/[A-Za-z0-9._/-]{8,}' coding_orchestration tests docs task_plan.md progress.md findings.md README.md PLUGIN_USAGE.md PLUGIN_PREREQUISITES.md PLUGIN_TECHNICAL_SOLUTION.md`：无命中。
+  - 行数：`orchestrator.py` 从 5732 行降至 5600 行；新增 `run_manifest_service.py` 276 行；新增 `tests/test_run_manifest_service.py` 182 行；`tests/test_orchestrator_run_flow.py` 降至 192 行。
+- 剩余风险：
+  - Task 28 仍是 In Progress：workspace/git/checkpoint 与 run manifest/session policy 已迁出，但 `start_run()`、等待完成、失败 transition、pending action 和更大的 Command/Gateway controller 仍在 orchestrator。
+
+### 阶段 105：解耦架构 workspace checkpoint service 拆分
+- **状态：** complete
+- 背景：
+  - Task 28 要把 workspace 选择、clean-tree 检查、git HEAD、checkpoint 和 QA/merge-test artifact 收集从 `orchestrator.py` 迁到独立 service。
+  - 阶段 104 已把长期队列固化，下一步需要实际降低 `orchestrator.py` 的 workspace/git/diff helper 耦合。
+- 执行的操作：
+  - 新增 `coding_orchestration/workspace_checkpoint_service.py`，承接 implementation workspace 复用/创建、merge-test workspace 定位、source branch/base branch、QA artifact 收集、clean-tree checkpoint、git HEAD、uncommitted 检查和 diff guard QA artifact 过滤。
+  - `CodingOrchestrator` 新增 `workspace_checkpoint_service` 依赖，原 `_implementation_workspace()`、`_merge_test_workspace()`、`_diff_guard_changed_files_for_mode()`、`_collect_qa_artifacts()`、`_prepare_qa_checkpoint()`、`_prepare_merge_test_checkpoint()`、`_workspace_has_uncommitted_changes()`、`_workspace_clean_checkpoint()`、`_git_head()`、`_source_branch_for_task()`、`_source_base_branch_for_task()`、`_task_short_id()`、`_slugify_ascii()` 和 `_latest_existing_implementation_workspace()` 保留兼容 wrapper 并委托 service。
+  - 从 `orchestrator.py` 移除 checkpoint/git helper 里的直接 `subprocess` 使用；编排层继续保留 runner 启动、状态映射、diff guard 风险注入和 report 写回。
+  - 新增 `tests/test_workspace_checkpoint_service.py`，并把纯 source branch helper 私有测试从 `tests/test_implementation_workspace_flow.py` 迁到 service contract tests。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`docs/plans/2026-06-16-decoupled-architecture-design.md` 和 `docs/plans/2026-06-16-decoupled-architecture-implementation.md`。
+- 创建/修改的文件：
+  - `coding_orchestration/workspace_checkpoint_service.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_workspace_checkpoint_service.py`
+  - `tests/test_implementation_workspace_flow.py`
+  - `docs/project-map.md`
+  - `docs/component-contract.md`
+  - `docs/conventions.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-design.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-implementation.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - 新增 service tests：`rtk proxy python3 -m unittest tests.test_workspace_checkpoint_service -v`：12 tests OK。
+  - 相邻 implementation/QA/merge-test gate：`rtk proxy python3 -m unittest tests.test_workspace_checkpoint_service tests.test_implementation_workspace_flow tests.test_qa_flow tests.test_merge_test_qa_gate_flow -v`：32 tests OK。
+  - py_compile：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/workspace_checkpoint_service.py tests/test_workspace_checkpoint_service.py tests/test_implementation_workspace_flow.py`：passed。
+  - 文档与 guard tests：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests OK。
+  - architecture guard：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5732 lines`。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：614 tests OK。
+  - 空白检查：`rtk proxy git diff --check`：passed。
+  - 敏感扫描：`rtk rg -n 'MCP_USER_TOKEN=[A-Za-z0-9_./+=-]{20,}|Bearer [A-Za-z0-9._-]{20,}|FEISHU_APP_SECRET=[A-Za-z0-9_./+=-]{20,}|CODEX_CLI_COMMAND=/Users/[A-Za-z0-9._/-]{8,}' coding_orchestration tests docs task_plan.md progress.md findings.md`：无命中。
+  - 行数：`orchestrator.py` 从 5843 行降至 5732 行；新增 `workspace_checkpoint_service.py` 184 行；新增 `tests/test_workspace_checkpoint_service.py` 232 行。
+- 剩余风险：
+  - Task 28 仍是 In Progress：本轮已迁出 workspace/git/checkpoint helper，但 `start_run()`、等待完成、失败 transition、pending action 和更大的 command/gateway controller 仍在 orchestrator。
+
+### 阶段 104：解耦架构全线阶段与长期职责固化
+- **状态：** complete
+- 背景：
+  - 用户要求把工作阶段全线列出，并确保架构能够长期迭代、职责清晰。
+  - 现有设计文档已经有 0-17 阶段总表，但实施计划的后续执行队列只追踪到 Task 27，阶段 103 完成后缺少 Task 28 之后的可执行路线。
+- 执行的操作：
+  - 读取 `task_plan.md`、`progress.md`、`findings.md`、项目地图、约定、组件合同、解耦设计文档和实施计划。
+  - 在 `docs/plans/2026-06-16-decoupled-architecture-implementation.md` 新增 `Long-term Execution Queue`，补齐 Task 28-36。
+  - 在 `task_plan.md` 新增阶段 104，明确本阶段目标是固化全线阶段、长期职责和后续执行队列。
+- 创建/修改的文件：
+  - `docs/plans/2026-06-16-decoupled-architecture-implementation.md`
+  - `task_plan.md`
+  - `progress.md`
+  - `findings.md`
+- 已验证：
+  - 文档与 guard tests：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests OK。
+  - architecture guard：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5843 lines`。
+  - 空白检查：`rtk proxy git diff --check`：passed。
+  - 敏感扫描：`rtk rg -n 'MCP_USER_TOKEN=[A-Za-z0-9_./+=-]{20,}|Bearer [A-Za-z0-9._-]{20,}|FEISHU_APP_SECRET=[A-Za-z0-9_./+=-]{20,}|CODEX_CLI_COMMAND=/Users/[A-Za-z0-9._/-]{8,}' docs/plans/2026-06-16-decoupled-architecture-implementation.md task_plan.md progress.md findings.md`：无命中。
+- 剩余风险：
+  - `orchestrator.py` 仍是 5843 行 legacy façade，下一阶段应按 Task 28 拆 workspace/git/diff checkpoint service。
+
+### 阶段 103：解耦架构 gateway binding service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 102 已将后台 run 通知迁出 `orchestrator.py`。
+  - Gateway 会话绑定仍散落在 orchestrator 中，包括 event source、active task、coding mode、active project、pending rewrite 和 pending action，容易让后续自然语言、确认动作和项目上下文继续耦合。
+- 执行的操作：
+  - 新增 `coding_orchestration/gateway_binding_service.py`，承接 event source 提取、chat/user binding key、active task 绑定与 stale binding 清理、session lookup、coding mode、active project、pending rewrite、pending action 和 pending action confirmation record。
+  - `CodingOrchestrator` 新增 `gateway_binding_service` 依赖，原 `_event_source_for_ledger()`、`_binding_key_for_event()`、`_bind_active_task_for_event()`、`active_task_for_session()`、`_coding_mode_*()`、`_active_project_*()`、`_pending_rewrite_*()` 和 `_pending_action_*()` 保留 wrapper 并委托 service。
+  - pending action 确认后的命令执行、cancelled task gate、active project 应用到 task、rewrite 上下文组装仍留在 orchestrator，避免 binding service 承载业务决策。
+  - 新增 `tests/test_gateway_binding_service.py`，覆盖 event source、chat/user binding key、active task stale cleanup、session lookup、coding mode、active project、pending action 和 pending rewrite。
+- 创建/修改的文件：
+  - `coding_orchestration/gateway_binding_service.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_gateway_binding_service.py`
+  - `docs/plans/2026-06-16-decoupled-architecture-design.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-implementation.md`
+  - `docs/project-map.md`
+  - `docs/component-contract.md`
+  - `docs/conventions.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - 新增 binding service tests：`rtk proxy python3 -m unittest tests.test_gateway_binding_service -v`：8 tests OK。
+  - 相邻 gateway flow：`rtk proxy python3 -m unittest tests.test_gateway_binding_service tests.test_gateway_coding_mode_lifecycle_flow tests.test_gateway_pending_confirmation_flow tests.test_gateway_project_task_flow tests.test_gateway_task_control_flow tests.test_gateway_rewrite_flow tests.test_gateway_natural_language_command_flow -v`：49 tests OK。
+  - py_compile：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/gateway_binding_service.py tests/test_gateway_binding_service.py`：passed。
+  - 文档与 guard tests：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests OK。
+  - architecture guard：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5843 lines`。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：606 tests OK。
+  - 空白检查：`rtk proxy git diff --check`：passed。
+  - 敏感扫描：`rtk rg -n 'MCP_USER_TOKEN=[A-Za-z0-9_./+=-]{20,}|Bearer [A-Za-z0-9._-]{20,}|FEISHU_APP_SECRET=[A-Za-z0-9_./+=-]{20,}|CODEX_CLI_COMMAND=/Users/[A-Za-z0-9._/-]{8,}' .`：无命中。
+  - 行数：`orchestrator.py` 从 6003 行降至 5843 行；新增 `gateway_binding_service.py` 283 行。
+- 剩余风险：
+  - `orchestrator.py` 仍是 5843 行 legacy façade，后续继续拆 workspace/git/diff checkpoint、source adapter 剩余业务消费和 runner 副作用编排。
+
+### 阶段 102：解耦架构后台 run 通知服务化
+- **状态：** complete
+- 背景：
+  - 阶段 96-101 已将多类 presentation 从 `orchestrator.py` 迁出。
+  - 后台 plan-only/implementation/QA/merge-test run 的线程启动、sender 调度、reply fallback 和 completion notification 记录仍直接写在 `orchestrator.py`，但这些是 host 通知编排，不应和 run 状态推进、runner 结果归一、merge-test pending action 混在一起。
+- 执行的操作：
+  - 新增 `coding_orchestration/background_run_notifier.py`，承接后台线程启动、统一失败通知文案、`send_message` / adapter fallback、async sender 调度、completion notification record 构造和通知编排。
+  - `CodingOrchestrator._start_background_*()`、`_run_*_and_notify()`、`_call_sender()`、`_schedule_sender()`、`_reply_if_possible()` 和 `_record_completion_notification()` 保留兼容 wrapper 或回调入口，内部委托 notifier。
+  - `start_run()`、`_wait_for_background_run_completion()`、`_mark_background_run_failed()` 和 `_store_pending_action_from_merge_test_result()` 暂不迁移，避免让通知服务承载业务状态决策。
+  - 新增 `tests/test_background_run_notifier.py`，覆盖 notification record、gateway sender、adapter fallback、async sender failure、success/failure run notification 和线程命名。
+- 创建/修改的文件：
+  - `coding_orchestration/background_run_notifier.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_background_run_notifier.py`
+  - `docs/plans/2026-06-16-decoupled-architecture-design.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-implementation.md`
+  - `docs/project-map.md`
+  - `docs/component-contract.md`
+  - `docs/conventions.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - 新增 notifier tests：`rtk proxy python3 -m unittest tests.test_background_run_notifier -v`：7 tests OK。
+  - 相邻后台通知流程：`rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_qa_flow tests.test_merge_test_qa_gate_flow tests.test_command_run_flow -v`：27 tests OK。
+  - py_compile：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/background_run_notifier.py tests/test_background_run_notifier.py`：passed。
+  - 文档与 guard tests：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests OK。
+  - architecture guard：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 6003 lines`。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：598 tests OK。
+  - 空白检查：`rtk proxy git diff --check`：passed。
+  - 敏感扫描：`rtk rg -n 'MCP_USER_TOKEN=[A-Za-z0-9_./+=-]{20,}|Bearer [A-Za-z0-9._-]{20,}|FEISHU_APP_SECRET=[A-Za-z0-9_./+=-]{20,}|CODEX_CLI_COMMAND=/Users/[A-Za-z0-9._/-]{8,}' .`：无命中。
+  - 行数：`orchestrator.py` 从 6056 行降至 6003 行；新增 `background_run_notifier.py` 193 行。
+- 剩余风险：
+  - `orchestrator.py` 仍是 6003 行 legacy façade，后续继续拆 gateway binding service、workspace/git/diff checkpoint 和剩余 runner 副作用编排。
+
+### 阶段 101：解耦架构 merge-test presenter 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 96-100 已将多类用户可见 presentation 从 `orchestrator.py` 迁出。
+  - prepare/merge-test 的状态提示、blocked 风险确认、风险放行说明、QA 风险确认和启动 ACK 仍直接写在 `orchestrator.py`，但这些是用户可见渲染；readiness 评估、状态切换、风险接受落库仍应留在 orchestrator。
+- 执行的操作：
+  - 新增 `coding_orchestration/merge_test_presenter.py`，承接 prepare ready/invalid status、merge-test blocker、blocked risk confirmation、release note、fallback evidence、QA risk confirmation 和 started message。
+  - `CodingOrchestrator._blocked_merge_test_risk_confirmation_message()`、`_blocked_merge_test_release_note()`、`_fallback_evidence_user_line()`、`_merge_test_qa_risk_confirmation_message()` 和 `_merge_test_started_message()` 保留兼容 wrapper，内部委托 presenter。
+  - `command_prepare_merge_test()` 和 `_merge_test_blocker()` 的纯文案分支改为调用 presenter，状态判断和状态更新逻辑不迁移。
+  - 新增 `tests/test_merge_test_presenter.py`，覆盖 prepare 状态、blocked/invalid/missing workspace、风险确认脱敏、风险放行、QA 风险确认和 started message。
+  - 同步 `docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`task_plan.md` 和 `findings.md`。
+- 创建/修改的文件：
+  - `coding_orchestration/merge_test_presenter.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_merge_test_presenter.py`
+  - `docs/plans/2026-06-16-decoupled-architecture-design.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-implementation.md`
+  - `docs/project-map.md`
+  - `docs/component-contract.md`
+  - `docs/conventions.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - 新增/相邻 merge-test tests：`rtk proxy python3 -m unittest tests.test_merge_test_presenter tests.test_merge_test_basic_flow tests.test_merge_test_blocked_flow tests.test_merge_test_qa_gate_flow tests.test_merge_test_readiness_flow tests.test_gateway_natural_language_command_flow -v`：37 tests OK。
+  - py_compile：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/merge_test_presenter.py tests/test_merge_test_presenter.py`：passed。
+  - 文档与 guard tests：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests OK。
+  - architecture guard：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 6056 lines`。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：591 tests OK。
+  - 空白检查：`rtk proxy git diff --check`：passed。
+  - 敏感扫描：`rtk rg -n "MCP_USER_TOKEN=[A-Za-z0-9_./+=-]{20,}|Bearer [A-Za-z0-9._-]{20,}|FEISHU_APP_SECRET=[A-Za-z0-9_./+=-]{20,}|CODEX_CLI_COMMAND=/Users/[A-Za-z0-9._/-]{8,}" .`：无命中。
+  - 行数：`orchestrator.py` 从 6095 行降至 6056 行；新增 `merge_test_presenter.py` 102 行。
+- 遇到的问题：
+  - 本阶段 focused tests 暂无失败。
+- 剩余风险：
+  - `orchestrator.py` 仍是 6056 行 legacy façade，后续继续拆 gateway binding service、run background notification 和 workspace/git/diff checkpoint。
+
+### 阶段 100：解耦架构 feedback presenter 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 96-99 已将 task list、run completion、task status、gateway rewrite 和 run start 用户可见消息迁出 `orchestrator.py`。
+  - `/coding continue/change/bugfix` 的反馈确认、需求变更、图片未捕获和人工澄清提示仍直接写在 `orchestrator.py`，但这些属于 presentation，不应和 `_record_*` 决策、项目回填或后台 run 启动混在一起。
+- 执行的操作：
+  - 新增 `coding_orchestration/feedback_presenter.py`，承接 feedback/change/clarification 用户可见文案。
+  - `CodingOrchestrator._missing_feedback_media_message()`、`_plan_feedback_received_message()`、`_blocked_plan_feedback_received_message()`、`_requirement_change_received_message()`、`_requirement_change_queued_message()`、`_implementation_feedback_received_message()`、`_runtime_feedback_received_message()`、`_human_clarification_received_message()` 和 `_human_clarification_project_resolved_message()` 保留兼容 wrapper，内部委托 presenter。
+  - 新增 `tests/test_feedback_presenter.py`，覆盖图片未捕获、计划反馈、受阻计划补充、需求变更、running 变更排队、实现反馈、运行中反馈和人工澄清文案。
+  - 同步 `docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`task_plan.md` 和 `findings.md`。
+- 创建/修改的文件：
+  - `coding_orchestration/feedback_presenter.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_feedback_presenter.py`
+  - `docs/plans/2026-06-16-decoupled-architecture-design.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-implementation.md`
+  - `docs/project-map.md`
+  - `docs/component-contract.md`
+  - `docs/conventions.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - 新增/相邻 feedback tests：`rtk proxy python3 -m unittest tests.test_feedback_presenter tests.test_gateway_feedback_flow tests.test_gateway_change_continue_flow tests.test_gateway_task_control_flow tests.test_gateway_natural_language_command_flow -v`：29 tests OK。
+  - py_compile：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/feedback_presenter.py tests/test_feedback_presenter.py`：passed。
+  - 文档与 guard tests：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests OK。
+  - architecture guard：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 6095 lines`。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：586 tests OK。
+  - 空白检查：`rtk proxy git diff --check`：passed。
+  - 敏感扫描：`rtk rg -n "MCP_USER_TOKEN=[A-Za-z0-9_./+=-]{20,}|Bearer [A-Za-z0-9._-]{20,}|FEISHU_APP_SECRET=[A-Za-z0-9_./+=-]{20,}|CODEX_CLI_COMMAND=/Users/[A-Za-z0-9._/-]{8,}" .`：无命中。
+  - 行数：`orchestrator.py` 从 6131 行降至 6095 行；新增 `feedback_presenter.py` 75 行。
+- 遇到的问题：
+  - 本阶段 focused tests 暂无失败。
+- 剩余风险：
+  - `orchestrator.py` 仍是 6095 行 legacy façade，后续继续拆 merge-test presenter、gateway binding service、run background notification 和 workspace/git/diff checkpoint。
+
+### 阶段 99：解耦架构 run start presenter 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 96-98 已将 task list、run completion、task status 和 gateway rewrite 用户可见消息迁出 `orchestrator.py`。
+  - plan-only/implementation/QA 启动 ACK、active run 重复启动提示和 cannot-start 恢复提示仍写在 `orchestrator.py`，但这些属于用户可见 presentation，不应由编排类承载。
+- 执行的操作：
+  - 新增 `coding_orchestration/run_start_presenter.py`，承接启动 ACK、active run 和 cannot-start 用户可见文案。
+  - `CodingOrchestrator._implementation_started_message()`、`_qa_started_message()`、`_implementation_blocked_before_plan_ready_message()`、`_plan_only_started_message()`、`_plan_only_already_running_message()`、`_cannot_start_run_message()` 和 `_active_run_already_running_message()` 保留兼容 wrapper，内部委托 presenter。
+  - 新增 `tests/test_run_start_presenter.py`，覆盖 plan/implementation/QA started、plan-ready blocker、active run 和 cannot-start 文案。
+  - 同步 `docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`task_plan.md` 和 `findings.md`。
+- 创建/修改的文件：
+  - `coding_orchestration/run_start_presenter.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_run_start_presenter.py`
+  - `docs/plans/2026-06-16-decoupled-architecture-design.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-implementation.md`
+  - `docs/project-map.md`
+  - `docs/component-contract.md`
+  - `docs/conventions.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - 新增/相邻 run start tests：`rtk proxy python3 -m unittest tests.test_run_start_presenter tests.test_command_run_flow tests.test_plan_run_flow tests.test_qa_flow tests.test_run_service -v`：33 tests OK。
+  - py_compile：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_start_presenter.py tests/test_run_start_presenter.py`：passed。
+  - 文档与 guard tests：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests OK。
+  - architecture guard：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py`。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：581 tests OK。
+  - 空白检查：`rtk proxy git diff --check`：passed。
+  - 敏感扫描：`rtk rg -n "MCP_USER_TOKEN=[A-Za-z0-9_./+=-]{20,}|Bearer [A-Za-z0-9._-]{20,}|FEISHU_APP_SECRET=[A-Za-z0-9_./+=-]{20,}|CODEX_CLI_COMMAND=/Users/[A-Za-z0-9._/-]{8,}" .`：无命中。
+  - 行数：`orchestrator.py` 从 6171 行降至 6131 行；新增 `run_start_presenter.py` 83 行。
+- 遇到的问题：
+  - 初版 `tests/test_run_start_presenter.py` 断言状态展示为手写“新任务/执行中”，但公共 `task_status_display()` 当前输出 `新建(new)` / `运行中(running)`；已修正测试，保持状态文案统一来自公共模型。
+- 剩余风险：
+  - `orchestrator.py` 仍是 6131 行 legacy façade，后续继续拆 feedback/merge-test presenter、gateway binding service、run background notification 和 workspace/git/diff checkpoint。
+
+### 阶段 98：解耦架构 gateway rewrite presenter 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 96/97 已将 task list、run completion 和 task status 用户可见消息迁出 `orchestrator.py`。
+  - Coding Mode rewrite 的确认、低置信度补充和 handoff 文案仍直接写在 `orchestrator.py`，和 gateway 控制流、active task/context 收集混在一起。
+- 执行的操作：
+  - 新增 `coding_orchestration/gateway_rewrite_presenter.py`，承接 rewrite confirmation、needs-human 和 handoff 用户可见文案。
+  - `CodingOrchestrator._rewrite_confirmation_message()`、`_rewrite_needs_human_confirmation_message()`、`_rewrite_rejection_user_text()` 和 `_rewrite_handoff_to_hermes_message()` 保留兼容 wrapper/上下文收集，内部委托 presenter。
+  - 新增 `tests/test_gateway_rewrite_presenter.py`，覆盖确认文案、内部 rejection 清洗和 handoff 上下文投影。
+  - 同步 `docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`task_plan.md` 和 `findings.md`。
+- 创建/修改的文件：
+  - `coding_orchestration/gateway_rewrite_presenter.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_gateway_rewrite_presenter.py`
+  - `docs/plans/2026-06-16-decoupled-architecture-design.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-implementation.md`
+  - `docs/project-map.md`
+  - `docs/component-contract.md`
+  - `docs/conventions.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - 新增/相邻 gateway rewrite tests：`rtk proxy python3 -m unittest tests.test_gateway_rewrite_presenter tests.test_gateway_rewrite_flow tests.test_gateway_pending_confirmation_flow tests.test_gateway_natural_language_command_flow -v`：23 tests OK。
+  - py_compile：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/gateway_rewrite_presenter.py tests/test_gateway_rewrite_presenter.py`：passed。
+  - 文档与 guard tests：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests OK。
+  - architecture guard：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py`。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：577 tests OK。
+  - 空白检查：`rtk proxy git diff --check`：passed。
+  - 敏感扫描：`rtk rg -n "MCP_USER_TOKEN=[A-Za-z0-9_./+=-]{20,}|Bearer [A-Za-z0-9._-]{20,}|FEISHU_APP_SECRET=[A-Za-z0-9_./+=-]{20,}|CODEX_CLI_COMMAND=/Users/[A-Za-z0-9._/-]{8,}" .`：无命中。
+  - 行数：`orchestrator.py` 从 6244 行降至 6171 行；新增 `gateway_rewrite_presenter.py` 107 行。
+- 遇到的问题：
+  - 初版 `tests/test_gateway_rewrite_presenter.py` 断言最近任务状态为手写“计划已就绪”，但 presenter 使用统一 `task_status_display()` 输出 `已规划(planned)`；已修正测试，保持状态展示使用公共 contract。
+- 剩余风险：
+  - `orchestrator.py` 仍是 6171 行 legacy façade，后续继续拆 run start/feedback/merge-test presenter、gateway binding service、run background notification 和 workspace/git/diff checkpoint。
+
+### 阶段 97：解耦架构 task status presenter 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 96 已将 task list 和 run completion 用户可见消息迁出 `orchestrator.py`。
+  - `/coding status` 的状态详情仍由 `orchestrator.py` 直接拼装，包含 Kanban 同步、完成回传、QA report、QA health score 和 known gaps 展示。
+- 执行的操作：
+  - 新增 `coding_orchestration/task_status_presenter.py`，承接 task status 用户可见详情。
+  - `CodingOrchestrator._format_task_status_details()`、`_kanban_sync_status_display()`、`_completion_notification_status_display()`、`_latest_qa_run()`、`_read_report_json()` 和 `_qa_health_score_from_report_path()` 保留兼容 wrapper，内部委托 presenter。
+  - 新增 `tests/test_task_status_presenter.py`，覆盖 QA report、health score、known gaps、Kanban 同步和完成回传状态文案。
+  - 同步 `docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`task_plan.md` 和 `findings.md`。
+- 创建/修改的文件：
+  - `coding_orchestration/task_status_presenter.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_task_status_presenter.py`
+  - `docs/plans/2026-06-16-decoupled-architecture-design.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-implementation.md`
+  - `docs/project-map.md`
+  - `docs/component-contract.md`
+  - `docs/conventions.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - 新增/相邻 status tests：`rtk proxy python3 -m unittest tests.test_task_status_presenter tests.test_status_reconcile_flow -v`：8 tests OK。
+  - py_compile：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/task_status_presenter.py tests/test_task_status_presenter.py`：passed。
+  - 文档与 guard tests：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests OK。
+  - architecture guard：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py`。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：574 tests OK。
+  - 空白检查：`rtk proxy git diff --check`：passed。
+  - 敏感扫描：`rtk rg -n "MCP_USER_TOKEN=[A-Za-z0-9_./+=-]{20,}|Bearer [A-Za-z0-9._-]{20,}|FEISHU_APP_SECRET=[A-Za-z0-9_./+=-]{20,}|CODEX_CLI_COMMAND=/Users/[A-Za-z0-9._/-]{8,}" .`：无命中。
+  - 行数：`orchestrator.py` 从 6334 行降至 6244 行；新增 `task_status_presenter.py` 132 行。
+- 遇到的问题：
+  - 初版 `tests/test_task_status_presenter.py` 使用 `AgentRunStatus.READY_FOR_MERGE_TEST_WITH_KNOWN_GAPS.value` 作为 run status，但该 enum value 在当前模型中归一为 `succeeded`；已改为显式原始 status 字符串 `ready_for_merge_test_with_known_gaps`。
+- 剩余风险：
+  - `orchestrator.py` 仍是 6244 行 legacy façade，后续继续拆 gateway binding service、run background notification 和 workspace/git/diff checkpoint。
+
+### 阶段 96：解耦架构 presentation presenter 拆分
+- **状态：** complete
+- 背景：
+  - 解耦设计已经列出 0-17 全线阶段、职责矩阵、长期职责模型和持续迭代闭环。
+  - 当前最大遗留大文件是 `coding_orchestration/orchestrator.py`，需要继续以低风险职责切片迁出纯展示逻辑。
+- 执行的操作：
+  - 新增 `coding_orchestration/task_list_presenter.py`，承接 `/coding list` 任务摘要、项目标签和描述摘要。
+  - 新增 `coding_orchestration/run_completion_presenter.py`，承接 plan/implementation/QA/merge-test/stale run completion 消息、summary/risk/next_actions fallback、report/artifact 摘要读取。
+  - `CodingOrchestrator` 保留 `_format_task_list()`、`_task_project_label()`、`_task_description_label()`、`_format_*completion_message()`、`_completion_*()` 等兼容 wrapper，内部委托 presenter。
+  - 新增 `tests/test_task_list_presenter.py` 和 `tests/test_run_completion_presenter.py`，保护 presentation contract。
+  - 同步 `docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`task_plan.md` 和 `findings.md`。
+- 创建/修改的文件：
+  - `coding_orchestration/task_list_presenter.py`
+  - `coding_orchestration/run_completion_presenter.py`
+  - `coding_orchestration/orchestrator.py`
+  - `tests/test_task_list_presenter.py`
+  - `tests/test_run_completion_presenter.py`
+  - `docs/plans/2026-06-16-decoupled-architecture-design.md`
+  - `docs/plans/2026-06-16-decoupled-architecture-implementation.md`
+  - `docs/project-map.md`
+  - `docs/component-contract.md`
+  - `docs/conventions.md`
+  - `task_plan.md`
+  - `findings.md`
+  - `progress.md`
+- 已验证：
+  - 新增 presenter tests：`rtk proxy python3 -m unittest tests.test_task_list_presenter tests.test_run_completion_presenter -v`：6 tests OK。
+  - 相关 flow tests：`rtk proxy python3 -m unittest tests.test_completion_flow tests.test_plan_run_flow tests.test_implementation_result_flow tests.test_gateway_safety_lifecycle_flow -v`：27 tests OK。
+  - py_compile：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/task_list_presenter.py coding_orchestration/run_completion_presenter.py tests/test_task_list_presenter.py tests/test_run_completion_presenter.py`：passed。
+  - architecture guard：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py`。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：572 tests OK。
+  - 空白检查：`rtk proxy git diff --check`：passed。
+  - 敏感扫描：`rtk rg -n "MCP_USER_TOKEN=[A-Za-z0-9_./+=-]{20,}|Bearer [A-Za-z0-9._-]{20,}|FEISHU_APP_SECRET=[A-Za-z0-9_./+=-]{20,}|CODEX_CLI_COMMAND=/Users/[A-Za-z0-9._/-]{8,}" .`：无命中。
+  - 行数：`orchestrator.py` 从 6534 行降至 6334 行；新增 `task_list_presenter.py` 63 行、`run_completion_presenter.py` 231 行。
+- 剩余风险：
+  - `orchestrator.py` 仍是 6334 行 legacy façade，后续继续拆 status presenter、gateway binding service、run background notification 和 workspace/git/diff checkpoint。
+
 ## 会话：2026-06-03
 
 ### 阶段 87：queued 误报与飞书 URL 解析修复
@@ -2114,6 +3303,1003 @@
   - `rtk python3 -m py_compile coding_orchestration/source_resolver.py tests/test_source_resolver.py`：passed。
   - `rtk git diff --check`：passed，无输出。
   - `rtk python3 -m unittest discover -s tests`：290 tests passed。
+
+### 阶段 109：解耦架构全线阶段技术方案固化
+- **状态：** complete
+- 执行的操作：
+  - 根据用户要求，在 `PLUGIN_TECHNICAL_SOLUTION.md` 的总体架构后新增“解耦改造工作阶段全线图”。
+  - 将阶段拆为 A-D 四个批次：合同与边界、应用服务迁移、Adapter 与资产拆分、测试/文档/治理回流。
+  - 列出 0-17 全线阶段，每阶段包含目标、主责域和验收信号。
+  - 列出 Task 28-36 长期执行队列，明确当前 Task 29 仍为 In Progress，Run orchestration、SourcePort、Tool/MCP dispatcher、Skill 零耦合、orchestrator 降载、legacy test cleanup 和 release readiness 仍是后续任务。
+  - 将大文件和 hard code 作为专项治理对象写入技术方案：`orchestrator.py` 先降到 3000 行以内，新增业务模块超过 600 行需说明职责边界，超过 1000 行必须拆分或登记例外；core/service/tool 层不得新增 host command、`Path.home()`、`os.getenv()`、`subprocess`、token key 或真实 secret 模式。
+  - 更新 `task_plan.md` 当前阶段和阶段 109 记录。
+- 已验证：
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5447 lines`。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 110：解耦架构 gateway command controller 第三切片
+- **状态：** complete
+- 背景：
+  - 阶段 108 已将显式 `/coding` / `/commands` 解析、merge-test flags 和 rewrite canonical command 映射迁到 `gateway_command_controller.py`。
+  - `_handle_explicit_gateway_command()` 仍直接持有所有命令分支；下一步需要先抽 route plan，避免后续按文件大小硬拆副作用。
+- 执行的操作：
+  - `gateway_command_controller.py` 新增 `TASK_ID_SOURCE_*` 常量、`COMMAND_ROUTE_SPECS`、`GatewayCommandRoute`、`route_coding_gateway_command()` 和 `gateway_route_task_id()`。
+  - route plan 记录命令族、task id 来源策略、是否使用 active task fallback、是否清理 pending action；controller 仍不承载 ledger、runner、消息发送或状态推进。
+  - `CodingOrchestrator._handle_explicit_gateway_command()` 改为消费 route plan，并用 `_gateway_command_task_id()` 统一解析 `/coding run`、delivery、implementation、QA、prepare-merge-test 和 complete 的 task id fallback。
+  - 扩展 `tests/test_gateway_command_controller.py`，覆盖 project route、active task fallback route、merge-test flags/active fallback route 和 task id 解析。
+  - 同步 `docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5458 行。
+  - `coding_orchestration/gateway_command_controller.py`：348 行。
+  - `tests/test_gateway_command_controller.py`：218 行。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_gateway_command_controller -v`：16 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/gateway_command_controller.py tests/test_gateway_command_controller.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_gateway_command_controller tests.test_gateway_command_group_flow tests.test_gateway_project_task_flow tests.test_gateway_task_control_flow tests.test_gateway_feedback_flow tests.test_command_run_flow tests.test_merge_test_basic_flow tests.test_merge_test_blocked_flow tests.test_merge_test_qa_gate_flow -v`：71 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：637 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5458 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+- 剩余风险：
+  - Task 29 仍是 In Progress：route plan 已迁出，但 `_handle_explicit_gateway_command()` 的 handler 分支、pending action 执行、active project/task 应用和 ledger/runner 副作用仍在 orchestrator。
+
+### 阶段 111：解耦架构 gateway command controller 第四切片
+- **状态：** complete
+- 背景：
+  - 阶段 110 已抽出 route plan 和 task id 来源策略，但 `_handle_explicit_gateway_command()` 仍把 help/list/project/use/status/complete/cancel/restore/delete 等低副作用命令逐个写成 `if` 分支。
+  - `coding-lark-preflight` 和 `coding-source-resolve` 已在 controller 归一化，但 Gateway 显式命令处理缺少对应分支，CLI 路径支持但 Gateway 路径可能落回 Hermes 主 agent。
+- 执行的操作：
+  - `gateway_command_controller.py` 新增 `GATEWAY_REPLY_IMMEDIATE`、`GATEWAY_REPLY_CUSTOM`，并在 `GatewayCommandRoute` 中增加 `handler_key` 与 `reply_mode`。
+  - `COMMAND_ROUTE_SPECS` 扩展为 command family、task id source、handler key、reply mode 四元 route metadata；controller 仍只做纯解析/分类，不发送消息、不读写 ledger、不启动 runner。
+  - `CodingOrchestrator` 新增 `_handle_gateway_immediate_route()` 与 `_gateway_immediate_route_message()`，统一处理 help、doctor、lark-preflight、source-resolve、list、project list/init/use/status/clear、use、exit、status、complete、cancel、restore、delete。
+  - `_handle_explicit_gateway_command()` 删除上述 immediate reply 命令的分散分支；task creation、feedback、run、delivery、implementation、QA、prepare/merge-test 复杂副作用分支保持原位。
+  - `tests/test_gateway_command_controller.py` 覆盖 handler key / reply mode；`tests/test_gateway_command_group_flow.py` 新增 Gateway diagnostic immediate reply 测试。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5457 行。
+  - `coding_orchestration/gateway_command_controller.py`：364 行。
+  - `tests/test_gateway_command_controller.py`：239 行。
+  - `tests/test_gateway_command_group_flow.py`：277 行。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_gateway_command_controller tests.test_gateway_command_group_flow -v`：24 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/gateway_command_controller.py tests/test_gateway_command_controller.py tests/test_gateway_command_group_flow.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_gateway_command_controller tests.test_gateway_command_group_flow tests.test_gateway_project_task_flow tests.test_gateway_task_control_flow tests.test_gateway_feedback_flow tests.test_command_run_flow tests.test_merge_test_basic_flow tests.test_merge_test_blocked_flow tests.test_merge_test_qa_gate_flow -v`：73 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：639 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5457 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+- 剩余风险：
+  - Task 29 仍是 In Progress：复杂 command family 的 handler 副作用、pending action 执行、active project/task 应用和 runner/ledger 状态推进仍在 orchestrator。
+  - `orchestrator.py` 仍是唯一 legacy large-file watch，距离 3000 行目标仍有较大差距；下一切片应继续收敛复杂 Gateway 分支或转入 Run orchestration service，但不要重复扩写 immediate reply 分支。
+
+### 阶段 112：解耦架构 gateway command executor 第五切片
+- **状态：** complete
+- 背景：
+  - 阶段 111 已通过 `reply_mode` 收敛 immediate reply，但 `_handle_explicit_gateway_command()` 仍持有 task creation、feedback、plan run、delivery、implementation、QA、prepare/merge-test 和 merge-test 的 custom route 大分支。
+  - 这些分支包含 ledger、runner、pending action 和用户回复副作用，不适合放入纯 `gateway_command_controller.py`；需要先拆出迁移期 host shell executor，再为后续 Run orchestration service 下沉留接口。
+- 执行的操作：
+  - 新增 `coding_orchestration/gateway_command_executor.py`，导出 `handle_gateway_custom_route()` 和 `HANDLED_BY_CODING_ORCHESTRATION`。
+  - executor 按 `GatewayCommandRoute.handler_key` 分发 custom route：`create_task`、`continue/change/bugfix`、`run`、`analyze/breakdown/approve_breakdown/materialize`、`implement`、`qa`、`prepare_merge_test`、`merge_test`。
+  - `CodingOrchestrator._handle_explicit_gateway_command()` 删除 custom route 大分支，当前只保留 route parsing、pending action 清理、immediate route dispatch 和 executor 委托。
+  - 新增 `tests/test_gateway_command_executor.py`，覆盖 immediate route 不由 executor 处理、plan run active task fallback 和 delivery handler key 分发。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5283 行。
+  - `coding_orchestration/gateway_command_executor.py`：230 行。
+  - `coding_orchestration/gateway_command_controller.py`：364 行。
+- 已验证：
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/gateway_command_executor.py coding_orchestration/gateway_command_controller.py`：passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/gateway_command_executor.py tests/test_gateway_command_executor.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_gateway_command_executor tests.test_gateway_command_controller tests.test_gateway_command_group_flow tests.test_gateway_project_task_flow tests.test_gateway_task_control_flow tests.test_gateway_feedback_flow tests.test_command_run_flow tests.test_merge_test_basic_flow tests.test_merge_test_blocked_flow tests.test_merge_test_qa_gate_flow -v`：76 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：642 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5283 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+- 剩余风险：
+  - executor 是迁移期 host shell，仍通过 orchestrator façade/callback 调用现有 ledger、runner、pending action 和状态副作用；不能把它当最终 application service。
+  - Task 29 仍是 In Progress：pending action 确认路由、active context 应用和 run orchestration 副作用仍需继续拆。
+
+### 阶段 113：解耦架构全线阶段责任矩阵补强
+- **状态：** complete
+- 背景：
+  - 用户要求把工作阶段全线列出来，并确保长期迭代、职责清晰。
+  - 阶段 109 已在 `PLUGIN_TECHNICAL_SOLUTION.md` 写入 0-17 全线阶段和 Task 28-36 长期队列，但对外方案还可以更明确地区分主责、协作和阶段执行合同。
+- 执行的操作：
+  - 在 `PLUGIN_TECHNICAL_SOLUTION.md` 的“解耦改造工作阶段全线图”中补充阶段责任矩阵。
+  - 补充阶段执行合同：每轮只迁移一个职责域、先 contract/main-flow tests、`CodingOrchestrator` 只做 façade、core/service/tool 层不得新增 host/hard-code 细节、阶段结束必须同步文档和验证。
+  - 在 `task_plan.md` 新增阶段 113，用于跟踪本次文档补强和验证。
+- 已验证：
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5283 lines`。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 114：解耦架构 gateway pending action executor 第六切片
+- **状态：** complete
+- 背景：
+  - 阶段 112 已把 custom route 分发迁到 `gateway_command_executor.py`，但 pending action 确认/取消路由仍在 `orchestrator.py`。
+  - pending action 确认路由属于 Gateway host shell：它要消费 binding、检查取消任务、回复用户并续接显式 `/coding` 命令，不应进入纯 `gateway_command_controller.py`。
+- 执行的操作：
+  - 新增 `coding_orchestration/gateway_pending_action_executor.py`。
+  - 将 `_handle_pending_action_gateway_message()` 的确认/取消、latest human_required merge-test fallback、取消任务 gate、确认记录和显式命令续接迁入新 executor。
+  - `CodingOrchestrator._handle_pending_action_gateway_message()` 和 `_pending_action_from_latest_human_required_run()` 保留兼容 wrapper 并委托新 executor。
+  - 新增 `tests/test_gateway_pending_action_executor.py`，覆盖绑定确认、取消、latest human_required fallback 和失效候选命令提示。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5238 行。
+  - `coding_orchestration/gateway_pending_action_executor.py`：73 行。
+  - `tests/test_gateway_pending_action_executor.py`：156 行。
+- 已验证：
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/gateway_pending_action_executor.py tests/test_gateway_pending_action_executor.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_gateway_pending_action_executor tests.test_gateway_pending_confirmation_flow tests.test_cancel_restore_flow tests.test_merge_test_blocked_flow tests.test_merge_test_qa_gate_flow tests.test_gateway_rewrite_flow tests.test_gateway_natural_language_command_flow -v`：46 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：646 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5238 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 115：解耦架构 gateway active context helper 第七切片
+- **状态：** complete
+- 背景：
+  - Task 29 剩余项之一是 active context 应用。Gateway binding 存取已在 `gateway_binding_service.py`，但把 active project 回填到缺项目 task 的逻辑仍在 `orchestrator.py`。
+  - 这块逻辑属于 Gateway active context host helper，不属于纯 command controller，也不负责项目初始化、项目画像生成或 active project binding 存取。
+- 执行的操作：
+  - 新增 `coding_orchestration/gateway_active_context.py`。
+  - 将 `_apply_active_project_to_task_if_missing()` 的 project context 回填、human decision 记录和 task reload 迁入新 helper。
+  - `CodingOrchestrator._apply_active_project_to_task_if_missing()` 保留兼容 wrapper 并委托新 helper。
+  - 新增 `tests/test_gateway_active_context.py`，覆盖 active project 回填、已有 project_path 不覆盖、无 active project 不改 task。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md` 和 `task_plan.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5212 行。
+  - `coding_orchestration/gateway_active_context.py`：35 行。
+  - `tests/test_gateway_active_context.py`：81 行。
+- 已验证：
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/gateway_active_context.py tests/test_gateway_active_context.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_gateway_active_context tests.test_gateway_project_task_flow tests.test_gateway_natural_language_command_flow tests.test_command_run_flow -v`：25 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：649 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5212 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 116：解耦架构 run orchestration service 第一切片
+- **状态：** complete
+- 背景：
+  - Task 30 进入 Run orchestration service 闭环；`start_run()` 仍过大，但直接整体搬迁会同时碰 workspace、manifest、prompt、runner、diff guard、report 和状态推进。
+  - 本切片先迁出可验证的小闭环：后台 queued/running 等待完成、后台启动失败状态收敛、merge-test `human_required` 转 pending action。
+- 执行的操作：
+  - 新增 `coding_orchestration/run_orchestration_service.py`。
+  - 将 `_wait_for_background_run_completion()`、`_mark_background_run_failed()` 和 `_store_pending_action_from_merge_test_result()` 的主体迁入新 helper。
+  - `CodingOrchestrator` 保留兼容 wrapper，并继续作为 host façade 提供 ledger、reconcile、report 读取、QA evidence 和 pending action binding 写入。
+  - 新增 `tests/test_run_orchestration_service.py`，覆盖等待完成 reconcile、stale active run、失败 transition、终态保护、transition rejected decision 记录、非人工确认忽略和 QA 风险 flag。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5154 行。
+  - `coding_orchestration/run_orchestration_service.py`：99 行。
+  - `tests/test_run_orchestration_service.py`：171 行。
+- 已验证：
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service -v`：7 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service tests.test_background_run_notifier tests.test_plan_run_flow tests.test_command_run_flow tests.test_qa_flow tests.test_merge_test_qa_gate_flow -v`：41 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：656 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5154 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 117：解耦架构 run completion projection 第二切片
+- **状态：** complete
+- 背景：
+  - 阶段 116 已迁出后台等待、失败收敛和 merge-test pending action。
+  - `start_run()` 内仍直接拼装 completion 后的 task status、phase、running override、merge-test human_required retry 状态和 report 投影字段；这属于 run orchestration 应用层，不应继续散在 orchestrator。
+- 执行的操作：
+  - `coding_orchestration/run_orchestration_service.py` 新增 `RunCompletionProjection` 和 `project_run_completion()`。
+  - `project_run_completion()` 复用 `RunService.task_status_for_run_result()` 与 `RunService.task_phase_for_run_result()`，统一输出 `status`、`task_status`、`task_phase`、`run_still_active` 和投影后的 report。
+  - `CodingOrchestrator.start_run()` 删除内联投影判断，改为消费 `run_orchestration_service.project_run_completion()`；文件写回、ledger transition、artifact/agent_run append 和 session metadata 更新仍留在 orchestrator。
+  - 扩展 `tests/test_run_orchestration_service.py`，新增 plan success、running、merge-test human_required retry、failed merge-test 不放行四类投影合同。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5149 行。
+  - `coding_orchestration/run_orchestration_service.py`：151 行。
+  - `tests/test_run_orchestration_service.py`：227 行。
+- 已验证：
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service -v`：11 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：50 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：660 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5149 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 118：解耦架构 agent run record 构造第三切片
+- **状态：** complete
+- 背景：
+  - 阶段 117 已迁出 run completion projection，但 agent run record 仍由 `start_run()` 直接拼装。
+  - 这段是纯完成态数据合同，适合进入 run orchestration helper；落库动作继续由 orchestrator 控制。
+- 执行的操作：
+  - `coding_orchestration/run_orchestration_service.py` 新增 `build_agent_run_record()`。
+  - `CodingOrchestrator.start_run()` 先计算 `run_source_branch`，再调用 helper 构造 agent run record；`append_artifact()`、`append_agent_run()`、merge record、runner session update、summary/writeback 仍留在 orchestrator。
+  - 扩展 `tests/test_run_orchestration_service.py`，覆盖 plan-only record、implementation record、merge-test target branch 与 stale completion。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5143 行。
+  - `coding_orchestration/run_orchestration_service.py`：195 行。
+  - `tests/test_run_orchestration_service.py`：310 行。
+- 已验证：
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service -v`：14 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：53 tests passed。
+
+### 阶段 119：解耦架构长期阶段操作模型补强
+- **状态：** complete
+- 背景：
+  - 用户再次强调要把工作阶段全线列出来，并保证能够长期迭代、职责清晰。
+  - 现有技术方案和设计文档已有 0-17 阶段、Task 28-36 队列和责任矩阵，但还需要把“每一轮怎么推进”写成固定操作模型，避免后续按文件大小随意拆或把逻辑堆回 orchestrator。
+- 执行的操作：
+  - 在 `PLUGIN_TECHNICAL_SOLUTION.md` 的“解耦改造工作阶段全线图”中补充长期迭代操作模型：定域、建基线、先写合同、façade 迁移、清理旧耦合、同步事实、回流治理。
+  - 在 `docs/plans/2026-06-16-decoupled-architecture-implementation.md` 补充同一套长期迭代操作模型和硬性职责归属规则。
+  - 在 `task_plan.md` 和 `findings.md` 记录阶段 119 的目标、状态和架构发现。
+- 已验证：
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5143 lines`。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 120：解耦架构 runner session update 构造第四切片
+- **状态：** complete
+- 背景：
+  - Task 30 已迁出 run completion projection 和 agent run record 构造，但 `start_run()` 与 `_reconcile_completed_active_run()` 仍各自内联 runner session update 字段拼装。
+  - 这段逻辑是完成态数据合同，适合进入 `run_orchestration_service.py`；落库、attach command 字符串生成、summary 和 writeback 仍留在 orchestrator。
+- 执行的操作：
+  - 先在 `tests/test_run_orchestration_service.py` 增加 3 个合同测试，覆盖 completed 保留 session、runner_failed 清空 session、still-running 不覆盖 active run 字段。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_service -v` 因 `build_runner_session_update` 缺失出现 3 个预期错误。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `build_runner_session_update()`。
+  - `CodingOrchestrator.start_run()` 和 `_reconcile_completed_active_run()` 改为调用 helper 构造 runner session update。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md` 和 `PLUGIN_TECHNICAL_SOLUTION.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5129 行。
+  - `coding_orchestration/run_orchestration_service.py`：233 行。
+  - `tests/test_run_orchestration_service.py`：373 行。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service -v`：17 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：56 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：666 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5129 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 121：解耦架构 merge-test run record 构造第五切片
+- **状态：** complete
+- 背景：
+  - 阶段 120 迁出 runner session update 后，`start_run()` 尾部仍内联 merge-test run record 字典。
+  - 该字典是纯完成态数据合同，适合进入 `run_orchestration_service.py`；是否 stale、是否 append、created_at 时间注入仍由 orchestrator 控制。
+- 执行的操作：
+  - 先在 `tests/test_run_orchestration_service.py` 增加 merge-test run record 合同测试。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_service -v` 因 `build_merge_test_run_record` 缺失出现 1 个预期错误。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `build_merge_test_run_record()`。
+  - `CodingOrchestrator.start_run()` 改为调用 helper 构造 merge-test run record。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md` 和 `PLUGIN_TECHNICAL_SOLUTION.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5127 行。
+  - `coding_orchestration/run_orchestration_service.py`：255 行。
+  - `tests/test_run_orchestration_service.py`：397 行。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service -v`：18 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：57 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：667 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5127 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 122：解耦架构 start_run result payload 构造第六切片
+- **状态：** complete
+- 背景：
+  - 阶段 121 迁出 merge-test run record 后，`start_run()` 尾部仍内联 final return payload。
+  - 该 payload 是调用方可见的纯数据合同，适合进入 `run_orchestration_service.py`；project writeback、summary、ledger 和 runner/report 副作用仍应留在 orchestrator。
+- 执行的操作：
+  - 先在 `tests/test_run_orchestration_service.py` 增加 2 个合同测试，覆盖正常 completion 和 stale completion observation。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_service -v` 因 `build_start_run_result_payload` 缺失出现 2 个预期错误。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `build_start_run_result_payload()`。
+  - `CodingOrchestrator.start_run()` 改为调用 helper 构造 final return payload。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5126 行。
+  - `coding_orchestration/run_orchestration_service.py`：287 行。
+  - `tests/test_run_orchestration_service.py`：450 行。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service -v`：20 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：59 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：669 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5126 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - 文档/架构最终轻量 gate：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed；`architecture_guard.py`、`git diff --check` 和敏感扫描复跑通过。
+  - 文档/架构最终轻量 gate：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed；`architecture_guard.py`、`git diff --check` 和敏感扫描复跑通过。
+
+### 阶段 123：解耦架构 project writeback payload 构造第七切片
+- **状态：** complete
+- 背景：
+  - 阶段 122 迁出 start_run final result payload 后，`start_run()` 仍内联传给 `_writeback_project_bugfix_completion()` 的 run result dict。
+  - 该 dict 是纯数据合同，适合进入 `run_orchestration_service.py`；实际 workitem writeback、stale completion skip、summary、ledger 和 runner/report 副作用仍应留在 orchestrator。
+- 执行的操作：
+  - 先在 `tests/test_run_orchestration_service.py` 增加 1 个合同测试，覆盖 `run_id/status/task_status/report` 字段和 `TaskStatus` 到字符串的转换。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_service -v` 因 `build_project_writeback_payload` 缺失出现 1 个预期错误。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `build_project_writeback_payload()`。
+  - `CodingOrchestrator.start_run()` 改为调用 helper 构造传给 `_writeback_project_bugfix_completion()` 的 payload。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5126 行。
+  - `coding_orchestration/run_orchestration_service.py`：303 行。
+  - `tests/test_run_orchestration_service.py`：468 行。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service -v`：21 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_bugfix_writeback_flow tests.test_orchestrator_tools -v`：17 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow tests.test_bugfix_writeback_flow -v`：61 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：670 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5126 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 124：解耦架构 completion report payload 构造第八切片
+- **状态：** complete
+- 背景：
+  - 阶段 123 迁出 project writeback payload 后，`start_run()` 和 `_reconcile_completed_active_run()` 仍存在 completion report payload 写回前的字段投影逻辑。
+  - `_reconcile_completed_active_run()` 还重复维护 merge-test `human_required` 回到 `ready_for_merge_test` 的语义，和 `project_run_completion()` 存在边界重复。
+- 执行的操作：
+  - 先在 `tests/test_run_orchestration_service.py` 增加 2 个合同测试，覆盖 completion report payload 不修改原 report、写入 `run_status/status/task_status/details`，以及 merge-test `human_required` 自动标记 `known_gaps=True`。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_service -v` 因 `build_completion_report_payload` 缺失和 `known_gaps` 未写入出现 2 个预期错误。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `build_completion_report_payload()`。
+  - `project_run_completion()` 改为调用 helper，并统一补齐 merge-test `human_required` 的 `known_gaps=True`。
+  - `CodingOrchestrator._reconcile_completed_active_run()` 改为复用 `project_run_completion()`；实际 `report.json` 写入、状态 transition、summary、ledger update 和 runner/report 副作用仍留在 orchestrator。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5121 行。
+  - `coding_orchestration/run_orchestration_service.py`：326 行。
+  - `tests/test_run_orchestration_service.py`：497 行。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service -v`：23 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow tests.test_bugfix_writeback_flow -v`：63 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：672 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5121 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 125：解耦架构 reconciled agent run record 构造第九切片
+- **状态：** complete
+- 背景：
+  - 阶段 124 已将 completion report payload 与 reconcile completion projection 收敛到 `run_orchestration_service.py`。
+  - `_reconcile_completed_active_run()` 仍内联构造 `merged_run` agent run upsert payload，这段是完成态纯数据合同，不需要直接访问 runner subprocess、Gateway 发送、workspace/git mutation 或 ledger 写入。
+- 执行的操作：
+  - 先在 `tests/test_run_orchestration_service.py` 增加 1 个合同测试，覆盖从 existing run、投影 report、artifact record 和 changed files 构造 reconciled agent run record，并保留 existing run extra field、QA artifact fallback、tested commit fallback 和既有 diff guard violations。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_service -v` 因 `build_reconciled_agent_run_record` 缺失出现 1 个预期错误。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `build_reconciled_agent_run_record()`。
+  - `CodingOrchestrator._reconcile_completed_active_run()` 中 `merged_run` 字典构造改为调用 helper；实际 `ledger.upsert_agent_run()`、artifact upsert、状态 transition、summary 写入和 runner session update 仍留在 orchestrator。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5107 行。
+  - `coding_orchestration/run_orchestration_service.py`：366 行。
+  - `tests/test_run_orchestration_service.py`：543 行。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service -v`：24 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow tests.test_bugfix_writeback_flow -v`：64 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests`：673 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5107 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 126：解耦架构 reconcile result payload 构造第十切片
+- **状态：** complete
+- 背景：
+  - 阶段 125 已将 active run reconcile 的 agent run upsert payload 构造迁到 `run_orchestration_service.py`。
+  - `_reconcile_completed_active_run()` 尾部仍内联返回给调用方的 result payload；该 payload 是纯数据合同，不需要访问 runner subprocess、Gateway 发送、workspace/git mutation 或 ledger 写入。
+- 执行的操作：
+  - 先在 `tests/test_run_orchestration_service.py` 增加 1 个合同测试，覆盖 reconcile 完成后返回 `task_id/run_id/mode/status/task_status/artifacts/reconciled`。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_service -v` 因 `build_reconcile_result_payload` 缺失出现 1 个预期错误。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `build_reconcile_result_payload()`。
+  - `CodingOrchestrator._reconcile_completed_active_run()` 尾部 return dict 改为调用 helper；实际 `report.json` 写入、状态 transition、artifact/agent_run upsert、summary 写入和 runner session update 仍留在 orchestrator。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5106 行。
+  - `coding_orchestration/run_orchestration_service.py`：388 行。
+  - `tests/test_run_orchestration_service.py`：566 行。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service -v`：25 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow tests.test_bugfix_writeback_flow -v`：65 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests`：674 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5106 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 127：解耦架构 existing run reconcile rules 第十一切片
+- **状态：** complete
+- 背景：
+  - 阶段 126 迁出 active run reconcile 返回 payload 后，`_reconcile_completed_active_run()` 仍通过两个 orchestrator 私有 helper 维护 existing run 的 mode 推断和 changed files fallback。
+  - 这两段是纯 run orchestration 规则，不需要访问 runner subprocess、Gateway 发送、workspace/git mutation 或 ledger 写入。
+- 执行的操作：
+  - 先在 `tests/test_run_orchestration_service.py` 增加 2 个合同测试，覆盖 mode 来源优先级 `report -> run -> runner.active_mode -> runner.last_requested_mode -> plan-only`，以及 changed files 优先读 report、否则 fallback 到 run diff_guard。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_service -v` 因 `run_mode_for_existing_run` 和 `changed_files_for_existing_run` 缺失出现 2 个预期错误。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `run_mode_for_existing_run()` 和 `changed_files_for_existing_run()`。
+  - `CodingOrchestrator._reconcile_completed_active_run()` 改为调用 service helper，并删除 orchestrator 内的 `_run_mode_for_existing_run()` / `_changed_files_for_existing_run()` 私有实现。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5076 行。
+  - `coding_orchestration/run_orchestration_service.py`：418 行。
+  - `tests/test_run_orchestration_service.py`：566 行。
+  - `tests/test_run_orchestration_reconcile_rules.py`：61 行。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service -v`：27 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow tests.test_bugfix_writeback_flow -v`：67 tests passed。
+  - 测试治理：将 existing run reconcile rules 合同拆到 `tests/test_run_orchestration_reconcile_rules.py`，避免 `tests/test_run_orchestration_service.py` 超过 600 行 watch limit。
+  - `rtk proxy python3 -m unittest discover -s tests`：676 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5076 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 128：解耦架构 start_run observation rules 第十二切片
+- **状态：** complete
+- 背景：
+  - 阶段 127 已将 active run reconcile 的 mode 推断和 changed files fallback 迁入 `run_orchestration_service.py`。
+  - `CodingOrchestrator.start_run()` 仍内联 runner report 观测字段补齐和 stale completion 判定；这些是纯数据规则，不需要访问 runner subprocess、Gateway 发送、workspace/git mutation 或 ledger 写入。
+- 执行的操作：
+  - 新增 `tests/test_run_orchestration_start_rules.py`，覆盖 `build_observed_run_report()` 不修改原 report、补齐 `modified_files` / QA artifacts / tested commit，以及 `observe_stale_completion()` 对 active run mismatch、cancelled task 和正常 active run 的判定。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `build_observed_run_report` / `observe_stale_completion` 缺失出现 4 个预期错误。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `StaleCompletionObservation`、`build_observed_run_report()` 和 `observe_stale_completion()`。
+  - `CodingOrchestrator.start_run()` 改为调用 helper 构造 runner report 观测字段，并复用 helper 判定 stale completion。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5073 行。
+  - `coding_orchestration/run_orchestration_service.py`：455 行。
+  - `tests/test_run_orchestration_service.py`：566 行。
+  - `tests/test_run_orchestration_start_rules.py`：80 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：4 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：4 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：31 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow tests.test_bugfix_writeback_flow -v`：71 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：680 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5073 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+
+### 阶段 129：解耦架构 start_run blocked report rules 第十三切片
+- **状态：** complete
+- 背景：
+  - 阶段 128 已把 `start_run()` 的 runner report 观测字段和 stale completion 判定迁到 `run_orchestration_service.py`。
+  - `CodingOrchestrator.start_run()` 仍内联 diff guard violation 与 implementation 成功但未提交改动时的 blocked report 拼装；这些是纯 report payload/projection 规则，不需要直接访问 runner subprocess、Gateway 发送、workspace/git mutation 或 ledger 写入。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 diff guard violation blocked report 保留既有 `risks/verification_limitations/next_actions`，以及 implementation commit missing blocked report 写入 `human_required`、风险、恢复动作和 diff evidence。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `build_diff_guard_blocked_report` / `build_implementation_commit_missing_report` 缺失出现 2 个预期错误。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `BlockedReportProjection`、`build_diff_guard_blocked_report()` 和 `build_implementation_commit_missing_report()`。
+  - `CodingOrchestrator.start_run()` 改为调用 helper 构造 diff guard 越权与 implementation 未提交的 blocked report；diff guard 收集、uncommitted changes 判断、checkpoint、实际 `report.json` 写入、状态 transition、artifact/agent_run append、summary 和 project writeback 仍留在 orchestrator。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5056 行。
+  - `coding_orchestration/run_orchestration_service.py`：524 行。
+  - `tests/test_run_orchestration_service.py`：566 行。
+  - `tests/test_run_orchestration_reconcile_rules.py`：61 行。
+  - `tests/test_run_orchestration_start_rules.py`：131 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：2 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：6 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：33 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow tests.test_bugfix_writeback_flow -v`：73 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：682 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5056 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 130：解耦架构 plan report session fields 第十四切片
+- **状态：** complete
+- 背景：
+  - 阶段 129 已把 `start_run()` 的 blocked report 拼装迁到 `run_orchestration_service.py`。
+  - `CodingOrchestrator.start_run()` 仍通过私有 helper 构造 plan-only completion 后写入 `task_session.plan_report` 的字段白名单；这是纯 report session payload 规则，不需要直接访问 runner subprocess、Gateway 发送、workspace/git mutation 或 ledger 写入。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 plan report session fields 只保留 `branch_slug_candidate`、`execution_policy_decision`、`user_facing_summary`、`technical_summary` 和 `next_actions`，并过滤 `implementation_landed`、`commit_sha`、`changed_files_summary`、`merge_readiness` 等 completion/implementation 字段。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `build_plan_report_session_fields` 缺失出现 2 个预期错误。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `build_plan_report_session_fields()`。
+  - `CodingOrchestrator.start_run()` 改为调用 helper 构造 `plan_report` session payload；`CodingOrchestrator._plan_report_session_fields()` 保留兼容 wrapper 并委托 helper；实际 `ledger.update_task_session()`、manifest/context 消费和后续 implementation branch 策略仍留在原边界。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5049 行。
+  - `coding_orchestration/run_orchestration_service.py`：535 行。
+  - `tests/test_run_orchestration_service.py`：566 行。
+  - `tests/test_run_orchestration_reconcile_rules.py`：61 行。
+  - `tests/test_run_orchestration_start_rules.py`：169 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：2 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：8 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：35 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_implementation_workspace_flow tests.test_status_reconcile_flow tests.test_plan_run_flow tests.test_command_run_flow -v`：27 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：684 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5049 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 131：解耦架构 execution policy decision 读取第十五切片
+- **状态：** complete
+- 背景：
+  - 阶段 130 已把 plan-only report 写入 `task_session.plan_report` 的字段白名单迁入 `run_orchestration_service.py`。
+  - `CodingOrchestrator.start_run()` 仍通过 orchestrator 私有读取逻辑拿到 `task_session.plan_report.execution_policy_decision`，再交给 `control_policy_for_mode()`；这段是纯 task session 读取规则，不需要访问 runner subprocess、Gateway 发送、workspace/git mutation 或 ledger 写入。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_start_rules.py`，覆盖从 `task_session.plan_report.execution_policy_decision` 读取决策，以及 `plan_report` / decision 非 dict 时返回 `{}`。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `latest_execution_policy_decision` 缺失出现 2 个预期 AttributeError。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `latest_execution_policy_decision()`。
+  - `CodingOrchestrator.start_run()` 改为调用 `run_orchestration_service.latest_execution_policy_decision(task)`；`CodingOrchestrator._latest_execution_policy_decision()` 保留兼容 wrapper 并委托 helper。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5044 行。
+  - `coding_orchestration/run_orchestration_service.py`：544 行。
+  - `tests/test_run_orchestration_service.py`：566 行。
+  - `tests/test_run_orchestration_reconcile_rules.py`：61 行。
+  - `tests/test_run_orchestration_start_rules.py`：208 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：2 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：10 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：37 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_status_reconcile_flow tests.test_plan_run_flow tests.test_command_run_flow tests.test_implementation_session_flow -v`：28 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：686 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5044 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 132：解耦架构 run diff guard violations 第十六切片
+- **状态：** complete
+- 背景：
+  - 阶段 131 已把 `start_run()` 读取 `task_session.plan_report.execution_policy_decision` 的纯规则迁到 `run_orchestration_service.py`。
+  - `CodingOrchestrator.start_run()` 仍内联 plan-only run 修改文件时追加 diff guard violation 的列表组合规则；这段只依赖 `mode`、已有 violations 和 changed files，不需要访问 runner subprocess、Gateway 发送、workspace/git mutation、report 写回或 ledger 写入。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 plan-only changed files 追加写入违规说明且不修改原始 violations；非 plan-only mode 保持既有 violations 不变。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `build_run_diff_guard_violations` 缺失出现 2 个预期 AttributeError。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `build_run_diff_guard_violations()`。
+  - `CodingOrchestrator.start_run()` 改为调用 helper 组合 run-level diff guard violations；diff snapshot、changed files 收集、allowed/forbidden path 检查、diff summary 写入、blocked report 构造、状态推进和 ledger 更新仍留在 orchestrator。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5044 行。
+  - `coding_orchestration/run_orchestration_service.py`：559 行。
+  - `tests/test_run_orchestration_service.py`：566 行。
+  - `tests/test_run_orchestration_reconcile_rules.py`：61 行。
+  - `tests/test_run_orchestration_start_rules.py`：236 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：2 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：12 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：39 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_status_reconcile_flow tests.test_command_run_flow tests.test_implementation_session_flow -v`：28 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：688 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5044 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 133：解耦架构 verification limitations fallback 第十七切片
+- **状态：** complete
+- 背景：
+  - 阶段 132 已把 plan-only run 对 changed files 追加 diff guard violation 的列表组合规则迁到 `run_orchestration_service.py`。
+  - `CodingOrchestrator._ensure_verification_limitations()` 仍内联 blocked/partial report 缺少结构化恢复信息时的 fallback projection；这段只依赖 report、status 和 stdout/stderr artifact 路径，不需要访问 runner subprocess、Gateway 发送、workspace/git mutation、report 写回或 ledger 写入。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_start_rules.py`，覆盖缺少 `verification_limitations` 时追加 `blocked_or_partial_without_details` 恢复详情，且不修改原始 report；已有恢复详情时保持不覆盖。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `ensure_verification_limitations` 缺失出现 2 个预期 AttributeError。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `ensure_verification_limitations()`。
+  - `CodingOrchestrator._ensure_verification_limitations()` 改为委托 service helper；artifact 路径提供、实际 `report.json` 写入、状态 transition、artifact/agent_run append、summary 和 project writeback 仍留在 orchestrator。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5033 行。
+  - `coding_orchestration/run_orchestration_service.py`：589 行。
+  - `tests/test_run_orchestration_service.py`：566 行。
+  - `tests/test_run_orchestration_reconcile_rules.py`：61 行。
+  - `tests/test_run_orchestration_start_rules.py`：271 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：2 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：14 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：41 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_status_reconcile_flow tests.test_command_run_flow tests.test_implementation_result_flow tests.test_qa_flow -v`：39 tests passed。
+  - 文档同步：`docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md` 和 `PLUGIN_TECHNICAL_SOLUTION.md` 已补充 `verification limitations fallback projection` / `ensure_verification_limitations()` 归属。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：690 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5033 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 134：解耦架构 run background orchestration host helper 第十八切片
+- **状态：** complete
+- 背景：
+  - 阶段 133 后，`run_orchestration_service.py` 已达 589 行，接近 600 行 watch 阈值。
+  - 该文件末尾仍包含后台 queued/running 等待完成、后台启动失败状态收敛和 merge-test `human_required` pending action host orchestration；这些 helper 通过 host façade 调用 ledger/reconcile/report/binding，不属于纯 run projection / payload 组合。
+- 执行的操作：
+  - 新增 `tests/test_run_background_orchestration.py`，覆盖后台等待完成、stale active run 返回原结果、后台失败 transition、终态不覆盖、transition rejected 落 human decision、非 human_required 不写 pending action、QA risk flag pending action。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_background_orchestration -v` 因 `run_background_orchestration` 缺失出现 1 个预期 ImportError。
+  - 新增 `coding_orchestration/run_background_orchestration.py`。
+  - `CodingOrchestrator._wait_for_background_run_completion()`、`_mark_background_run_failed()` 和 `_store_pending_action_from_merge_test_result()` 改为调用新模块。
+  - 从 `coding_orchestration/run_orchestration_service.py` 和 `tests/test_run_orchestration_service.py` 移除对应后台 host helper 与测试，保持 run service 的纯 projection / payload 边界。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5034 行。
+  - `coding_orchestration/run_orchestration_service.py`：496 行。
+  - `coding_orchestration/run_background_orchestration.py`：99 行。
+  - `tests/test_run_orchestration_service.py`：404 行。
+  - `tests/test_run_background_orchestration.py`：171 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_background_orchestration -v`：1 个预期 ImportError。
+  - `rtk proxy python3 -m unittest tests.test_run_background_orchestration -v`：7 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_service tests.test_run_orchestration_start_rules tests.test_run_orchestration_reconcile_rules -v`：34 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py coding_orchestration/run_background_orchestration.py tests/test_run_background_orchestration.py tests/test_run_orchestration_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow tests.test_background_run_notifier tests.test_run_background_orchestration -v`：53 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：690 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5034 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 恢复验证：2026-06-17 阶段 134 收口复跑
+- **状态：** complete
+- 背景：
+  - 阶段 134 已标记完成；恢复会话后需要确认最新工作树仍满足完整 gate。
+- 执行的操作：
+  - 读取 `task_plan.md`、`progress.md`、`findings.md`，并运行 session catchup；catchup 仍提示 Codex 原生日志解析未实现，非阻断。
+  - 复核 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md` 和 `contracts/project-context.yaml`，确认 run background orchestration / run orchestration service 边界已同步。
+- 已验证：
+  - `rtk proxy python3 -m unittest discover -s tests -v`：690 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5034 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 135：解耦架构 run manifest session metadata projection 第十九切片
+- **状态：** complete
+- 背景：
+  - `CodingOrchestrator.start_run()` 仍内联两段 manifest session metadata 拼装：初始 resume session 写入，以及 runner 完成后根据 stdout/session id 回写 `session_id`、`resume_session_id`、attach/resume command 和 visibility。
+  - 这些规则属于 run manifest/session policy，不应继续散落在 orchestrator；orchestrator 只应负责 session id 来源探测和 manifest 文件写回。
+- 执行的操作：
+  - 扩展 `tests/test_run_manifest_service.py`，覆盖 `build_manifest_session_fields()` 对 Codex runner、non-Codex runner、既有 resume session 保留和强制 visible 策略的字段投影。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_manifest_service -v` 因 `build_manifest_session_fields` 缺失出现 1 个预期 ImportError。
+  - `coding_orchestration/run_manifest_service.py` 新增 `build_manifest_session_fields()`，并让 `update_manifest_session_metadata()` 复用同一字段投影。
+  - `CodingOrchestrator.start_run()` 中初始 resume session 和 runner 完成后 manifest session 字段拼装改为消费 `run_manifest_service.build_manifest_session_fields()`。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：5034 行。
+  - `coding_orchestration/run_manifest_service.py`：309 行。
+  - `tests/test_run_manifest_service.py`：230 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_manifest_service -v`：1 个预期 ImportError。
+  - `rtk proxy python3 -m unittest tests.test_run_manifest_service -v`：11 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_manifest_service tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：38 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_manifest_service.py tests/test_run_manifest_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 5034 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：693 tests passed。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+
+### 阶段 136：解耦架构 pre-run failure report payload 第二十切片
+- **状态：** complete
+- 背景：
+  - `CodingOrchestrator._runner_failed_result()` 和 `_checkpoint_failed_result()` 仍内联结构化 report payload 拼装，包含 runner 异常、QA/merge-test clean-tree checkpoint 失败时的 summary、risk、verification limitations、QA artifact 空对象和 tested commit 字段。
+  - 这些字段是纯 report projection，不应继续以 hard-coded dict 形式留在 orchestrator；orchestrator 只应负责 artifact 文件写入和 `RunResult` 包装。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 runner failed payload 和 checkpoint failed payload 的结构化恢复合同。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `build_runner_failed_report_payload` / `build_checkpoint_failed_report_payload` 缺失出现 2 个预期 AttributeError。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `RunFailureReportProjection`、`build_runner_failed_report_payload()`、`build_checkpoint_failed_report_payload()` 和内部 `_empty_qa_artifacts()`。
+  - `CodingOrchestrator._runner_failed_result()` 和 `_checkpoint_failed_result()` 改为消费 helper；文件写入、artifact path 和 `RunResult` 构造仍留在 orchestrator。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4986 行。
+  - `coding_orchestration/run_orchestration_service.py`：593 行。
+  - `tests/test_run_orchestration_start_rules.py`：333 行。
+  - `tests/test_run_orchestration_service.py`：404 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：2 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：16 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：36 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_command_run_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：33 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4986 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：695 tests passed。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+- 剩余风险：
+  - `run_orchestration_service.py` 已到 593 行，接近 600 行治理阈值；下一轮继续迁入 start_run 规则前应优先拆分或压缩该模块。
+
+### 阶段 137：解耦架构 run failure report projection 模块拆分
+- **状态：** complete
+- 背景：
+  - 阶段 136 后，`run_orchestration_service.py` 到 593 行，接近 600 行治理阈值。
+  - runner 异常和 QA/merge-test checkpoint 失败的 payload 已是独立纯 projection 职责，不需要继续留在 run orchestration service 内。
+- 执行的操作：
+  - 新增 `tests/test_run_failure_report_projection.py`，要求 `RunFailureReportProjection`、`build_runner_failed_report_payload()` 和 `build_checkpoint_failed_report_payload()` 可从独立模块导入，并确认 `run_orchestration_service.py` 兼容 re-export 同一函数对象。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_failure_report_projection -v` 因 `coding_orchestration.run_failure_report_projection` 缺失出现 1 个预期 ImportError。
+  - 新增 `coding_orchestration/run_failure_report_projection.py`，迁入 runner failed / checkpoint failed report projection。
+  - `coding_orchestration/run_orchestration_service.py` 删除本地 failure projection 定义，改为从新模块 import 并 re-export，保持旧调用点兼容。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4986 行。
+  - `coding_orchestration/run_orchestration_service.py`：500 行。
+  - `coding_orchestration/run_failure_report_projection.py`：104 行。
+  - `tests/test_run_failure_report_projection.py`：48 行。
+  - `tests/test_run_orchestration_start_rules.py`：333 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_failure_report_projection -v`：1 个预期 ImportError。
+  - `rtk proxy python3 -m unittest tests.test_run_failure_report_projection tests.test_run_orchestration_start_rules -v`：18 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_failure_report_projection tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：38 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_command_run_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：33 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_orchestration_service.py coding_orchestration/run_failure_report_projection.py tests/test_run_failure_report_projection.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4986 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：697 tests passed。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+- 遇到的错误：
+  - 一次 `rg` 查询里包含未转义反引号，zsh 将部分 pattern 当命令执行；已改用单引号重新查询，结果可用且无敏感命中。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 和 run lifecycle 中仍有可迁出的纯规则/副作用接线；下一轮可继续在 500 行以内谨慎迁移，或继续按职责拆出更小 projection 模块。
+
+### 阶段 138：解耦架构 run report refinement projection 第二十二切片
+- **状态：** complete
+- 背景：
+  - 阶段 137 已将 runner/checkpoint failure report projection 拆到独立模块，`run_orchestration_service.py` 回落到 500 行。
+  - `CodingOrchestrator.start_run()` 仍内联 observed report 的初始 status details、diff guard blocked 优先级、implementation 状态归一和 implementation commit-missing blocked 选择；这段是纯 report refinement projection，不需要访问 runner subprocess、Gateway 发送、workspace/git mutation、report 写回或 ledger 写入。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 diff guard blocked 在状态归一前生效、implementation 成功后要求 host 做 dirty-check、以及 host 确认未提交后生成 implementation commit missing blocked report。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `refine_run_report_projection` 缺失出现 3 个预期 AttributeError。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `RunReportRefinement` 和 `refine_run_report_projection()`。
+  - `CodingOrchestrator.start_run()` 改为消费 refinement helper；session metadata、workspace dirty 检查、checkpoint manifest 写入、`report.json` 写入、状态 transition、artifact/agent_run append、summary 和 project writeback 仍留在 orchestrator。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`docs/plans/2026-06-16-decoupled-architecture-design.md`、`docs/plans/2026-06-16-decoupled-architecture-implementation.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4978 行。
+  - `coding_orchestration/run_orchestration_service.py`：561 行。
+  - `tests/test_run_orchestration_start_rules.py`：398 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：3 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：19 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_failure_report_projection tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：41 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_command_run_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：33 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4978 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：700 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`run_orchestration_service.py` 当前 561 行，继续增长接近 600 行阈值；下一轮应优先选择更小 projection 模块或先压缩职责，避免 run service 重新膨胀。
+
+### 阶段 139：解耦架构 run report refinement projection 模块拆分
+- **状态：** complete
+- 背景：
+  - 阶段 138 将 run report refinement projection 临时放入 `run_orchestration_service.py` 后，该文件增至 561 行，继续接近 600 行治理阈值。
+  - diff guard / implementation commit missing blocked report 与 run report refinement 都是纯 projection，不需要驻留在 run service 主模块，也不需要访问 runner subprocess、Gateway 发送、workspace/git mutation、report 写回或 ledger 写入。
+- 执行的操作：
+  - 新增 `tests/test_run_report_refinement_projection.py`，要求 `coding_orchestration.run_report_refinement_projection` 独立模块存在，并验证 `run_orchestration_service` 保留兼容 re-export。
+  - 确认 RED：缺少 `coding_orchestration.run_report_refinement_projection` 时新增测试失败。
+  - 新增 `coding_orchestration/run_report_refinement_projection.py`，承接 `BlockedReportProjection`、`RunReportRefinement`、`build_diff_guard_blocked_report()`、`build_implementation_commit_missing_report()` 和 `refine_run_report_projection()`。
+  - `coding_orchestration/run_orchestration_service.py` 改为从新模块 re-export refinement projection helper，旧调用点和旧 tests 不改名。
+  - 同步 `task_plan.md`、项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案和发现。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4978 行。
+  - `coding_orchestration/run_orchestration_service.py`：438 行。
+  - `coding_orchestration/run_report_refinement_projection.py`：136 行。
+  - `tests/test_run_report_refinement_projection.py`：46 行。
+- 已验证：
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_orchestration_service.py coding_orchestration/run_report_refinement_projection.py tests/test_run_report_refinement_projection.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_report_refinement_projection -v`：2 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_report_refinement_projection tests.test_run_failure_report_projection tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：43 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_command_run_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：33 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4978 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：702 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 生命周期仍有可迁出的纯 projection / payload 组合；本轮把 refinement projection 独立模块化后，`run_orchestration_service.py` 回落到 438 行，后续新增前仍应优先评估是否已有更小职责模块。
+
+### 阶段 140：解耦架构 run start session update projection 第二十四切片
+- **状态：** complete
+- 背景：
+  - `CodingOrchestrator.start_run()` 仍直接拼装 run 启动前 `ledger.update_task_session()` payload，包括 `project_name`、runner provider/last mode、source branch/base、worktree 和 QA/merge-test resume session。
+  - 这些 payload 是纯 projection，不需要访问 runner subprocess、Gateway 发送、workspace/git mutation 或 ledger 写入；orchestrator 应只负责选择/创建 workspace、计算 branch、调用 ledger。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 base session update、implementation workspace session update、QA/merge-test resume session update 和非 workspace mode 空更新。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `build_run_start_base_session_update()` / `build_run_start_workspace_session_update()` 缺失出现 4 个预期 AttributeError。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `build_run_start_base_session_update()` 和 `build_run_start_workspace_session_update()`。
+  - `CodingOrchestrator.start_run()` 改为消费 run start session update helper；workspace 选择/创建、source branch/base 计算、ledger 写入、manifest/prompt、runner 启动和状态推进仍留在 orchestrator。
+  - 同步 `task_plan.md`、项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案和发现。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4976 行。
+  - `coding_orchestration/run_orchestration_service.py`：475 行。
+  - `tests/test_run_orchestration_start_rules.py`：467 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：4 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：23 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_implementation_workspace_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_qa_gate_flow tests.test_run_orchestration_service -v`：46 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4976 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：706 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 生命周期还可继续拆分；`orchestrator.py` 仍是 legacy large-file watch，后续目标仍是降到 3000 行以内并逐步移出豁免。
+
+### 阶段 141：解耦架构 active run session update projection 第二十五切片
+- **状态：** complete
+- 背景：
+  - `CodingOrchestrator.start_run()` 在 runner 启动前仍内联 `ledger.update_task_session()` payload：`runner.active_run_id` 和 `runner.active_mode`。
+  - 该 payload 是纯 projection，不需要访问 runner subprocess、Gateway 发送、workspace/git mutation、manifest 写入或 ledger 写入；orchestrator 应只负责调用 ledger、状态 transition 和 runner 启动。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 active run session update payload。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `build_active_run_session_update()` 缺失出现 1 个预期 AttributeError。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `build_active_run_session_update()`。
+  - `CodingOrchestrator.start_run()` 改为消费 active run session update helper；ledger 写入、running phase、状态 transition、runner 启动和失败清理仍留在 orchestrator。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4974 行。
+  - `coding_orchestration/run_orchestration_service.py`：488 行。
+  - `tests/test_run_orchestration_start_rules.py`：483 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：1 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：24 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：44 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4974 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：707 tests passed。
+- 遇到的错误：
+  - 一次 `rg` 查询 pattern 使用双引号且包含反引号，zsh 误尝试执行反引号内容；已改用单引号重新运行相关扫描，敏感值扫描无命中。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 生命周期还可继续拆分；`orchestrator.py` 仍是 legacy large-file watch，后续目标仍是降到 3000 行以内并逐步移出豁免。
+
+### 阶段 142：解耦架构 run context source projection 第二十六切片
+- **状态：** complete
+- 背景：
+  - `CodingOrchestrator.start_run()` 仍内联 `RunMode -> confirmed_context` 的三元规则：implementation 读取 confirmed plan，QA/merge-test 读取 merge-test context，其他模式为空。
+  - 该选择是纯 projection 规则，不需要访问 runner subprocess、Gateway 发送、workspace/git mutation、manifest 写入、ledger 写入或具体 task 内容；orchestrator 只应负责实际上下文读取。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 implementation、QA、merge-test、plan-only 和 decomposition 的 context source 选择。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `run_context_source_for_mode()` 缺失出现 1 个预期 AttributeError。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `RUN_CONTEXT_SOURCE_CONFIRMED_PLAN`、`RUN_CONTEXT_SOURCE_MERGE_TEST_CONTEXT` 和 `run_context_source_for_mode()`。
+  - `CodingOrchestrator.start_run()` 改为消费 context source helper；实际 `_confirmed_plan_for_task()`、`_merge_test_context_for_task()`、context artifact 写入、prompt 构造和 runner 启动仍留在 orchestrator。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4974 行。
+  - `coding_orchestration/run_orchestration_service.py`：500 行。
+  - `tests/test_run_orchestration_start_rules.py`：505 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：1 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：25 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：45 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_command_run_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_qa_gate_flow -v`：35 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4974 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：708 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍有 runner/prompt/report/ledger 副作用闭环可继续拆；`orchestrator.py` 仍是 legacy large-file watch，后续目标仍是降到 3000 行以内并逐步移出豁免。
+
+### 阶段 143：解耦架构 run checkpoint selection projection 第二十七切片
+- **状态：** complete
+- 背景：
+  - `CodingOrchestrator.start_run()` 仍内联 QA/merge-test checkpoint 选择和 failed checkpoint 判定。
+  - 该选择是纯 mode projection / shape check，不需要直接访问 runner subprocess、Gateway 发送、workspace/git mutation、manifest 写入或 ledger 写入。
+  - `workspace_checkpoint_service.py` 继续负责 checkpoint 准备；`run_failure_report_projection.py` 继续负责 checkpoint failed report payload；本切片只迁移“选择哪个 checkpoint”和“是否 failed”的纯规则。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_start_rules.py`，覆盖 QA 选择 `qa_checkpoint`、merge-test 选择 `merge_test_checkpoint`、implementation 返回 `None`，以及只有 `{"status": "failed"}` dict 才判为 failed。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `run_checkpoint_for_mode()` 和 `run_checkpoint_failed()` 缺失出现 2 个预期 AttributeError。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `run_checkpoint_for_mode()` 和 `run_checkpoint_failed()`。
+  - `CodingOrchestrator.start_run()` 改为消费 checkpoint selection helper；checkpoint 准备、failure `RunResult` 包装、runner 启动、manifest 文件写入、状态推进仍留在 orchestrator。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4971 行。
+  - `coding_orchestration/run_orchestration_service.py`：517 行。
+  - `tests/test_run_orchestration_start_rules.py`：540 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：2 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：27 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：47 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4971 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：710 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍有 runner/prompt/report/ledger 副作用闭环可继续拆；`orchestrator.py` 仍是 legacy large-file watch，后续目标仍是降到 3000 行以内并逐步移出豁免。
+
+### 阶段 144：解耦架构 QA evidence observation selection projection 第二十八切片
+- **状态：** complete
+- 背景：
+  - `CodingOrchestrator.start_run()` 仍用 `mode == RunMode.QA` 直接决定是否收集 QA artifacts 和 tested commit。
+  - 这个判断本身是纯 mode projection，不需要直接访问 runner subprocess、Gateway 发送、workspace/git mutation、report 写入或 ledger 写入；实际 `_collect_qa_artifacts()` 与 `_git_head()` 仍应留在 orchestrator / workspace checkpoint 边界。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_start_rules.py`，覆盖只有 QA mode 需要观测 QA evidence，implementation、merge-test、plan-only、decomposition 均不观测。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `run_observes_qa_evidence()` 缺失出现 1 个预期 AttributeError。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `run_observes_qa_evidence()`。
+  - `CodingOrchestrator.start_run()` 改为先读取 `observe_qa_evidence`，再由 orchestrator 调用 `_collect_qa_artifacts()` 和 `_git_head()`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4972 行。
+  - `coding_orchestration/run_orchestration_service.py`：521 行。
+  - `tests/test_run_orchestration_start_rules.py`：547 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：1 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：28 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：48 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4972 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：711 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍有 runner/prompt/report/ledger 副作用闭环可继续拆；`orchestrator.py` 仍是 legacy large-file watch，后续目标仍是降到 3000 行以内并逐步移出豁免。
+
+### 阶段 145：解耦架构 run source branch recording selection projection 第二十九切片
+- **状态：** complete
+- 背景：
+  - `CodingOrchestrator.start_run()` 尾部仍用 `mode in {RunMode.IMPLEMENTATION, RunMode.QA, RunMode.MERGE_TEST}` 直接决定是否调用 `_source_branch_for_task()` 并记录到 agent run / merge-test run record。
+  - 这个判断本身是纯 mode projection，不需要直接计算 source branch、读取 workspace、访问 git、写 ledger 或写 report；实际 source branch 计算仍应留在 workspace checkpoint/orchestrator 边界。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_start_rules.py`，覆盖只有 implementation / QA / merge-test mode 需要记录 source branch，plan-only 和 decomposition 不记录。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `run_records_source_branch()` 缺失出现 1 个预期 AttributeError。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `run_records_source_branch()`。
+  - `CodingOrchestrator.start_run()` 改为先读取 source branch recording helper，再由 orchestrator 调用 `_source_branch_for_task()`。
+  - `build_agent_run_record()` 内部也复用同一 helper，避免 mode set 在 run projection 中重复漂移。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4972 行。
+  - `coding_orchestration/run_orchestration_service.py`：525 行。
+  - `tests/test_run_orchestration_start_rules.py`：554 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：1 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：29 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：49 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4972 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：712 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍有 runner/prompt/report/ledger 副作用闭环可继续拆；`orchestrator.py` 仍是 legacy large-file watch，后续目标仍是降到 3000 行以内并逐步移出豁免。
+
+### 阶段 146：解耦架构 run project path requirement selection projection 第三十切片
+- **状态：** complete
+- 背景：
+  - `CodingOrchestrator.start_run()` 仍直接用 `mode != RunMode.DECOMPOSITION` 判断缺少 `project_path` 时是否允许继续。
+  - 这个判断是纯 mode gate，不需要 transition task、生成错误消息、解析项目路径、写 ledger、写 manifest 或启动 runner。
+- 执行的操作：
+  - 扩展 `tests/test_run_orchestration_start_rules.py`，覆盖只有 decomposition mode 不要求 project path，plan-only / implementation / QA / merge-test 都要求 project path。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v` 因 `run_requires_project_path()` 缺失出现 1 个预期 AttributeError。
+  - `coding_orchestration/run_orchestration_service.py` 新增 `run_requires_project_path()`。
+  - `CodingOrchestrator.start_run()` 改为消费 project path requirement helper；状态 transition、错误消息、项目路径解析和 runner 启动仍留在 orchestrator。
+  - 同步 `task_plan.md`、项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案和发现。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4972 行。
+  - `coding_orchestration/run_orchestration_service.py`：529 行。
+  - `tests/test_run_orchestration_start_rules.py`：561 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：1 个预期 AttributeError。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules -v`：30 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/run_orchestration_service.py tests/test_run_orchestration_start_rules.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_service tests.test_run_orchestration_reconcile_rules -v`：50 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_delivery_flow tests.test_delivery_service tests.test_command_run_flow tests.test_plan_run_flow -v`：37 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4972 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+  - 敏感值扫描：无命中，`rg` 返回 1 且无输出。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：713 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍有 workspace 选择、manifest checkpoint 准备、prompt 构造、runner 启动、report 写回和 ledger 收尾副作用闭环；后续应继续只按单一职责域小步迁移。
 
 ---
 *每个阶段完成后或遇到错误时更新此文件*

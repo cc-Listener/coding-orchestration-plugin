@@ -237,27 +237,35 @@ coding_orchestration:
   ledger_db: ~/.hermes/coding-orchestration/ledger.db
   run_root: ~/.hermes/coding-orchestration/runs
   workspace_root: ~/.hermes/coding-orchestration/workspaces
-  feishu_project_mcp:
-    enabled: true
-    domain: https://project.feishu.cn
-    transport: stdio
-    token_ref: env:FEISHU_PROJECT_MCP_TOKEN
-    intake_rules:
-      - name: story-ready-for-coding
-        space: BPS空间
-        workitem_type: 需求
-        mql: '状态 = "待开发"'
-        create_coding_task: true
   llm_wiki:
     adapter: local
     root: ~/.hermes/coding-orchestration/llm-wiki
 ```
 
-飞书项目 MCP 建议先在非生产空间验证，token 只放在运行进程环境中，不写入仓库或 `.env`。本地检查：
+飞书项目 MCP 不写入 Hermes 配置；插件只读取 `~/.hermes/coding-orchestration/mcp.json`：
+
+```json
+{
+  "mcpServers": {
+    "feishu-project": {
+      "enabled": true,
+      "command": "npx",
+      "args": ["-y", "@lark-project/mcp"],
+      "domain": "https://project.feishu.cn",
+      "env": {
+        "MCP_USER_TOKEN": "<MCP_USER_TOKEN_VALUE>"
+      }
+    }
+  }
+}
+```
+
+飞书项目 MCP 建议先在非生产空间验证，token 只放在本机运行配置和 MCP 子进程环境中，不写入仓库或 `.env`。本地检查：
 
 ```bash
 rtk node --version
 rtk npx --version
+rtk chmod 600 ~/.hermes/coding-orchestration/mcp.json
 rtk hermes coding project-mcp-preflight
 ```
 

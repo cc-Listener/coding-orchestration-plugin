@@ -46,20 +46,31 @@ rtk hermes coding project-mcp-preflight
 rtk proxy curl -sS http://127.0.0.1:8642/health
 ```
 
-飞书项目 MCP 是插件内私有能力，不是 `install_symlink.py` 的安装硬门禁。需要自动 intake Story、编辑 WBS、流转 Issue 状态或创建 bugfix task 时，再配置：
+飞书项目 MCP 是插件内私有能力，不是 `install_symlink.py` 的安装硬门禁。需要自动 intake Story、编辑 WBS、流转 Issue 状态或创建 bugfix task 时，只配置插件运行根下的 `mcp.json`，不修改 Hermes 全局 `.env`：
 
-```text
-FEISHU_PROJECT_MCP_ENABLED=1
-FEISHU_PROJECT_MCP_DOMAIN=https://project.feishu.cn
-FEISHU_PROJECT_MCP_TRANSPORT=stdio
-FEISHU_PROJECT_MCP_TOKEN_REF=env:FEISHU_PROJECT_MCP_TOKEN
+```json
+{
+  "mcpServers": {
+    "feishu-project": {
+      "enabled": true,
+      "command": "npx",
+      "args": ["-y", "@lark-project/mcp"],
+      "domain": "https://project.feishu.cn",
+      "env": {
+        "MCP_USER_TOKEN": "<MCP_USER_TOKEN_VALUE>"
+      }
+    }
+  }
+}
 ```
 
-实际 token 只放在 Hermes Gateway 或本地验证进程环境中，不写入 `.env`、文档、LLM Wiki、测试 fixture 或 prompt。stdio 模式需要 Node.js 18+ 和 `npx` 可用：
+文件路径固定为 `~/.hermes/coding-orchestration/mcp.json`。该文件属于本机运行配置，建议权限设为 0600；不要把真实 token 写入仓库、文档、LLM Wiki、prompt、测试 fixture 或 run artifacts。stdio 模式需要 Node.js 18+ 和 `npx` 可用：
 
 ```bash
 rtk node --version
 rtk npx --version
+rtk chmod 600 ~/.hermes/coding-orchestration/mcp.json
+rtk hermes gateway restart
 rtk hermes coding project-mcp-preflight
 ```
 

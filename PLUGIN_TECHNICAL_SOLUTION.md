@@ -29,7 +29,7 @@ MVP 的判断标准不是功能完整，而是 workflow 可用、任务可追踪
 
 当前仓库已经是 Hermes plugin，本轮重点不是“再做 plugin 化”，而是深度使用 Hermes 原生能力。插件注册 `pre_gateway_dispatch` 和 `pre_llm_call`，并通过 `ctx.register_tool` 暴露 Hermes native tools：`coding_task_create`、`coding_task_status`、`coding_task_run`、`coding_source_resolve`、`coding_lark_preflight`、`coding_project_mcp_preflight`、`coding_project_intake_sync`、`coding_project_wbs_update`、`coding_project_state_transition` 和 `coding_project_bugfix_intake`。Hermes 主 agent 优先调用这些结构化 tools；`/coding <action>` 是人工入口和 fallback。
 
-飞书项目 Story / Issue / WBS / 状态流转读写通过插件内私有 `FeishuProjectMcpAdapter` 完成。Hermes 管理 MCP transport、`FEISHU_PROJECT_MCP_TOKEN_REF`、工具白名单、写操作确认、审计和脱敏；runner 不直接配置飞书项目 MCP，不持有 `MCP_USER_TOKEN`，也不直接写飞书项目。Lark Wiki/Docx 来源解析仍走插件内 `SourceResolver` 和 Feishu/Lark 文档 reader。Source/auth/permission 问题统一投影为 TaskStatus 主状态 `needs_human`，具体原因放在 `source_status` / `source_recovery_action`；blocked 只表示 hard human-blocked。
+飞书项目 Story / Issue / WBS / 状态流转读写通过插件内私有 `FeishuProjectMcpAdapter` 完成。插件只读取 `~/.hermes/coding-orchestration/mcp.json` 中的 `mcpServers.feishu-project` 配置，并负责 MCP transport、工具白名单、写操作确认、审计和脱敏；runner 不直接配置飞书项目 MCP，不持有 `MCP_USER_TOKEN`，也不直接写飞书项目。Lark Wiki/Docx 来源解析仍走插件内 `SourceResolver` 和 Feishu/Lark 文档 reader。Source/auth/permission 问题统一投影为 TaskStatus 主状态 `needs_human`，具体原因放在 `source_status` / `source_recovery_action`；blocked 只表示 hard human-blocked。
 
 飞书项目工作项关系写入 `project_workitem_bindings`：Story / 需求绑定 Hermes root task，WBS 行绑定 child task，Issue / Bug 绑定 bugfix task；Issue 可通过 `source_workitem_key` 归属到原需求 root task。已关联需求的 bugfix 使用 `branch_policy=inherit_root_branch` 并继承 root task 的 `source_branch`，merge-test / PR 由需求 root task 统一推进，避免每个 bugfix 长期分支再反复合并。
 
@@ -330,6 +330,118 @@ coding_orchestration plugin
 - Codex CLI 是 runner，不直接操作飞书、不决定项目、不自动发布。
 - LLM rewrite 只能产出标准命令 JSON，不能自行创建 task、启动 Codex 或修改状态；所有执行都由 Hermes 校验后复用 `/coding` handler。
 - 发布测试环境仍由人执行。
+
+### 4.1 解耦改造工作阶段全线图
+
+解耦不是一次性重构，而是一条长期治理轨道。工作阶段按“先合同、再服务、再 adapter、再治理回流”的顺序推进；每一阶段都必须保持现有 `/coding` 主流程可运行，并且不能破坏 plan-only 只读、人工确认、MCP 写入门禁、QA/merge-test 人工触发这些安全语义。
+
+全线工作分为四个批次：
+
+| 批次 | 覆盖阶段 | 目标 | 完成后形态 |
+| --- | --- | --- | --- |
+| A. 合同与边界 | 0-4 | 统一现状、配置、工具规格和端口合同 | 新能力先判断归属，再写实现 |
+| B. 应用服务迁移 | 5-9 | 把 workitem、task、run、status、delivery 业务用例从 orchestrator 迁到 service/policy | `CodingOrchestrator` 退为命令 façade 和副作用编排入口 |
+| C. Adapter 与资产拆分 | 10-14 | 把 prompt、runner、storage、source、skill 的外部系统细节收口到 adapter 或合同资产 | core/service 不感知 Codex CLI、MCP、Lark、SQLite、LLM Wiki 或 Hermes skill 细节 |
+| D. 测试、文档、治理回流 | 15-17 | 清理旧实现耦合测试，更新事实文档，引入行数、hard code 和边界漂移检查 | 新增耦合能被测试、脚本或 review 发现 |
+
+完整阶段如下：
+
+| 阶段 | 目标 | 主责域 | 验收信号 |
+| --- | --- | --- | --- |
+| 0. 现状盘点 | 量化耦合、大文件、hard code、旧测试绑定 | 架构治理 | 行数、hard code、旧测试和主流程风险有清单 |
+| 1. 架构合同 | 固化 core / service / port / adapter / host shell 边界 | 架构治理 + 文档合同 | 设计文档、实施计划、组件合同一致 |
+| 2. 配置边界 | 收口路径、命令、域名和 env key 默认值 | Config / Adapter binding | core/service 不直接读 env、`Path.home()` 或本机路径 |
+| 3. ToolSpec / IntentSpec | 工具端不再直接绑定 Hermes 注册细节 | Tool contract | Hermes native tools 和未来 MCP tools 共用同一规格 |
+| 4. Ports 反转依赖 | 业务逻辑只依赖稳定能力合同 | Port contract | service 只依赖端口，不 import 具体 adapter |
+| 5. MCP / WorkItem 解耦 | 飞书 Project MCP 读写进入工作项服务和 adapter | WorkItem service + MCP adapter | 读写经 `WorkItemPort`，写操作确认，token 不出 adapter |
+| 6. Task 用例解耦 | 任务创建、source indexing、状态 payload 服务化 | Task service | task 创建、查询、source 索引主流程兼容 |
+| 7. Run 生命周期解耦 | plan/implementation/QA/merge-test 生命周期服务化 | Run service | run blocker、timeout、phase、result mapping 有 contract |
+| 8. StatusPolicy | 状态、known gaps、runner failure 投影集中 | Domain policy | 新状态只能经状态策略进入用户可见状态 |
+| 9. DeliveryService | 父子任务、拆解、materialize、rollup 独立 | Delivery service | 交付拆解不污染主 task/run 生命周期 |
+| 10. Prompt 模板治理 | prompt 文案和 source/mode 模板从 builder 拆出 | Prompt contract | `PromptBuilder` 只组合模板，模板有 contract tests |
+| 11. Runner adapter 拆分 | Codex command、process、report、artifact 各自归属 | Runner adapter | runner 内部模块职责单一，runner façade 保持兼容 |
+| 12. Storage / Knowledge 拆分 | ledger schema/query/mutation 和 LLM Wiki 写入拆开 | Storage + Knowledge adapter | application service 不依赖 SQLite 或 Wiki layout |
+| 13. Source adapter 拆分 | URL 解析、Lark/Feishu/Meegle 读取、错误恢复收口 | Source adapter | 业务层只消费 `SourcePort` / `SourceResult` |
+| 14. Skill 解耦 | core skill host-agnostic，Hermes skill 只映射 | Skill contract | core skill 不包含 Hermes、`/coding`、运行根或 ledger 细节 |
+| 15. 旧测试清理 | 删除只保护旧 helper/旧文件形态的测试 | Test governance | 删除前已有等价 contract 或主流程覆盖 |
+| 16. 文档同步 | 文档与真实边界同步，避免文档反向制造耦合 | 文档合同 | README、Usage、Project Map、Component Contract 一致 |
+| 17. 长期治理 | 行数、hard code、边界漂移进入自动检查 | Architecture guard | 新增大文件、core/service hard code 或真实 token 模式会失败 |
+
+阶段责任矩阵：
+
+| 阶段范围 | 主责 | 协作 | 长期沉淀 |
+| --- | --- | --- | --- |
+| 0-1 现状与合同 | 架构治理 | 文档合同、测试治理、模块维护者 | 设计文档、实施计划、组件合同、风险清单 |
+| 2-4 配置 / 工具 / 端口 | Config / Tool / Port contract | Hermes host adapter、MCP adapter、application service | `RuntimeConfig`、`ToolSpec`、`ports.py` 和 contract tests |
+| 5-9 用例服务 | Application service | Ledger adapter、Source adapter、Runner adapter、Presenter | `TaskService`、`RunService`、`DeliveryService`、`WorkItemService` 和 domain policy |
+| 10-13 Adapter 与资产 | Prompt / Runner / Storage / Source adapter | Application service、Report policy、Knowledge adapter | prompt 模板、runner 子模块、storage repository、`SourceResult` |
+| 14 Skill 分层 | Skill contract | Hermes binding、Tool contract | host-agnostic core skill 和 Hermes binding skill |
+| 15-17 测试与治理 | Test governance + Architecture guard | 文档合同、模块维护者 | contract/main-flow tests、行数检查、hard code 检查、边界漂移检查 |
+
+阶段执行合同：
+
+1. 每轮只迁移一个职责域，其他模块只做必要 façade 适配。
+2. 先补 contract 或主流程测试，再迁移实现；旧私有 helper 测试只能在等价覆盖存在后删除。
+3. `CodingOrchestrator` 迁移期只做 host façade、兼容 wrapper 和副作用接线，不再新增核心业务规则。
+4. core/service/tool 层不得新增 Hermes 命令、`lark-cli`、`Path.home()`、`os.getenv()`、`subprocess`、token key 或真实 secret 模式。
+5. 阶段结束必须更新项目事实文档或实施计划，并跑对应聚焦测试；发布前跑完整单测、architecture guard、diff check 和敏感扫描。
+
+长期迭代操作模型：
+
+| 步骤 | 要做什么 | 责任人/主责域 | 输出物 |
+| --- | --- | --- | --- |
+| 1. 定域 | 只选择一个职责域作为本轮主线，例如 run orchestration、source adapter、tool dispatcher 或 skill contract | 本轮主责域 owner | `task_plan.md` 阶段条目、实施计划状态 |
+| 2. 建基线 | 记录当前行数、hard code 命中、相邻主流程测试、旧 helper 测试依赖 | Architecture guard + Test governance | 行数和风险基线、可回归测试列表 |
+| 3. 先写合同 | 先补 service、port、policy、adapter 或 presenter contract tests；主流程风险补 flow tests | 主责域 owner + Test governance | 失败到通过的 contract/main-flow tests |
+| 4. façade 迁移 | 外部入口保持不变，业务规则只迁入本轮权威模块，orchestrator 只做 wrapper/callback | 主责域 owner | 小步代码迁移、兼容 wrapper、无用户行为漂移 |
+| 5. 清理旧耦合 | 只删除已有等价覆盖的旧私有 helper 或旧文件形态测试 | Test governance | 保留/改写/删除记录 |
+| 6. 同步事实 | 更新 project map、component contract、conventions、实施计划和技术方案中的边界描述 | 文档合同 | canonical docs 与代码边界一致 |
+| 7. 回流治理 | 把新增大文件、hard code 或边界漂移加入 architecture guard 或 watchlist | Architecture guard | guard fail/watchlist 更新、发布 gate 可复查 |
+
+长期职责判定规则：
+
+- 新业务规则优先落到 application service 或 domain policy，不落到 Gateway controller、presenter 或 adapter。
+- 新外部系统绑定优先落到 adapter，并通过 port 或 ToolSpec 暴露能力，不让 core/service 直接 import host 细节。
+- 新用户可见文案落到 presenter 或 host binding skill，不推进 task/run 状态。
+- 新 Hermes/MCP/CLI 注册只做 operation id 到 service/adapter 的分发，不直接拼业务流程。
+- 新测试优先保护 contract、主流程、安全边界和治理脚本，不再只保护旧私有 helper 名称。
+
+跨切面零耦合集成矩阵：
+
+| 切面 | 权威层 | Hermes 集成职责 | 明确禁止 | 长期验收 |
+| --- | --- | --- | --- | --- |
+| 工具端 | `ToolSpec` + operation dispatcher | 注册 native tool / CLI handler / future MCP tool，把 host payload 转成 `operation_id + args` | 在 tool 注册层直接写业务规则、状态推进、ledger mutation | 同一 operation spec 能服务 Hermes native tools 和未来 MCP tools |
+| MCP / WorkItem | `WorkItemPort` + `WorkItemService` + MCP adapter | 注入本机 token 环境、调用 adapter、输出脱敏结果 | core/service 持有 `MCP_USER_TOKEN`、拼 JSON-RPC、绕过写确认 | 写操作有确认和审计，token 只存在 adapter 边界 |
+| Skill core | `coding-operator-core` / `coding-health-core` | 不承载 host 绑定，只描述通用意图、状态和修复口径 | core skill 出现 Hermes、`/coding`、运行根、ledger 或本机命令 | core skill 可迁移到其他 host，仍能表达完整工作法 |
+| Hermes binding skill | `hermes-coding-operator` / `hermes-coding-health-check` | 把 core intent 映射到 `/coding`、Hermes CLI、`lark-cli` 恢复命令 | 在 binding skill 中沉淀通用业务规则或状态机 | binding skill 只是 host adapter，删除后不影响 core contract |
+| Gateway / command | `gateway_command_controller.py` + executor host shell | 解析 host event、生成 route metadata、委托 service / façade | controller 写 ledger、启动 runner、发送 Gateway 消息或推进状态 | controller 可纯测试，副作用只在 host shell / application service |
+| Run orchestration | `RunService` + projection modules | 连接 runner、ledger、manifest、workspace service 的边界 | projection helper 启动 subprocess、写 ledger、读写 workspace/git、发送消息 | projection 只返回 payload / decision，副作用有明确 owner |
+| Source / Lark | `SourcePort` + source adapters | 索引来源、传递可恢复读取命令和 `SourceResult` | 业务层消费 reader-specific dict，创建 task 前强依赖正文读取成功 | Task / prompt / context 只消费稳定 source result |
+| Storage / Knowledge | repository + `KnowledgePort` | 初始化运行根并调用 adapter | application service 手写 SQL、知道 LLM Wiki layout 或复制运行根内容 | schema/query/wiki layout 可独立演进 |
+| Presentation | presenter modules + host binding copy | 渲染用户可见文案、状态摘要和恢复动作 | presenter 推进 task/run 状态、触发 runner 或写 ledger | 文案可单测，状态变化由 service / state machine 证明 |
+| 大文件 / hard code | `architecture_guard.py` + 文档合同 | 输出 watchlist、fail gate 和 review checklist | 新增大文件、host command、`Path.home()`、`os.getenv()`、token key 当临时例外 | 新增 core/service/tool hard code 会失败；超阈值文件需拆分或登记 |
+
+当前长期执行队列固定为：
+
+| 任务 | 主责 | 状态 | 退出标准 |
+| --- | --- | --- | --- |
+| Task 28. Workspace / Git / Diff checkpoint service | Run support service + Diff guard | Done | workspace、branch、checkpoint、QA artifact、run manifest/session policy、session metadata 字段投影与启动期 manifest update projection 已迁出 |
+| Task 29. Command / Gateway controller 瘦身 | Host shell | In Progress | 已迁出 route plan、handler key、reply mode、immediate reply 分发、custom route executor、pending action executor 和 active context helper；继续把执行副作用下沉 |
+| Task 30. Run orchestration service 闭环 | Run application service | In Progress | 已迁出后台等待完成、失败 transition、merge-test pending action、run completion projection、runner/checkpoint failure report projection、diff guard / implementation commit missing blocked report 构造、run report refinement projection、observed run report 构造、stale completion 观测、session/prompt/start selection、run artifact 文件写入、run artifact path contract、summary artifact 读写、completion/report/project writeback payload、start_run 与 active run reconcile 的 artifact / agent_run / merge-test record 写回 payload 聚合、completed run 与 active run reconcile 的 run summary writer payload 聚合等规则；`run_artifact_paths.py` 负责 `ArtifactSet` 路径合同，`run_summary_artifact_service.py` 负责 `summary.md` 读写，`run_ledger_projection.py` 和 `run_summary_projection.py` 负责 writeback payload 的纯 projection，实际 ledger append/upsert、summary writer 调用、runner 调度、diff guard、状态 transition 和 project writeback 仍留在 host 边界。已拆出 `run_background_orchestration.py`、`run_failure_report_projection.py`、`run_report_refinement_projection.py`、`run_start_selection_projection.py`、`run_session_projection.py`、`run_prompt_projection.py`、`run_context_artifact_service.py`、`run_start_artifact_service.py`、`run_manifest_artifact_service.py`、`run_stderr_artifact_service.py`、`run_report_artifact_service.py`、`run_summary_artifact_service.py`、`run_ledger_projection.py`、`run_summary_projection.py` 和 `run_artifact_paths.py`；`orchestrator.py` 当前约 4820 行，`run_orchestration_service.py` 当前约 419 行 |
+| Task 31. SourcePort 消费闭环 | Source adapter + Task service | Planned | orchestrator、TaskService、prompt/context 不再消费 reader-specific dict |
+| Task 32. Tool / MCP operation dispatcher | Tool contract + WorkItem adapter | Planned | tool 注册层只做 `ToolSpec.operation_id -> service` 分发 |
+| Task 33. Skill 零耦合复查 | Skill contract | Planned | core skill 零 Hermes 细节，binding skill 只做 host 映射 |
+| Task 34. Orchestrator façade 降载 | Architecture guard | Planned | `orchestrator.py` 先降到 3000 行以内，再退出 legacy large-file watchlist |
+| Task 35. Legacy test final cleanup | Test governance | Planned | 旧私有 helper / 旧文件形态测试全部有保留、改写或删除记录 |
+| Task 36. Release readiness and operating contract | 文档合同 + 运行治理 | Planned | 完整单测、architecture guard、diff check、敏感扫描和最小 Hermes smoke 形成发布 gate |
+
+大文件和 hard code 是专项治理对象，不作为“顺手优化”处理：
+
+- `orchestrator.py` 目前仍是唯一核心大文件债务，当前约 4820 行；短期目标是继续迁出 run orchestration 副作用，先降到 3000 行以内。
+- 新增业务模块超过 600 行必须说明职责边界；超过 1000 行必须拆分或登记明确例外。
+- core/service/tool 层不允许新增 Hermes 命令、`lark-cli` 命令、`Path.home()`、`os.getenv()`、`subprocess`、token key 或真实 secret 模式。
+- hard code 只允许落在 config、adapter binding、domain policy 或明确的测试 fixture 中。
+- 每个阶段完成后都要同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md` 或实施计划，并运行对应聚焦测试；发布前必须跑完整单测和 `scripts/architecture_guard.py`。
 
 ## 5. Hermes 集成方式
 

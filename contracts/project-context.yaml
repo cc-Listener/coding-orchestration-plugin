@@ -78,6 +78,30 @@ project_map:
       reason: "运行期 ledger、runs、workspaces、LLM Wiki，不是源码事实。"
     - path: coding_orchestration/orchestrator.py
       reason: "任务状态推进、人工门禁和 runner 调度中心。"
+    - path: coding_orchestration/run_orchestration_service.py
+      reason: "Observed run report、stale completion 观测、execution policy decision 读取、run-level diff guard violations 组合、verification limitations fallback projection、completion report payload、agent run record、reconciled agent run record、reconcile result payload、existing run mode/changed files 规则、merge-test run record、project writeback payload、start_run result payload 和 run completion 投影 helper；兼容 re-export run report refinement、run start selection、run session 与 run prompt projection。"
+    - path: coding_orchestration/run_failure_report_projection.py
+      reason: "Runner/checkpoint failure report payload projection helper，维护结构化恢复合同，不承载 artifact 写入或 RunResult 包装。"
+    - path: coding_orchestration/run_report_refinement_projection.py
+      reason: "Run report refinement projection helper，维护 diff guard / implementation commit missing blocked report 和 observed report status/details refinement，不执行 diff guard、workspace dirty check、report 写入或 ledger 推进。"
+    - path: coding_orchestration/run_start_selection_projection.py
+      reason: "Run start selection projection helper，维护 context source、checkpoint selection、QA evidence observation、source branch recording、project path requirement、workspace selection 和 manifest checkpoint preparation selection 纯规则，不读取 workspace、不准备 checkpoint、不写 manifest 或 ledger。"
+    - path: coding_orchestration/run_session_projection.py
+      reason: "Run session projection helper，维护 plan report session fields 白名单、plan report session update、run start base/workspace session update、active run session update、runner session update 和 completion session update 纯 payload，不写 ledger、不生成 attach command、不读取 artifact 或推进状态。"
+    - path: coding_orchestration/run_prompt_projection.py
+      reason: "Run prompt projection helper，维护首次/增量 prompt 构造选择和参数合同，不写 input-prompt.md、不生成 context artifact、不写 manifest、不启动 runner 或推进 ledger。"
+    - path: coding_orchestration/run_context_artifact_service.py
+      reason: "Run context artifact service，维护 wiki context、confirmed plan / implementation context、assembled context、run instructions、execution policy 和 context index 写入，只写 run_dir context artifact。"
+    - path: coding_orchestration/run_start_artifact_service.py
+      reason: "Run start artifact service，维护 report.schema.json、input-prompt.md 和 run-manifest.json 启动 artifact 写入，只写 run_dir 启动 artifact。"
+    - path: coding_orchestration/run_ledger_projection.py
+      reason: "Run ledger writeback projection，维护 start_run 与 active run reconcile 的 artifact / agent_run / merge-test record 写回 payload 聚合；不调用 ledger、不写 artifact 或推进状态。"
+    - path: coding_orchestration/run_background_orchestration.py
+      reason: "后台 run 等待完成、后台启动失败状态收敛和 merge-test human_required pending action host orchestration helper。"
+    - path: coding_orchestration/run_manifest_service.py
+      reason: "Run manifest/session policy helper，维护 manifest 基础字段、session metadata 字段投影、attach/resume 展示命令和权限 profile。"
+    - path: coding_orchestration/run_artifact_paths.py
+      reason: "Run artifact path projection，维护 fresh run_dir 和 existing run record 的 ArtifactSet 路径合同，不读写 artifact 文件或推进状态。"
     - path: coding_orchestration/runners/codex_cli.py
       reason: "Codex CLI sandbox、resume、report 输出和高权限 flag。"
     - path: coding_orchestration/install.py
@@ -143,6 +167,39 @@ component_contract:
     - name: orchestration
       path: coding_orchestration/orchestrator.py
       preferred: true
+    - name: run_orchestration_helper
+      path: coding_orchestration/run_orchestration_service.py
+      preferred: true
+    - name: run_failure_report_projection
+      path: coding_orchestration/run_failure_report_projection.py
+      preferred: true
+    - name: run_report_refinement_projection
+      path: coding_orchestration/run_report_refinement_projection.py
+      preferred: true
+    - name: run_start_selection_projection
+      path: coding_orchestration/run_start_selection_projection.py
+      preferred: true
+    - name: run_session_projection
+      path: coding_orchestration/run_session_projection.py
+      preferred: true
+    - name: run_prompt_projection
+      path: coding_orchestration/run_prompt_projection.py
+      preferred: true
+    - name: run_context_artifact_service
+      path: coding_orchestration/run_context_artifact_service.py
+      preferred: true
+    - name: run_start_artifact_service
+      path: coding_orchestration/run_start_artifact_service.py
+      preferred: true
+    - name: run_artifact_paths
+      path: coding_orchestration/run_artifact_paths.py
+      preferred: true
+    - name: run_ledger_projection
+      path: coding_orchestration/run_ledger_projection.py
+      preferred: true
+    - name: run_manifest_service
+      path: coding_orchestration/run_manifest_service.py
+      preferred: true
     - name: runner_router
       path: coding_orchestration/runner_router.py
       preferred: true
@@ -169,6 +226,74 @@ component_contract:
       path: coding_orchestration/state_machine.py
       use_instead_of:
         - "自行拼接非法状态转换。"
+    - name: run_orchestration_service
+      path: coding_orchestration/run_orchestration_service.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 observed run report、stale completion 观测、execution policy decision 读取、run-level diff guard violations 组合、verification limitations fallback projection、completion report payload、agent run record、reconciled agent run record、reconcile result payload、existing run mode/changed files 规则、merge-test run record、project writeback payload、start_run result payload 或 run completion 投影。"
+    - name: run_session_projection
+      path: coding_orchestration/run_session_projection.py
+      use_instead_of:
+        - "在 orchestrator 或 run_orchestration_service 中继续新增 plan report session fields 白名单、plan report session update、run start base/workspace session update、active run session update、runner session update 或 completion session update 纯 payload。"
+    - name: run_prompt_projection
+      path: coding_orchestration/run_prompt_projection.py
+      use_instead_of:
+        - "在 orchestrator 或 run_orchestration_service 中继续新增首次/增量 prompt 构造选择、prompt builder 参数拼装或 prompt 分支规则。"
+    - name: run_context_artifact_service
+      path: coding_orchestration/run_context_artifact_service.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 wiki context、confirmed plan / implementation context、assembled context、run instructions、execution policy 或 context index 文件写入逻辑。"
+    - name: run_start_artifact_service
+      path: coding_orchestration/run_start_artifact_service.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 report.schema.json、input-prompt.md 或 run-manifest.json 启动 artifact 文件写入逻辑。"
+    - name: run_manifest_artifact_service
+      path: coding_orchestration/run_manifest_artifact_service.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 run-manifest.json artifact 写回逻辑。"
+    - name: run_stderr_artifact_service
+      path: coding_orchestration/run_stderr_artifact_service.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 stderr.log artifact 写回逻辑。"
+    - name: run_report_artifact_service
+      path: coding_orchestration/run_report_artifact_service.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 report.json artifact 写回逻辑。"
+    - name: run_summary_artifact_service
+      path: coding_orchestration/run_summary_artifact_service.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 summary.md artifact 读取或写回逻辑。"
+    - name: run_ledger_projection
+      path: coding_orchestration/run_ledger_projection.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 artifact、agent_run 或 merge-test record 写回 payload 聚合逻辑。"
+    - name: run_summary_projection
+      path: coding_orchestration/run_summary_projection.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 completed run 或 active run reconcile 的 run summary writer payload 聚合逻辑。"
+    - name: run_artifact_paths
+      path: coding_orchestration/run_artifact_paths.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 fresh run_dir 或 existing run record 的 ArtifactSet 路径 fallback 逻辑。"
+    - name: run_start_selection_projection
+      path: coding_orchestration/run_start_selection_projection.py
+      use_instead_of:
+        - "在 orchestrator 或 run_orchestration_service 中继续新增 run context source、checkpoint selection、QA evidence observation、source branch recording、project path requirement、workspace selection 或 manifest checkpoint preparation selection 纯规则。"
+    - name: run_failure_report_projection
+      path: coding_orchestration/run_failure_report_projection.py
+      use_instead_of:
+        - "在 orchestrator 或 run_orchestration_service 中继续新增 runner/checkpoint failure report payload 拼装。"
+    - name: run_report_refinement_projection
+      path: coding_orchestration/run_report_refinement_projection.py
+      use_instead_of:
+        - "在 orchestrator 或 run_orchestration_service 中继续新增 diff guard / implementation commit missing blocked report、run report refinement projection 或 implementation dirty-check 信号拼装。"
+    - name: run_background_orchestration
+      path: coding_orchestration/run_background_orchestration.py
+      use_instead_of:
+        - "在 orchestrator 或 run_orchestration_service 中继续新增后台 run 等待、后台失败收敛或 merge-test human_required pending action 映射。"
+    - name: run_manifest_service
+      path: coding_orchestration/run_manifest_service.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 run manifest 基础字段、启动期 manifest update projection、session metadata 字段投影、Codex attach/resume 展示命令或权限 profile 规则。"
     - name: RunnerRouter
       path: coding_orchestration/runner_router.py
       use_instead_of:
