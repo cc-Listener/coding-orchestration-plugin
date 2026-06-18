@@ -96,6 +96,7 @@ from . import (
     run_stderr_artifact_service,
     run_project_writeback_service,
     run_session_writeback_service,
+    run_status_transition_service,
     run_summary_writeback_service,
     run_summary_artifact_service,
     run_start_artifact_service,
@@ -115,7 +116,6 @@ from .runner_router import RunnerRouter
 from .run_manifest_service import RunManifestService
 from .services import CreatedTask, DeliveryService, RunService, TaskService, WorkItemService
 from .source_resolver import SourceResolver
-from .state_machine import TaskStateMachine
 from . import status_policy
 from .runners.base import RunResult
 from .runners.codex_report_schema import write_report_schema
@@ -1350,36 +1350,18 @@ class CodingOrchestrator:
         reason: str = "",
         sync_kanban: bool = True,
     ) -> dict[str, Any]:
-        task = self.ledger.get_task(task_id)
-        if not task:
-            return {"ok": False, "task_id": task_id, "error": f"task not found: {task_id}"}
-        requested_status = status.value if isinstance(status, TaskStatus) else str(status)
-        canonical_target = canonical_task_status(requested_status)
-        if canonical_target is None:
-            return {"ok": False, "task_id": task_id, "error": f"invalid task status: {requested_status}"}
-        target_status = canonical_target.value
-        current_status = str(task.get("status") or TaskStatus.NEW.value)
-        current_canonical = canonical_task_status(current_status)
-        if current_canonical is None:
-            return {"ok": False, "task_id": task_id, "error": f"invalid current task status: {current_status}"}
-        if current_canonical.value != target_status:
-            target_status = TaskStateMachine.transition(current_status, requested_status, reason=reason).value
-        self.ledger.update_status(task_id, target_status)
-        if phase is not None:
-            phase_value = phase.value if isinstance(phase, TaskPhase) else str(phase)
-            self.ledger.update_phase(task_id, phase_value)
-        kanban_sync = (
-            self._sync_status_to_kanban(task_id, target_status, reason=reason)
-            if sync_kanban
-            else self._kanban_sync_skipped(task_id, target_status, reason="kanban_sync_disabled")
+        return run_status_transition_service.transition_task_status(
+            task_id=task_id,
+            status=status,
+            phase=phase,
+            reason=reason,
+            sync_kanban=sync_kanban,
+            get_task_callback=self.ledger.get_task,
+            update_status_callback=self.ledger.update_status,
+            update_phase_callback=self.ledger.update_phase,
+            sync_status_to_kanban_callback=self._sync_status_to_kanban,
+            kanban_sync_skipped_callback=self._kanban_sync_skipped,
         )
-        return {
-            "ok": True,
-            "task_id": task_id,
-            "status": target_status,
-            "status_display": task_status_display(target_status),
-            "kanban_sync": kanban_sync,
-        }
 
     def _sync_status_to_kanban(self, task_id: str, status: TaskStatus | str, *, reason: str = "") -> dict[str, Any]:
         status_value = status.value if isinstance(status, TaskStatus) else str(status)
@@ -3152,18 +3134,10 @@ class CodingOrchestrator:
         return run_start_presenter.cannot_start_run_message(task, mode=mode, reason=reason)
 
     def _clear_active_run_if_matches(self, task_id: str, run_id: str) -> None:
-        task = self.ledger.get_task(task_id) or {}
-        runner = (task.get("task_session") or {}).get("runner") or {}
-        if str(runner.get("active_run_id") or "") != run_id:
-            return
-        run_session_writeback_service.write_run_session_update(
+        run_status_transition_service.clear_active_run_if_matches(
             task_id=task_id,
-            update={
-                "runner": {
-                    "active_run_id": None,
-                    "active_mode": None,
-                }
-            },
+            run_id=run_id,
+            get_task_callback=self.ledger.get_task,
             update_task_session_callback=self.ledger.update_task_session,
         )
 
@@ -3220,11 +3194,13 @@ class CodingOrchestrator:
         task_phase = completion_projection.task_phase
         report = completion_projection.report
         run_report_artifact_service.write_run_report_artifact(report_path=artifacts.report, report=report)
-        self._transition_task_status(
-            task_id,
-            task_status,
-            phase=task_phase,
-            reason=f"{mode.value} reconciled with completed artifact status {status}",
+        run_status_transition_service.transition_reconciled_run_task_status(
+            task_id=task_id,
+            mode=mode,
+            status=status,
+            task_status=task_status,
+            task_phase=task_phase,
+            transition_task_status_callback=self._transition_task_status,
         )
 
         ledger_records = run_ledger_projection.build_reconciled_run_ledger_writeback_records(
@@ -3355,10 +3331,9 @@ class CodingOrchestrator:
         if blocked:
             raise ValueError(blocked)
         if not task.get("project_path") and run_orchestration_service.run_requires_project_path(mode):
-            self._transition_task_status(
-                task_id,
-                TaskStatus.NEEDS_HUMAN,
-                reason="task has no project_path",
+            run_status_transition_service.transition_missing_project_path(
+                task_id=task_id,
+                transition_task_status_callback=self._transition_task_status,
             )
             raise ValueError(f"task has no project_path: {task_id}")
 
@@ -3400,11 +3375,10 @@ class CodingOrchestrator:
         elif workspace_selection.workspace_kind == run_orchestration_service.RUN_WORKSPACE_EXISTING_IMPLEMENTATION:
             workspace_path = self._merge_test_workspace(task)
             if workspace_path is None:
-                self._transition_task_status(
-                    task_id,
-                    TaskStatus.BLOCKED,
-                    phase=TaskPhase.BLOCKED,
+                run_status_transition_service.transition_missing_workspace(
+                    task_id=task_id,
                     reason=workspace_selection.missing_workspace_reason,
+                    transition_task_status_callback=self._transition_task_status,
                 )
                 raise ValueError(f"{workspace_selection.missing_workspace_reason}: {task_id}")
         if workspace_path is not None:
@@ -3515,16 +3489,14 @@ class CodingOrchestrator:
             ),
             update_task_session_callback=self.ledger.update_task_session,
         )
-        try:
-            self._transition_task_status(
-                task_id,
-                TaskStatus.RUNNING,
-                phase=running_phase,
-                reason=f"{mode.value} started",
-            )
-        except Exception:
-            self._clear_active_run_if_matches(task_id, run_id)
-            raise
+        run_status_transition_service.transition_run_started(
+            task_id=task_id,
+            run_id=run_id,
+            mode=mode,
+            running_phase=running_phase,
+            transition_task_status_callback=self._transition_task_status,
+            clear_active_run_callback=self._clear_active_run_if_matches,
+        )
         checkpoint = run_orchestration_service.run_checkpoint_for_mode(
             mode=mode,
             qa_checkpoint=manifest.qa_checkpoint,
@@ -3626,13 +3598,15 @@ class CodingOrchestrator:
         stale_observation = run_orchestration_service.observe_stale_completion(current_task, run_id=run_id)
         observed_active_run_id = stale_observation.observed_active_run_id
         stale_completion = stale_observation.stale_completion
-        if not stale_completion:
-            self._transition_task_status(
-                task_id,
-                task_status,
-                phase=task_phase,
-                reason=f"{mode.value} completed with {status}",
-            )
+        run_status_transition_service.transition_completed_run_task_status(
+            task_id=task_id,
+            mode=mode,
+            status=status,
+            task_status=task_status,
+            task_phase=task_phase,
+            stale_completion=stale_completion,
+            transition_task_status_callback=self._transition_task_status,
+        )
         run_source_branch = (
             self._source_branch_for_task(task, project_name)
             if run_orchestration_service.run_records_source_branch(mode)

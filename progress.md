@@ -2,6 +2,45 @@
 
 ## 会话：2026-06-16
 
+### 阶段 178：解耦架构 run status transition host service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 177 后 runner dispatch 已迁出，但 `CodingOrchestrator` 仍直接持有 `_transition_task_status()` 的状态机、ledger、phase 和 Kanban callback shell，并在 `start_run()` / `_reconcile_completed_active_run()` 中内联 run lifecycle transition 与 active run cleanup。
+  - 状态目标计算、report refinement、QA evidence 和 WorkItemService 写回不属于本切片；本切片只迁 host transition callback shell 与 run lifecycle transition 接线。
+- 当前边界：
+  - `run_status_transition_service.transition_task_status()` 负责状态 canonicalization、`TaskStateMachine.transition()`、status/phase callback 调用和 Kanban sync callback 调用。
+  - `transition_run_started()` 负责 run start transition，并在 transition 失败时调用注入的 active run cleanup callback。
+  - `transition_completed_run_task_status()` 负责 fresh completion transition；stale completion 返回 skip，不推进 task 状态。
+  - `transition_reconciled_run_task_status()` 负责 active run reconcile 后的 task transition。
+  - `clear_active_run_if_matches()` 只在 active run id 匹配时通过 session writeback service 清理 active run。
+  - service 不直接持有 `TaskLedger`，不写 report/manifest/summary，不 append/upsert run ledger records，不启动 runner，不执行 diff guard，不收集 QA evidence。
+- 执行的操作：
+  - 新增 `tests/test_run_status_transition_service.py`，覆盖通用 transition callback、run started 失败清理、missing project/workspace transition、stale completion skip、active run cleanup、`start_run()` 委托和 active run reconcile 委托。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_status_transition_service` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_status_transition_service.py`。
+  - `CodingOrchestrator._transition_task_status()` 改为兼容 wrapper，并委托 `run_status_transition_service.transition_task_status()`。
+  - `CodingOrchestrator._clear_active_run_if_matches()` 改为委托 `clear_active_run_if_matches()`。
+  - `CodingOrchestrator.start_run()` 的 missing project、missing workspace、running transition 和 fresh completion transition 改为委托 service。
+  - `CodingOrchestrator._reconcile_completed_active_run()` 的完成状态推进改为委托 service。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`findings.md` 和 `task_plan.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4766 行。
+  - `coding_orchestration/run_status_transition_service.py`：167 行。
+  - `tests/test_run_status_transition_service.py`：367 行。
+  - `coding_orchestration/run_orchestration_service.py`：419 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_status_transition_service -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m unittest tests.test_run_status_transition_service -v`：7 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_status_transition_service.py coding_orchestration/orchestrator.py tests/test_run_status_transition_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_status_transition_service tests.test_orchestrator_run_flow tests.test_run_session_writeback_service tests.test_run_orchestration_start_rules -v`：43 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4766 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：800 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍保留 QA evidence 收集、implementation dirty-check、checkpoint 准备、manifest/session/report/summary/project/ledger 收尾接线和 WorkItemService 业务写回。
+  - 下一切片可继续拆 QA evidence / implementation dirty-check observation service，或拆 checkpoint preparation host service；仍不得把 report 写回、runner subprocess、ledger run records 或 WorkItemService 业务语义塞进 status transition service。
+
 ### 阶段 177：解耦架构 runner dispatch host service 拆分
 - **状态：** complete
 - 背景：
