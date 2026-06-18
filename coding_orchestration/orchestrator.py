@@ -86,6 +86,7 @@ from . import (
     run_artifact_paths,
     run_diff_guard_service,
     run_dispatch_service,
+    run_evidence_observation_service,
     run_ledger_projection,
     run_ledger_writeback_service,
     run_orchestration_service,
@@ -3526,9 +3527,14 @@ class CodingOrchestrator:
         )
         changed_files = diff_guard_observation.changed_files
         violations = diff_guard_observation.violations
-        observe_qa_evidence = run_orchestration_service.run_observes_qa_evidence(mode)
-        qa_artifacts = self._collect_qa_artifacts(workspace_path) if observe_qa_evidence else {}
-        qa_tested_commit = self._git_head(workspace_path) if observe_qa_evidence else ""
+        qa_evidence_observation = run_evidence_observation_service.observe_run_qa_evidence(
+            enabled=run_orchestration_service.run_observes_qa_evidence(mode),
+            workspace_path=workspace_path,
+            collect_qa_artifacts_callback=self._collect_qa_artifacts,
+            git_head_callback=self._git_head,
+        )
+        qa_artifacts = qa_evidence_observation.qa_artifacts
+        qa_tested_commit = qa_evidence_observation.tested_commit
         report = run_orchestration_service.build_observed_run_report(
             result.report,
             changed_files=changed_files,
@@ -3561,7 +3567,12 @@ class CodingOrchestrator:
                 session_id=session_id,
                 runner_name=runner.name,
             )
-        if refinement.requires_implementation_commit_check and self._workspace_has_uncommitted_changes(workspace_path):
+        implementation_dirty = run_evidence_observation_service.observe_implementation_dirty_check(
+            required=refinement.requires_implementation_commit_check,
+            workspace_path=workspace_path,
+            workspace_has_uncommitted_changes_callback=self._workspace_has_uncommitted_changes,
+        )
+        if implementation_dirty:
             manifest.implementation_checkpoint = self._workspace_clean_checkpoint(workspace_path)
             run_manifest_artifact_service.write_run_manifest_artifact(
                 manifest_path=result.artifacts.manifest,

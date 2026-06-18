@@ -2,6 +2,37 @@
 
 ## 会话：2026-06-16
 
+### 阶段 179：解耦架构 run evidence observation service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 178 后 run status transition 已迁出，但 `CodingOrchestrator.start_run()` 仍内联 QA artifacts / tested commit 收集和 implementation dirty-check 判断。
+  - 本切片只迁 evidence observation 边界；checkpoint 创建、manifest 写回、report refinement、ledger/session/summary/project 写回和状态推进不属于本切片。
+- 当前边界：
+  - `run_evidence_observation_service.observe_run_qa_evidence()` 在 enabled 时调用注入 callback 收集 QA artifacts 和 tested commit；disabled 时不调用 callback 并返回空证据。
+  - `observe_implementation_dirty_check()` 只在 required 时调用注入 workspace dirty callback；不创建 checkpoint、不写 manifest、不构造 blocked report。
+  - service 不写 ledger/report/manifest/summary，不启动 runner，不执行 diff guard，不推进 task/run 状态，不调用 MCP/WorkItemService，不持有 Hermes host 细节。
+- 执行的操作：
+  - 新增 `tests/test_run_evidence_observation_service.py`，覆盖 QA evidence disabled/enabled、tested commit 读取、implementation dirty-check callback gate、`start_run()` QA evidence 委托和 dirty-check 委托。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_evidence_observation_service` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_evidence_observation_service.py`。
+  - `CodingOrchestrator.start_run()` 的 QA evidence 收集和 implementation dirty-check 判断改为委托 service；checkpoint 创建、manifest 写回和 report refinement 保持原边界。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`findings.md` 和 `task_plan.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4777 行。
+  - `coding_orchestration/run_evidence_observation_service.py`：41 行。
+  - `tests/test_run_evidence_observation_service.py`：201 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_evidence_observation_service -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m unittest tests.test_run_evidence_observation_service -v`：5 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_evidence_observation_service.py coding_orchestration/orchestrator.py tests/test_run_evidence_observation_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_run_evidence_observation_service tests.test_qa_flow tests.test_implementation_workspace_flow tests.test_run_orchestration_start_rules tests.test_run_ledger_projection -v`：50 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_evidence_observation_service tests.test_qa_flow tests.test_implementation_workspace_flow tests.test_run_orchestration_start_rules tests.test_run_ledger_projection tests.test_docs_and_install_entry tests.test_architecture_guard -v`：67 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4777 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：805 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：checkpoint 准备、manifest checkpoint 写回、completion finalization 和 WorkItemService 业务写回仍留在 orchestrator host / WorkItemService 边界。
+
 ### 阶段 178：解耦架构 run status transition host service 拆分
 - **状态：** complete
 - 背景：
