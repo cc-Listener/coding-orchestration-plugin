@@ -91,6 +91,7 @@ from . import (
     run_manifest_service,
     run_report_artifact_service,
     run_stderr_artifact_service,
+    run_project_writeback_service,
     run_summary_projection,
     run_summary_artifact_service,
     run_start_artifact_service,
@@ -3684,19 +3685,15 @@ class CodingOrchestrator:
             summary=summary,
         )
         self.summary_writer.write_run_summary(**summary_payload.as_kwargs())
-        project_writeback = (
-            self._writeback_project_bugfix_completion(
-                task_id,
-                run_orchestration_service.build_project_writeback_payload(
-                    run_id=run_id,
-                    status=status,
-                    task_status=task_status,
-                    report=report,
-                ),
-                mode=mode,
-            )
-            if not stale_completion
-            else {"ok": False, "status": "skipped_stale_completion"}
+        project_writeback = run_project_writeback_service.write_run_project_completion(
+            task_id=task_id,
+            mode=mode,
+            run_id=run_id,
+            status=status,
+            task_status=task_status,
+            report=report,
+            stale_completion=stale_completion,
+            writeback_callback=self._writeback_project_bugfix_completion,
         )
         return run_orchestration_service.build_start_run_result_payload(
             task_id=task_id,

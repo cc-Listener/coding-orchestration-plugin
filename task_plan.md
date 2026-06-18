@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 171：解耦架构 execution policy artifact read service 扩展（complete，Task 30 继续）
+阶段 172：解耦架构 run project writeback host service 拆分（complete，Task 30 继续）
 
 ## 各阶段
 
@@ -1324,6 +1324,14 @@
 - [x] 迁移：`CodingOrchestrator._execution_policy_from_run_result()` 改为兼容 wrapper 并委托 service；run orchestration helper 仍只负责 `latest_execution_policy_decision()` 的纯 plan report 决策读取。
 - [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
 - [x] 验证：运行 run context artifact service contract、status/start 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 172：解耦架构 run project writeback host service 拆分
+- [x] TDD：新增 `tests/test_run_project_writeback_service.py`，覆盖 stale completion 跳过 Project writeback、非 stale 完成调用 callback 的 payload 合同，以及 `CodingOrchestrator.start_run()` 委托 service。
+- [x] 实现：新增 `coding_orchestration/run_project_writeback_service.py`，集中处理 run 完成后的 Project/WorkItem writeback host gate；只做 stale skip、payload 构造委托和注入 callback 调用。
+- [x] 迁移：`CodingOrchestrator.start_run()` 尾部不再内联 stale gate、project writeback payload 构造和 `_writeback_project_bugfix_completion()` 调用，改为消费 `write_run_project_completion()`。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run project writeback service contract、bugfix writeback/run orchestration/plan 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
 - **状态：** complete
 
 ## 关键问题

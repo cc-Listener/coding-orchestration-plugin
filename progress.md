@@ -2,6 +2,42 @@
 
 ## 会话：2026-06-16
 
+### 阶段 172：解耦架构 run project writeback host service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 171 后 execution policy artifact 读取已迁出，但 `CodingOrchestrator.start_run()` 收尾仍内联 Project/WorkItem writeback 的 stale gate、payload 构造和 `_writeback_project_bugfix_completion()` 调用。
+  - Project writeback 是 run completion 的 host 副作用边界，应有独立 service 承接 gate 和 callback 调用；payload 构造继续复用 `run_orchestration_service.build_project_writeback_payload()`。
+- 当前边界：
+  - `run_project_writeback_service.write_run_project_completion()` 在 stale completion 时返回 `{"ok": False, "status": "skipped_stale_completion"}`，不调用 callback。
+  - fresh completion 时，service 构造 project writeback payload 并调用注入的 `writeback_callback(task_id, payload, mode=mode)`。
+  - service 不直接 import `WorkItemService` 或 MCP adapter，不写 ledger，不读写 artifact，不启动 runner，不推进 task/run 状态。
+- 执行的操作：
+  - 新增 `tests/test_run_project_writeback_service.py`，覆盖 stale skip、callback payload contract 和 `start_run()` 委托 service。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_project_writeback_service` 缺失出现预期 `ModuleNotFoundError`。
+  - RED 已确认：service 创建后，`CodingOrchestrator.start_run()` 尚未委托 service 时出现预期 `AttributeError`。
+  - 新增 `coding_orchestration/run_project_writeback_service.py`。
+  - `CodingOrchestrator.start_run()` 改为调用 `run_project_writeback_service.write_run_project_completion()`；实际 WorkItemService 业务语义仍由 `_writeback_project_bugfix_completion()` wrapper 与 `WorkItemService` 保留。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4785 行。
+  - `coding_orchestration/run_project_writeback_service.py`：34 行。
+  - `tests/test_run_project_writeback_service.py`：120 行。
+  - `coding_orchestration/run_orchestration_service.py`：419 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_project_writeback_service -v`：预期 `ModuleNotFoundError`。
+  - RED：`rtk proxy python3 -m unittest tests.test_run_project_writeback_service -v`：预期 orchestrator 未委托 service 的 `AttributeError`。
+  - `rtk proxy python3 -m unittest tests.test_run_project_writeback_service -v`：3 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_project_writeback_service tests.test_bugfix_writeback_flow tests.test_run_orchestration_service tests.test_plan_run_flow -v`：29 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4785 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_project_writeback_service.py coding_orchestration/orchestrator.py tests/test_run_project_writeback_service.py`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：771 tests passed。
+- 遇到的错误：
+  - 一次 `rtk rg` 查询 pattern 使用双引号且包含反引号，zsh 误尝试执行反引号中的文本；已改用已定位的精确上下文补丁，未影响代码或验证。
+- 剩余风险：
+  - Task 30 仍是 In Progress：run lifecycle 仍保留 runner 调度、状态 transition、ledger append/upsert、summary writer 调用、WorkItemService 业务写回和 active run reconcile 等 host 副作用闭环。
+  - 下一切片可继续拆 summary writer host façade、runner result finalization projection、ledger writeback host service，或继续压缩 orchestrator 中剩余兼容 wrapper；仍不得把 WorkItemService/MCP transport、ledger mutation、subprocess、workspace/git mutation 或 Gateway 发送塞进 projection 模块。
+
 ### 阶段 171：解耦架构 execution policy artifact read service 扩展
 - **状态：** complete
 - 背景：

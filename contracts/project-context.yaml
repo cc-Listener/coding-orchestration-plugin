@@ -102,6 +102,8 @@ project_map:
       reason: "Run manifest/session policy helper，维护 manifest 基础字段、session metadata 字段投影、attach/resume 展示命令和权限 profile。"
     - path: coding_orchestration/run_artifact_paths.py
       reason: "Run artifact path projection，维护 fresh run_dir 和 existing run record 的 ArtifactSet 路径合同，不读写 artifact 文件或推进状态。"
+    - path: coding_orchestration/run_project_writeback_service.py
+      reason: "Run project writeback host service，维护 completed run 的 Project/WorkItem writeback stale gate、payload 委托和 callback 调用，不直接持有 MCP/WorkItem adapter。"
     - path: coding_orchestration/runners/codex_cli.py
       reason: "Codex CLI sandbox、resume、report 输出和高权限 flag。"
     - path: coding_orchestration/install.py
@@ -170,6 +172,9 @@ component_contract:
     - name: run_orchestration_helper
       path: coding_orchestration/run_orchestration_service.py
       preferred: true
+    - name: run_project_writeback_service
+      path: coding_orchestration/run_project_writeback_service.py
+      preferred: true
     - name: run_failure_report_projection
       path: coding_orchestration/run_failure_report_projection.py
       preferred: true
@@ -230,6 +235,10 @@ component_contract:
       path: coding_orchestration/run_orchestration_service.py
       use_instead_of:
         - "在 orchestrator 中继续新增 observed run report、stale completion 观测、execution policy decision 读取、run-level diff guard violations 组合、verification limitations fallback projection、completion report payload、agent run record、reconciled agent run record、reconcile result payload、existing run mode/changed files 规则、merge-test run record、project writeback payload、start_run result payload 或 run completion 投影。"
+    - name: run_project_writeback_service
+      path: coding_orchestration/run_project_writeback_service.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 completed run 的 Project writeback stale gate、payload 到 WorkItemService callback 的 host 调用逻辑。"
     - name: run_session_projection
       path: coding_orchestration/run_session_projection.py
       use_instead_of:
