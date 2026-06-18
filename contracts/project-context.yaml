@@ -96,6 +96,8 @@ project_map:
       reason: "Run start artifact service，维护 report.schema.json、input-prompt.md 和 run-manifest.json 启动 artifact 写入，只写 run_dir 启动 artifact。"
     - path: coding_orchestration/run_ledger_projection.py
       reason: "Run ledger writeback projection，维护 start_run 与 active run reconcile 的 artifact / agent_run / merge-test record 写回 payload 聚合；不调用 ledger、不写 artifact 或推进状态。"
+    - path: coding_orchestration/run_summary_writeback_service.py
+      reason: "Run summary writeback host service，维护 completed run 与 active run reconcile 的 summary writer callback 调用；消费 summary projection 并调用注入 writer，不直接持有 Knowledge adapter。"
     - path: coding_orchestration/run_background_orchestration.py
       reason: "后台 run 等待完成、后台启动失败状态收敛和 merge-test human_required pending action host orchestration helper。"
     - path: coding_orchestration/run_manifest_service.py
@@ -174,6 +176,9 @@ component_contract:
       preferred: true
     - name: run_project_writeback_service
       path: coding_orchestration/run_project_writeback_service.py
+      preferred: true
+    - name: run_summary_writeback_service
+      path: coding_orchestration/run_summary_writeback_service.py
       preferred: true
     - name: run_failure_report_projection
       path: coding_orchestration/run_failure_report_projection.py
@@ -279,6 +284,10 @@ component_contract:
       path: coding_orchestration/run_summary_projection.py
       use_instead_of:
         - "在 orchestrator 中继续新增 completed run 或 active run reconcile 的 run summary writer payload 聚合逻辑。"
+    - name: run_summary_writeback_service
+      path: coding_orchestration/run_summary_writeback_service.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 completed run 或 active run reconcile 的 summary writer callback 调用逻辑。"
     - name: run_artifact_paths
       path: coding_orchestration/run_artifact_paths.py
       use_instead_of:

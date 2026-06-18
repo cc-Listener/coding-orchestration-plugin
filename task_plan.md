@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 172：解耦架构 run project writeback host service 拆分（complete，Task 30 继续）
+阶段 173：解耦架构 run summary writeback host service 拆分（complete，Task 30 继续）
 
 ## 各阶段
 
@@ -1332,6 +1332,14 @@
 - [x] 迁移：`CodingOrchestrator.start_run()` 尾部不再内联 stale gate、project writeback payload 构造和 `_writeback_project_bugfix_completion()` 调用，改为消费 `write_run_project_completion()`。
 - [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
 - [x] 验证：运行 run project writeback service contract、bugfix writeback/run orchestration/plan 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 173：解耦架构 run summary writeback host service 拆分
+- [x] TDD：新增 `tests/test_run_summary_writeback_service.py`，覆盖 completed run 和 active run reconcile 的 summary writer callback 合同，以及 `CodingOrchestrator.start_run()` / `_reconcile_completed_active_run()` 委托 service。
+- [x] 实现：新增 `coding_orchestration/run_summary_writeback_service.py`，集中处理 run summary writer host callback；复用 `run_summary_projection.py` 构造 payload，只调用注入 writer callback。
+- [x] 迁移：`CodingOrchestrator.start_run()` 和 `_reconcile_completed_active_run()` 不再直接构造 summary writer payload 或调用 `summary_writer.write_run_summary()`，改为消费 `write_completed_run_summary()` / `write_reconciled_run_summary()`。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run summary writeback service contract、run summary projection、plan/status 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
 - **状态：** complete
 
 ## 关键问题

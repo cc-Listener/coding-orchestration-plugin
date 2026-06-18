@@ -92,7 +92,7 @@ from . import (
     run_report_artifact_service,
     run_stderr_artifact_service,
     run_project_writeback_service,
-    run_summary_projection,
+    run_summary_writeback_service,
     run_summary_artifact_service,
     run_start_artifact_service,
     run_completion_presenter,
@@ -3249,7 +3249,7 @@ class CodingOrchestrator:
             reconciled_at=datetime.now(timezone.utc).isoformat(),
         )
         self.ledger.update_task_session(task_id, {"runner": runner_update})
-        summary_payload = run_summary_projection.build_reconciled_run_summary_writeback_payload(
+        run_summary_writeback_service.write_reconciled_run_summary(
             task_id=task_id,
             run_id=run_id,
             task=task,
@@ -3257,8 +3257,8 @@ class CodingOrchestrator:
             merged_run=merged_run,
             report=report,
             summary=summary,
+            write_summary_callback=self.summary_writer.write_run_summary,
         )
-        self.summary_writer.write_run_summary(**summary_payload.as_kwargs())
         return run_orchestration_service.build_reconcile_result_payload(
             task_id=task_id,
             run_id=run_id,
@@ -3676,15 +3676,15 @@ class CodingOrchestrator:
         if ledger_records.merge_test_record is not None:
             self.ledger.append_merge_record(task_id, ledger_records.merge_test_record)
         summary = run_summary_artifact_service.read_run_summary_artifact(summary_path=result.artifacts.summary)
-        summary_payload = run_summary_projection.build_completed_run_summary_writeback_payload(
+        run_summary_writeback_service.write_completed_run_summary(
             task_id=task_id,
             run_id=run_id,
             runner=runner.name,
             project_name=project_name,
             report=report,
             summary=summary,
+            write_summary_callback=self.summary_writer.write_run_summary,
         )
-        self.summary_writer.write_run_summary(**summary_payload.as_kwargs())
         project_writeback = run_project_writeback_service.write_run_project_completion(
             task_id=task_id,
             mode=mode,

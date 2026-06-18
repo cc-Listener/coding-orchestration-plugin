@@ -2,6 +2,41 @@
 
 ## 会话：2026-06-16
 
+### 阶段 173：解耦架构 run summary writeback host service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 172 后 Project writeback host gate 已迁出，但 `CodingOrchestrator.start_run()` 和 `_reconcile_completed_active_run()` 仍直接构造 run summary writer payload 并调用 `self.summary_writer.write_run_summary()`。
+  - Summary writer 是 LLM Wiki 写入的 host 副作用，应有独立 service 承接 projection + callback 调用；orchestrator 只负责提供 artifact summary、ledger 状态和注入 writer。
+- 当前边界：
+  - `run_summary_writeback_service.write_completed_run_summary()` 复用 `run_summary_projection.build_completed_run_summary_writeback_payload()` 后调用注入的 `write_summary_callback(**payload.as_kwargs())`。
+  - `run_summary_writeback_service.write_reconciled_run_summary()` 复用 `run_summary_projection.build_reconciled_run_summary_writeback_payload()` 后调用注入 writer callback。
+  - service 不读取 `summary.md`，不直接 import `RunSummaryWriter` / `KnowledgePort`，不写 ledger/artifact，不启动 runner，不推进 task/run 状态。
+- 执行的操作：
+  - 新增 `tests/test_run_summary_writeback_service.py`，覆盖 completed callback payload、reconciled callback payload、`start_run()` 委托和 active run reconcile 委托。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_summary_writeback_service` 缺失出现预期 `ModuleNotFoundError`。
+  - RED 已确认：service 创建后，orchestrator 尚未导入/委托 service 时出现预期 `AttributeError`。
+  - 新增 `coding_orchestration/run_summary_writeback_service.py`。
+  - `CodingOrchestrator.start_run()` 与 `_reconcile_completed_active_run()` 改为调用 summary writeback service；summary artifact 读取、ledger append/upsert 和状态推进边界保持不变。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4785 行。
+  - `coding_orchestration/run_summary_writeback_service.py`：57 行。
+  - `tests/test_run_summary_writeback_service.py`：248 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_summary_writeback_service -v`：预期 `ModuleNotFoundError`。
+  - RED：`rtk proxy python3 -m unittest tests.test_run_summary_writeback_service -v`：service contract 2 tests passed，orchestrator 未委托 service 的 2 个预期 `AttributeError`。
+  - `rtk proxy python3 -m unittest tests.test_run_summary_writeback_service -v`：4 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_summary_writeback_service tests.test_run_summary_projection -v`：8 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_status_reconcile_flow -v`：13 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_summary_writeback_service tests.test_run_summary_projection tests.test_plan_run_flow tests.test_status_reconcile_flow -v`：21 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4785 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_summary_writeback_service.py coding_orchestration/orchestrator.py tests/test_run_summary_writeback_service.py`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：775 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：run lifecycle 仍保留 runner 调度、状态 transition、ledger append/upsert、artifact 读写和 WorkItemService 业务写回等 host 副作用闭环。
+  - 下一切片可继续拆 ledger append/upsert host service、completion finalization host service，或继续压缩 orchestrator 中剩余兼容 wrapper；仍不得把 artifact 文件读写、ledger mutation、subprocess、workspace/git mutation 或 Gateway 发送塞进 summary writeback service。
+
 ### 阶段 172：解耦架构 run project writeback host service 拆分
 - **状态：** complete
 - 背景：
