@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 181：解耦架构 implementation checkpoint writeback service 拆分（complete，Task 30 继续）
+阶段 182：解耦架构 run manifest session metadata writeback service 拆分（complete，Task 30 继续）
 
 ## 各阶段
 
@@ -775,7 +775,7 @@
 - **状态：** complete
 
 ### 阶段 106：解耦架构 run manifest service 拆分
-- [x] 实现：新增 `coding_orchestration/run_manifest_service.py`，承接 run-manifest 基础字段、artifact record、Codex attach/resume 展示命令、controlled bypass 权限 profile、source elevated plan 权限判断和 manifest session metadata 回写。
+- [x] 实现：新增 `coding_orchestration/run_manifest_service.py`，承接 run-manifest 基础字段、artifact record、Codex attach/resume 展示命令、controlled bypass 权限 profile、source elevated plan 权限判断和 manifest session metadata 字段投影。
 - [x] 兼容：当时 `CodingOrchestrator._build_manifest()`、`_artifact_record()`、`_codex_attach_command()`、`_codex_resume_command()`、`_permission_profile()`、`_run_uses_controlled_bypass()` 和 `_update_manifest_session_metadata()` 保留 wrapper，避免旧调用断裂；阶段 157 已删除无调用的 permission/bypass wrapper。
 - [x] 测试迁移：新增 `tests/test_run_manifest_service.py`，并把 plan-only resume command 私有 helper 测试从 `tests/test_orchestrator_run_flow.py` 迁到 service contract tests。
 - [x] 边界：runner 启动、状态映射、diff guard violation 到 report/status 的风险注入仍留在 orchestrator，run manifest service 不承载业务状态推进或 subprocess 执行。
@@ -1404,6 +1404,14 @@
 - [x] 迁移：`CodingOrchestrator.start_run()` 的 dirty 后置 `implementation_checkpoint` 生成和 `run-manifest.json` 写回改为委托 service；dirty observation 仍归 `run_evidence_observation_service.py`，report refinement 仍归 `run_report_refinement_projection.py`。
 - [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
 - [x] 验证：运行 implementation checkpoint service contract、implementation workspace/report refinement/manifest/evidence/start 相邻 tests、文档/架构、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 182：解耦架构 run manifest session metadata writeback service 拆分
+- [x] TDD：新增 `tests/test_run_manifest_session_writeback_service.py`，覆盖 session_id 缺失跳过、session_id 存在时 manifest 字段投影和 manifest metadata writer callback，以及 `start_run()` 委托。
+- [x] 实现：新增 `coding_orchestration/run_manifest_session_writeback_service.py`，集中处理 runner session metadata 到 run manifest 的 host callback 接线；只消费已解析 session_id，不解析 stdout、不写 ledger/report/summary、不启动 runner、不推进状态。
+- [x] 迁移：`CodingOrchestrator.start_run()` 的 session metadata manifest 字段设置和 `_update_manifest_session_metadata()` 调用改为委托 service；session id 来源、runner session ledger update 和 Codex attach/resume command 规则保持原边界。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 manifest session writeback service contract、run manifest/session/implementation session 相邻 tests、文档/架构、architecture guard、diff check 和必要完整单测。
 - **状态：** complete
 
 ## 关键问题

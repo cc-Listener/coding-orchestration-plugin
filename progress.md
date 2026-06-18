@@ -2,6 +2,40 @@
 
 ## 会话：2026-06-16
 
+### 阶段 182：解耦架构 run manifest session metadata writeback service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 181 后 implementation dirty 后置 checkpoint 写回已迁出，但 `CodingOrchestrator.start_run()` 仍内联 runner session metadata 到 manifest 字段投影和 `_update_manifest_session_metadata()` callback 调用。
+  - 本切片只迁 runner 完成后的 manifest session metadata writeback host shell；session id 来源、stdout artifact 读取、task session ledger update、report/summary/project writeback、状态推进和 runner dispatch 不属于本切片。
+- 计划边界：
+  - 新 service 消费已解析的 `session_id`。
+  - session_id 为空时不构造 fields、不调用 manifest writer callback。
+  - session_id 存在时复用 manifest session field projection，更新 manifest object/dict，并调用注入 manifest metadata writer callback。
+  - service 不解析 stdout、不写 ledger/report/summary，不启动 runner，不推进 task/run 状态，不调用 MCP/WorkItemService。
+- 执行的操作：
+  - 新增 `tests/test_run_manifest_session_writeback_service.py`，覆盖 session_id 缺失跳过、session_id 存在时 manifest 字段投影、dict/object manifest update 和 `start_run()` 委托。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_manifest_session_writeback_service` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_manifest_session_writeback_service.py`。
+  - `CodingOrchestrator.start_run()` 的 runner session metadata manifest 字段设置和 `_update_manifest_session_metadata()` callback 调用改为委托 service；session id 来源、task session ledger update、report/summary/project writeback 和状态推进保持原边界。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`findings.md` 和 `task_plan.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4775 行。
+  - `coding_orchestration/run_manifest_session_writeback_service.py`：66 行。
+  - `tests/test_run_manifest_session_writeback_service.py`：181 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_manifest_session_writeback_service -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m unittest tests.test_run_manifest_session_writeback_service -v`：4 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_manifest_service tests.test_run_manifest_session_writeback_service -v`：18 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_manifest_session_writeback_service tests.test_implementation_session_flow tests.test_run_session_writeback_service tests.test_run_orchestration_start_rules -v`：45 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：34 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4775 lines`。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_manifest_session_writeback_service.py coding_orchestration/orchestrator.py tests/test_run_manifest_session_writeback_service.py`：passed。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：818 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：completion finalization、report/ledger/summary/project writeback 的剩余 host 编排仍留在 orchestrator host / WorkItemService 边界。
+
 ### 阶段 181：解耦架构 implementation checkpoint writeback service 拆分
 - **状态：** complete
 - 背景：
@@ -1255,7 +1289,7 @@
   - 阶段 105 已将 workspace/git/checkpoint helper 从 `orchestrator.py` 迁出。
   - run-manifest 基础字段、Codex session attach/resume 展示命令、权限 profile、source elevated plan 权限判断和 artifact record 仍是纯 helper 形态，但散落在 `orchestrator.py`。
 - 执行的操作：
-  - 新增 `coding_orchestration/run_manifest_service.py`，承接 run-manifest 基础字段、artifact record、Codex attach/resume 展示命令、controlled bypass 权限 profile、source elevated plan 权限判断和 manifest session metadata 回写。
+  - 新增 `coding_orchestration/run_manifest_service.py`，承接 run-manifest 基础字段、artifact record、Codex attach/resume 展示命令、controlled bypass 权限 profile、source elevated plan 权限判断和 manifest session metadata 字段投影。
   - `CodingOrchestrator` 新增 `run_manifest_service` 依赖，当时原 `_build_manifest()`、`_artifact_record()`、`_codex_attach_command()`、`_codex_resume_command()`、`_mode_uses_controlled_bypass()`、`_run_uses_controlled_bypass()`、`_source_requires_codex_plan_permissions()`、`_permission_profile()`、`_elevated_permissions_reason()`、`_elevated_permission_scope()`、`_source_modification_boundary()` 和 `_update_manifest_session_metadata()` 保留兼容 wrapper 并委托 service；阶段 157 已删除无调用的 permission/bypass wrapper。
   - 新增 `tests/test_run_manifest_service.py`，覆盖 read-only/bypass resume command、外部来源 plan-only 提权、manifest 构建、session metadata 回写和 artifact record。
   - 从 `tests/test_orchestrator_run_flow.py` 移除直接绑定 `CodingOrchestrator._codex_resume_command()` 的旧私有 helper 测试，等价覆盖迁到 service contract tests。

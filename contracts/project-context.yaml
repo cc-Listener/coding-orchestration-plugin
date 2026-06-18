@@ -96,6 +96,8 @@ project_map:
       reason: "Run checkpoint preparation host service，维护 QA/merge-test checkpoint callback 选择、调用和 manifest update payload；只调用注入 callback，不直接 mutate manifest、不写 artifact/ledger/report/summary、不启动 runner、不推进状态。"
     - path: coding_orchestration/run_implementation_checkpoint_service.py
       reason: "Run implementation checkpoint writeback host service，维护 implementation dirty 后置 checkpoint 生成和 manifest artifact writeback callback 接线；只消费已计算好的 dirty flag，不构造 blocked report、不写 ledger/report/summary、不启动 runner、不推进状态。"
+    - path: coding_orchestration/run_manifest_session_writeback_service.py
+      reason: "Run manifest session metadata writeback host service，维护 runner session metadata 到 run manifest 的 callback 接线；只消费已解析 session id，复用 manifest session 字段投影，不写 ledger/report/summary、不启动 runner、不推进状态。"
     - path: coding_orchestration/run_start_selection_projection.py
       reason: "Run start selection projection helper，维护 context source、checkpoint selection、QA evidence observation、source branch recording、project path requirement、workspace selection 和 manifest checkpoint preparation selection 纯规则，不读取 workspace、不准备 checkpoint、不写 manifest 或 ledger。"
     - path: coding_orchestration/run_session_projection.py
@@ -213,6 +215,9 @@ component_contract:
       preferred: true
     - name: run_implementation_checkpoint_service
       path: coding_orchestration/run_implementation_checkpoint_service.py
+      preferred: true
+    - name: run_manifest_session_writeback_service
+      path: coding_orchestration/run_manifest_session_writeback_service.py
       preferred: true
     - name: run_start_selection_projection
       path: coding_orchestration/run_start_selection_projection.py
@@ -355,6 +360,10 @@ component_contract:
       path: coding_orchestration/run_implementation_checkpoint_service.py
       use_instead_of:
         - "在 orchestrator 中继续新增 implementation dirty 后置 checkpoint 生成或 manifest artifact writeback callback 接线。"
+    - name: run_manifest_session_writeback_service
+      path: coding_orchestration/run_manifest_session_writeback_service.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 runner session metadata 到 run manifest 的 host callback 接线。"
     - name: run_background_orchestration
       path: coding_orchestration/run_background_orchestration.py
       use_instead_of:

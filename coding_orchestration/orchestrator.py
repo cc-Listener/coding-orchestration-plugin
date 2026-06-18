@@ -91,6 +91,7 @@ from . import (
     run_implementation_checkpoint_service,
     run_ledger_projection,
     run_ledger_writeback_service,
+    run_manifest_session_writeback_service,
     run_orchestration_service,
     run_context_artifact_service,
     run_manifest_artifact_service,
@@ -3553,21 +3554,14 @@ class CodingOrchestrator:
         status = refinement.status
         report = refinement.report
         session_id = self._thread_id_from_artifact(result.artifacts.stdout) or self._codex_resume_session_id_for_task(task)
-        if session_id:
-            for field, value in run_manifest_service.build_manifest_session_fields(
-                session_id=session_id,
-                runner_name=runner.name,
-                mode=mode,
-                dangerous_bypass=manifest.dangerous_bypass,
-                existing_resume_session_id=manifest.resume_session_id,
-                existing_session_visibility=manifest.session_visibility,
-            ).items():
-                setattr(manifest, field, value)
-            self._update_manifest_session_metadata(
-                manifest_path=result.artifacts.manifest,
-                session_id=session_id,
-                runner_name=runner.name,
-            )
+        run_manifest_session_writeback_service.write_run_manifest_session_metadata(
+            session_id=session_id,
+            runner_name=runner.name,
+            mode=mode,
+            manifest=manifest,
+            manifest_path=result.artifacts.manifest,
+            update_manifest_session_metadata_callback=self._update_manifest_session_metadata,
+        )
         implementation_dirty = run_evidence_observation_service.observe_implementation_dirty_check(
             required=refinement.requires_implementation_commit_check,
             workspace_path=workspace_path,
