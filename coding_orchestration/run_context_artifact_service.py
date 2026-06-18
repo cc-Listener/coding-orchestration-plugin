@@ -11,6 +11,33 @@ def json_dumps(data: Any) -> str:
     return json.dumps(data, ensure_ascii=False, indent=2)
 
 
+def read_run_execution_policy_artifact(*, result: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(result, dict):
+        return {}
+    policy = result.get("execution_policy")
+    if isinstance(policy, dict):
+        return dict(policy)
+
+    artifacts = result.get("artifacts")
+    artifact = artifacts if isinstance(artifacts, dict) else {}
+    path_value = artifact.get("execution_policy")
+    if not path_value:
+        run_dir = artifact.get("run_dir")
+        if run_dir:
+            path_value = Path(str(run_dir)) / "execution-policy.json"
+    if not path_value:
+        return {}
+
+    policy_path = Path(str(path_value))
+    if not policy_path.exists():
+        return {}
+    try:
+        loaded = json.loads(policy_path.read_text(encoding="utf-8", errors="replace"))
+    except Exception:
+        return {}
+    return loaded if isinstance(loaded, dict) else {}
+
+
 def write_run_context_artifacts(
     *,
     run_dir: Path,

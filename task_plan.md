@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 170：解耦架构 run report summary excerpt service 扩展（complete，Task 30 继续）
+阶段 171：解耦架构 execution policy artifact read service 扩展（complete，Task 30 继续）
 
 ## 各阶段
 
@@ -1315,6 +1315,15 @@
 - [x] 迁移：`CodingOrchestrator._report_summary_markdown()` 改为兼容 wrapper 并委托 service；plan context / merge-test context 保留原调用名，但不再在 orchestrator 里解析 report JSON。
 - [x] 文档：同步项目地图、组件合同、约定、解耦设计、实施计划、技术方案、发现和进度。
 - [x] 验证：运行 run report artifact service contract、plan/status 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 171：解耦架构 execution policy artifact read service 扩展
+- [x] TDD：扩展 `tests/test_run_context_artifact_service.py`，要求 context artifact service 能优先读取 `result["execution_policy"]`，再读取显式 `artifacts.execution_policy`，最后 fallback 到 `run_dir/execution-policy.json`，缺失、无效 JSON 或非 dict 时返回空 dict。
+- [x] TDD：覆盖 `CodingOrchestrator._execution_policy_from_run_result()` 只委托 context artifact service，不再自行解析 `execution-policy.json`。
+- [x] 实现：扩展 `coding_orchestration/run_context_artifact_service.py`，新增 `read_run_execution_policy_artifact()`；service 只读写 execution policy context artifact，不写 ledger、manifest、report、summary，不启动 runner、不推进状态。
+- [x] 迁移：`CodingOrchestrator._execution_policy_from_run_result()` 改为兼容 wrapper 并委托 service；run orchestration helper 仍只负责 `latest_execution_policy_decision()` 的纯 plan report 决策读取。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run context artifact service contract、status/start 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
 - **状态：** complete
 
 ## 关键问题

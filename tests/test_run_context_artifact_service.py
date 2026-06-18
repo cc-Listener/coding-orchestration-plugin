@@ -5,7 +5,10 @@ from pathlib import Path
 
 from coding_orchestration.context_assembler import ContextPackage
 from coding_orchestration.models import RunMode
-from coding_orchestration.run_context_artifact_service import write_run_context_artifacts
+from coding_orchestration.run_context_artifact_service import (
+    read_run_execution_policy_artifact,
+    write_run_context_artifacts,
+)
 
 
 class FakeContextAssembler:
@@ -35,6 +38,98 @@ class FakePromptBuilder:
 
 
 class RunContextArtifactServiceTest(unittest.TestCase):
+    def test_read_run_execution_policy_artifact_prefers_result_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            policy_path = run_dir / "execution-policy.json"
+            policy_path.write_text(json.dumps({"route": "from_file"}), encoding="utf-8")
+
+            policy = read_run_execution_policy_artifact(
+                result={
+                    "execution_policy": {"route": "from_result", "planning": "inline"},
+                    "artifacts": {"execution_policy": str(policy_path)},
+                }
+            )
+
+            self.assertEqual(policy, {"route": "from_result", "planning": "inline"})
+
+    def test_read_run_execution_policy_artifact_reads_explicit_artifact_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            policy_path = Path(tmp) / "execution-policy.json"
+            policy_path.write_text(json.dumps({"route": "fast_fix"}), encoding="utf-8")
+
+            policy = read_run_execution_policy_artifact(
+                result={"artifacts": {"execution_policy": policy_path}}
+            )
+
+            self.assertEqual(policy, {"route": "fast_fix"})
+
+    def test_read_run_execution_policy_artifact_falls_back_to_run_dir_contract(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            (run_dir / "execution-policy.json").write_text(
+                json.dumps({"verification": "targeted"}),
+                encoding="utf-8",
+            )
+
+            policy = read_run_execution_policy_artifact(
+                result={"artifacts": {"run_dir": str(run_dir)}}
+            )
+
+            self.assertEqual(policy, {"verification": "targeted"})
+
+    def test_read_run_execution_policy_artifact_returns_empty_for_missing_or_invalid_payloads(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            invalid_json_path = run_dir / "invalid.json"
+            invalid_json_path.write_text("{", encoding="utf-8")
+            non_dict_path = run_dir / "array.json"
+            non_dict_path.write_text("[1, 2, 3]", encoding="utf-8")
+
+            self.assertEqual(read_run_execution_policy_artifact(result={}), {})
+            self.assertEqual(
+                read_run_execution_policy_artifact(
+                    result={"artifacts": {"execution_policy": run_dir / "missing.json"}}
+                ),
+                {},
+            )
+            self.assertEqual(
+                read_run_execution_policy_artifact(
+                    result={"artifacts": {"execution_policy": invalid_json_path}}
+                ),
+                {},
+            )
+            self.assertEqual(
+                read_run_execution_policy_artifact(
+                    result={"artifacts": {"execution_policy": non_dict_path}}
+                ),
+                {},
+            )
+
+    def test_orchestrator_execution_policy_wrapper_delegates_to_context_artifact_service(self):
+        from coding_orchestration import orchestrator as orchestrator_module
+        from coding_orchestration.orchestrator import CodingOrchestrator
+
+        calls = []
+        original = orchestrator_module.run_context_artifact_service.read_run_execution_policy_artifact
+
+        def fake_read_run_execution_policy_artifact(*, result):
+            calls.append(result)
+            return {"route": "from_service"}
+
+        try:
+            orchestrator_module.run_context_artifact_service.read_run_execution_policy_artifact = (
+                fake_read_run_execution_policy_artifact
+            )
+            run_result = {"artifacts": {"run_dir": "/tmp/run"}}
+
+            policy = CodingOrchestrator._execution_policy_from_run_result(run_result)
+
+            self.assertEqual(policy, {"route": "from_service"})
+            self.assertEqual(calls, [run_result])
+        finally:
+            orchestrator_module.run_context_artifact_service.read_run_execution_policy_artifact = original
+
     def test_write_run_context_artifacts_writes_implementation_context_index_contract(self):
         with tempfile.TemporaryDirectory() as tmp:
             run_dir = Path(tmp)

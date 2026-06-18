@@ -4615,27 +4615,7 @@ class CodingOrchestrator:
 
     @staticmethod
     def _execution_policy_from_run_result(result: dict[str, Any]) -> dict[str, Any]:
-        artifact = result.get("artifacts") if isinstance(result.get("artifacts"), dict) else {}
-        policy = result.get("execution_policy")
-        if isinstance(policy, dict):
-            return policy
-        path_value = artifact.get("execution_policy")
-        if not path_value:
-            run_dir = artifact.get("run_dir")
-            if run_dir:
-                path_value = str(Path(str(run_dir)) / "execution-policy.json")
-        if not path_value:
-            return {}
-        path = Path(str(path_value))
-        if not path.exists():
-            return {}
-        try:
-            import json
-
-            loaded = json.loads(path.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
-        return loaded if isinstance(loaded, dict) else {}
+        return run_context_artifact_service.read_run_execution_policy_artifact(result=result)
 
     def _start_background_qa(self, task_id: str, gateway: Any, event: Any) -> None:
         background_run_notifier.start_background_run(

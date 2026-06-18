@@ -2,6 +2,43 @@
 
 ## 会话：2026-06-16
 
+### 阶段 171：解耦架构 execution policy artifact read service 扩展
+- **状态：** complete
+- 背景：
+  - 阶段 170 后 report artifact 的 summary excerpt 读取已迁出，但 `CodingOrchestrator._execution_policy_from_run_result()` 仍直接从 `result["artifacts"]["execution_policy"]` 或 `run_dir/execution-policy.json` 查找路径，并在 orchestrator 内执行 `Path.exists()` 与 `json.loads()`。
+  - `execution-policy.json` 是 run context artifact 的一部分，读取边界应归属 `run_context_artifact_service.py`；orchestrator 只保留兼容 wrapper。
+- 当前边界：
+  - `run_context_artifact_service.read_run_execution_policy_artifact()` 优先返回 `result["execution_policy"]` dict；否则读取显式 `artifacts.execution_policy`；若缺失则 fallback 到 `artifacts.run_dir/execution-policy.json`。
+  - helper 对缺失文件、无效 JSON、非 dict payload 或异常读取统一返回 `{}`；不写 ledger、manifest、report、summary，不启动 runner，不推进 task/run 状态。
+  - `run_orchestration_service.latest_execution_policy_decision()` 仍只负责从 task session plan report 中读取 Codex decision 的纯规则，不读取 artifact 文件。
+- 执行的操作：
+  - 扩展 `tests/test_run_context_artifact_service.py`，覆盖 execution policy artifact 读取优先级、run_dir fallback、缺失/无效/非 dict 容错。
+  - RED 已确认：首次运行时因 `read_run_execution_policy_artifact` 缺失出现预期 `ImportError`。
+  - 增加 `CodingOrchestrator._execution_policy_from_run_result()` 委托 service 的边界测试，防止 wrapper 重新内联 `Path` / JSON 解析。
+  - RED 已确认：service helper 存在后 wrapper 测试失败，返回 `{}` 而不是调用 fake service。
+  - 扩展 `coding_orchestration/run_context_artifact_service.py`，新增 `read_run_execution_policy_artifact()`。
+  - `CodingOrchestrator._execution_policy_from_run_result()` 改为兼容 wrapper 并委托 context artifact service。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4788 行。
+  - `coding_orchestration/run_context_artifact_service.py`：136 行。
+  - `tests/test_run_context_artifact_service.py`：205 行。
+  - `coding_orchestration/run_orchestration_service.py`：419 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_context_artifact_service -v`：预期 `ImportError`。
+  - RED：`rtk proxy python3 -m unittest tests.test_run_context_artifact_service -v`：预期 wrapper 委托测试失败。
+  - `rtk proxy python3 -m unittest tests.test_run_context_artifact_service -v`：7 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_context_artifact_service tests.test_status_reconcile_flow tests.test_run_orchestration_start_rules -v`：41 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4788 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_context_artifact_service.py coding_orchestration/orchestrator.py tests/test_run_context_artifact_service.py`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：768 tests passed。
+- 遇到的错误：
+  - 一次 `rtk rg` 查询 pattern 使用双引号包裹含反引号的文本，zsh 报 `unmatched "`；已改用单引号重跑，未影响代码或验证。
+- 剩余风险：
+  - Task 30 仍是 In Progress：run lifecycle 仍保留 runner 调度、状态 transition、ledger append/upsert、summary writer 调用、project writeback 等 host 副作用闭环。
+  - 下一切片可继续拆 summary writer host façade、runner result finalization projection、project writeback host façade，或继续压缩 orchestrator 中剩余 artifact/path 兼容 wrapper；仍不得把 ledger mutation、subprocess、workspace/git mutation 或 Gateway 发送塞进 artifact service。
+
 ### 阶段 170：解耦架构 run report summary excerpt service 扩展
 - **状态：** complete
 - 背景：

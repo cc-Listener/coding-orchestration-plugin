@@ -91,7 +91,7 @@ project_map:
     - path: coding_orchestration/run_prompt_projection.py
       reason: "Run prompt projection helper，维护首次/增量 prompt 构造选择和参数合同，不写 input-prompt.md、不生成 context artifact、不写 manifest、不启动 runner 或推进 ledger。"
     - path: coding_orchestration/run_context_artifact_service.py
-      reason: "Run context artifact service，维护 wiki context、confirmed plan / implementation context、assembled context、run instructions、execution policy 和 context index 写入，只写 run_dir context artifact。"
+      reason: "Run context artifact service，维护 wiki context、confirmed plan / implementation context、assembled context、run instructions、execution policy 和 context index 写入，以及 execution-policy.json 读取，只触达 run_dir context artifact。"
     - path: coding_orchestration/run_start_artifact_service.py
       reason: "Run start artifact service，维护 report.schema.json、input-prompt.md 和 run-manifest.json 启动 artifact 写入，只写 run_dir 启动 artifact。"
     - path: coding_orchestration/run_ledger_projection.py
@@ -241,7 +241,7 @@ component_contract:
     - name: run_context_artifact_service
       path: coding_orchestration/run_context_artifact_service.py
       use_instead_of:
-        - "在 orchestrator 中继续新增 wiki context、confirmed plan / implementation context、assembled context、run instructions、execution policy 或 context index 文件写入逻辑。"
+        - "在 orchestrator 中继续新增 wiki context、confirmed plan / implementation context、assembled context、run instructions、execution policy、context index 文件写入或 execution-policy.json 读取逻辑。"
     - name: run_start_artifact_service
       path: coding_orchestration/run_start_artifact_service.py
       use_instead_of:
