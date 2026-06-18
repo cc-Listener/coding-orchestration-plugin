@@ -93,6 +93,7 @@ from . import (
     run_report_artifact_service,
     run_stderr_artifact_service,
     run_project_writeback_service,
+    run_session_writeback_service,
     run_summary_writeback_service,
     run_summary_artifact_service,
     run_start_artifact_service,
@@ -3153,14 +3154,15 @@ class CodingOrchestrator:
         runner = (task.get("task_session") or {}).get("runner") or {}
         if str(runner.get("active_run_id") or "") != run_id:
             return
-        self.ledger.update_task_session(
-            task_id,
-            {
+        run_session_writeback_service.write_run_session_update(
+            task_id=task_id,
+            update={
                 "runner": {
                     "active_run_id": None,
                     "active_mode": None,
                 }
             },
+            update_task_session_callback=self.ledger.update_task_session,
         )
 
     def _reconcile_completed_active_run(
@@ -3253,7 +3255,11 @@ class CodingOrchestrator:
             attach_command=self._codex_attach_command(session_id) if session_id else "",
             reconciled_at=datetime.now(timezone.utc).isoformat(),
         )
-        self.ledger.update_task_session(task_id, {"runner": runner_update})
+        run_session_writeback_service.write_run_session_update(
+            task_id=task_id,
+            update={"runner": runner_update},
+            update_task_session_callback=self.ledger.update_task_session,
+        )
         run_summary_writeback_service.write_reconciled_run_summary(
             task_id=task_id,
             run_id=run_id,
@@ -3374,13 +3380,14 @@ class CodingOrchestrator:
         resume_session_id = (
             self._codex_resume_session_id_for_task(task) if self._is_codex_session_runner(runner.name) else ""
         )
-        self.ledger.update_task_session(
-            task_id,
-            run_orchestration_service.build_run_start_base_session_update(
+        run_session_writeback_service.write_run_session_update(
+            task_id=task_id,
+            update=run_orchestration_service.build_run_start_base_session_update(
                 project_name=project_name,
                 runner_name=runner.name,
                 mode=mode,
             ),
+            update_task_session_callback=self.ledger.update_task_session,
         )
         workspace_path = None
         workspace_selection = run_orchestration_service.run_workspace_selection_for_mode(mode)
@@ -3399,15 +3406,16 @@ class CodingOrchestrator:
                 )
                 raise ValueError(f"{workspace_selection.missing_workspace_reason}: {task_id}")
         if workspace_path is not None:
-            self.ledger.update_task_session(
-                task_id,
-                run_orchestration_service.build_run_start_workspace_session_update(
+            run_session_writeback_service.write_run_session_update(
+                task_id=task_id,
+                update=run_orchestration_service.build_run_start_workspace_session_update(
                     mode=mode,
                     source_branch=self._source_branch_for_task(task, project_name),
                     source_base_branch=self._source_base_branch_for_task(task),
                     workspace_path=workspace_path,
                     resume_session_id=resume_session_id,
                 ),
+                update_task_session_callback=self.ledger.update_task_session,
             )
         execution_root = workspace_path or project_path
 
@@ -3494,12 +3502,13 @@ class CodingOrchestrator:
 
         before = self.diff_guard.snapshot(execution_root)
         running_phase = self.run_service.running_phase_for_mode(mode)
-        self.ledger.update_task_session(
-            task_id,
-            run_orchestration_service.build_active_run_session_update(
+        run_session_writeback_service.write_run_session_update(
+            task_id=task_id,
+            update=run_orchestration_service.build_active_run_session_update(
                 run_id=run_id,
                 mode=mode,
             ),
+            update_task_session_callback=self.ledger.update_task_session,
         )
         try:
             self._transition_task_status(
@@ -3681,8 +3690,11 @@ class CodingOrchestrator:
                 run_still_active=run_still_active,
                 attach_command=self._codex_attach_command(session_id) if session_id else "",
             )
-            if completion_session_update:
-                self.ledger.update_task_session(task_id, completion_session_update)
+            run_session_writeback_service.write_run_session_update(
+                task_id=task_id,
+                update=completion_session_update,
+                update_task_session_callback=self.ledger.update_task_session,
+            )
         summary = run_summary_artifact_service.read_run_summary_artifact(summary_path=result.artifacts.summary)
         run_summary_writeback_service.write_completed_run_summary(
             task_id=task_id,

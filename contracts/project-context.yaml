@@ -88,6 +88,8 @@ project_map:
       reason: "Run start selection projection helper，维护 context source、checkpoint selection、QA evidence observation、source branch recording、project path requirement、workspace selection 和 manifest checkpoint preparation selection 纯规则，不读取 workspace、不准备 checkpoint、不写 manifest 或 ledger。"
     - path: coding_orchestration/run_session_projection.py
       reason: "Run session projection helper，维护 plan report session fields 白名单、plan report session update、run start base/workspace session update、active run session update、runner session update 和 completion session update 纯 payload，不写 ledger、不生成 attach command、不读取 artifact 或推进状态。"
+    - path: coding_orchestration/run_session_writeback_service.py
+      reason: "Run session writeback host service，维护 start_run 与 active run reconcile 的 task session callback 调用；只消费 session update dict 并调用注入 callback，不直接持有 TaskLedger 或 storage repository。"
     - path: coding_orchestration/run_prompt_projection.py
       reason: "Run prompt projection helper，维护首次/增量 prompt 构造选择和参数合同，不写 input-prompt.md、不生成 context artifact、不写 manifest、不启动 runner 或推进 ledger。"
     - path: coding_orchestration/run_context_artifact_service.py
@@ -182,6 +184,9 @@ component_contract:
     - name: run_summary_writeback_service
       path: coding_orchestration/run_summary_writeback_service.py
       preferred: true
+    - name: run_session_writeback_service
+      path: coding_orchestration/run_session_writeback_service.py
+      preferred: true
     - name: run_failure_report_projection
       path: coding_orchestration/run_failure_report_projection.py
       preferred: true
@@ -253,6 +258,10 @@ component_contract:
       path: coding_orchestration/run_session_projection.py
       use_instead_of:
         - "在 orchestrator 或 run_orchestration_service 中继续新增 plan report session fields 白名单、plan report session update、run start base/workspace session update、active run session update、runner session update 或 completion session update 纯 payload。"
+    - name: run_session_writeback_service
+      path: coding_orchestration/run_session_writeback_service.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 start_run 或 active run reconcile 的 task session callback 调用逻辑。"
     - name: run_prompt_projection
       path: coding_orchestration/run_prompt_projection.py
       use_instead_of:

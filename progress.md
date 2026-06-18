@@ -2,6 +2,43 @@
 
 ## 会话：2026-06-16
 
+### 阶段 175：解耦架构 run session writeback host service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 174 后 run ledger host callback 已迁出，但 `CodingOrchestrator.start_run()` 和 `_reconcile_completed_active_run()` 仍直接调用 `self.ledger.update_task_session()` 处理 run lifecycle session 写回。
+  - session update payload 已归属 `run_session_projection.py`，实际 host callback 也需要独立 service，避免 orchestrator 继续直接持有 task session 写回副作用。
+- 当前边界：
+  - `run_session_writeback_service.write_run_session_update()` 只消费已构造的 update dict；空 update 直接跳过，非空时调用注入的 `update_task_session` callback。
+  - service 不构造 payload，不直接 import `TaskLedger` / storage repository，不写 artifact，不启动 runner，不推进 task/run 状态。
+  - 本切片覆盖 `start_run()` 的 base/workspace/active session update、`start_run()` transition 失败 active run 清理、runner completion session update，以及 `_reconcile_completed_active_run()` 的 runner session update；restore、decomposition、rollup 和 kanban 等非 run lifecycle session 写回不迁入本切片。
+- 执行的操作：
+  - 新增 `tests/test_run_session_writeback_service.py`，覆盖非空 update 调用注入 callback、空 update 跳过、`start_run()` 委托、transition 失败清理委托和 active run reconcile 委托。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_session_writeback_service` 缺失出现预期 `ModuleNotFoundError`。
+  - RED 已确认：service 创建后，orchestrator 尚未导入/委托 service 时出现预期 `AttributeError`。
+  - RED 已确认：`start_run()` transition 失败清理路径仍直接写 ledger 时，新测试最后一次 service update 仍是 active run 写入而非清理 update。
+  - 新增 `coding_orchestration/run_session_writeback_service.py`。
+  - `CodingOrchestrator.start_run()`、`_clear_active_run_if_matches()` 与 `_reconcile_completed_active_run()` 改为调用 session writeback service；session payload projection、状态 transition、artifact/ledger/summary/project writeback 边界保持不变。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`findings.md` 和 `task_plan.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4805 行。
+  - `coding_orchestration/run_session_writeback_service.py`：16 行。
+  - `tests/test_run_session_writeback_service.py`：290 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_session_writeback_service -v`：预期 `ModuleNotFoundError`。
+  - RED：`rtk proxy python3 -m unittest tests.test_run_session_writeback_service -v`：service contract 2 tests passed，orchestrator 未委托 service 的 2 个预期 `AttributeError`。
+  - RED：`rtk proxy python3 -m unittest tests.test_run_session_writeback_service -v`：transition 失败清理测试预期失败，最后一次 service update 仍是 active run 写入。
+  - `rtk proxy python3 -m unittest tests.test_run_session_writeback_service -v`：5 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_session_writeback_service tests.test_run_session_projection -v`：9 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_status_reconcile_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：32 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_session_writeback_service.py coding_orchestration/orchestrator.py tests/test_run_session_writeback_service.py`：passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4805 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：785 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍保留 runner 调度、diff guard 执行、状态 transition、diff summary 等剩余 artifact 写回、非本切片 session/ledger 写回和 WorkItemService 业务写回。
+  - 下一切片应继续按单一职责域迁移，例如 run status transition host service、diff guard host service 或 runner dispatch/finalization service；仍不得把 subprocess、workspace/git mutation、Gateway 发送或业务状态推进塞进 session writeback service。
+
 ### 阶段 174：解耦架构 run ledger writeback host service 拆分
 - **状态：** complete
 - 背景：
