@@ -85,6 +85,7 @@ from . import (
     run_background_orchestration,
     run_artifact_paths,
     run_diff_guard_service,
+    run_dispatch_service,
     run_ledger_projection,
     run_ledger_writeback_service,
     run_orchestration_service,
@@ -3529,30 +3530,19 @@ class CodingOrchestrator:
             qa_checkpoint=manifest.qa_checkpoint,
             merge_test_checkpoint=manifest.merge_test_checkpoint,
         )
-        if run_orchestration_service.run_checkpoint_failed(checkpoint):
-            result = self._checkpoint_failed_result(
-                runner_name=runner.name,
-                run_dir=run_dir,
-                mode=mode,
-                checkpoint=checkpoint or {},
-            )
-        else:
-            try:
-                result = runner.run(
-                    run_id=run_id,
-                    run_dir=run_dir,
-                    project_path=project_path,
-                    workspace_path=workspace_path,
-                    mode=mode,
-                    timeout_seconds=timeout,
-                )
-            except Exception as exc:
-                result = self._runner_failed_result(
-                    runner_name=runner.name,
-                    run_dir=run_dir,
-                    mode=mode,
-                    error=exc,
-                )
+        result = run_dispatch_service.dispatch_run(
+            runner=runner,
+            run_id=run_id,
+            run_dir=run_dir,
+            project_path=project_path,
+            workspace_path=workspace_path,
+            mode=mode,
+            timeout_seconds=timeout,
+            checkpoint=checkpoint,
+            checkpoint_failed_callback=run_orchestration_service.run_checkpoint_failed,
+            checkpoint_failed_result_callback=self._checkpoint_failed_result,
+            runner_failed_result_callback=self._runner_failed_result,
+        )
 
         diff_guard_observation = run_diff_guard_service.observe_run_diff_guard(
             diff_guard=self.diff_guard,

@@ -2,6 +2,42 @@
 
 ## 会话：2026-06-16
 
+### 阶段 177：解耦架构 runner dispatch host service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 176 后 diff guard observation 已迁出，但 `CodingOrchestrator.start_run()` 仍内联 checkpoint failure gate、`runner.run()` 调度和 runner exception fallback。
+  - runner dispatch 是 run lifecycle 的 host service 边界；orchestrator 应只提供 runner、run context、checkpoint 和失败 result callback，然后继续处理 diff guard、report refinement、状态与写回。
+- 当前边界：
+  - `run_dispatch_service.dispatch_run()` 负责 checkpoint failed 时调用注入 checkpoint failure result callback，并保证不启动 runner。
+  - checkpoint clean / absent 时，service 按原始 run context 调用注入 runner 的 `run()`。
+  - runner 抛异常时，service 调用注入 runner failed result callback，生成结构化 `runner_failed` result。
+  - service 不写 ledger/report/manifest/summary，不执行 diff guard，不收集 QA evidence，不做 implementation dirty-check，不推进 task/run 状态。
+- 执行的操作：
+  - 新增 `tests/test_run_dispatch_service.py`，覆盖 dispatch service 三分支、`start_run()` 委托参数完整性、runner exception 的端到端 structured report。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_dispatch_service` 缺失出现预期 `ModuleNotFoundError`。
+  - RED 已确认：service 创建后，`CodingOrchestrator.start_run()` 尚未导入/委托 service 时出现预期 `AttributeError`。
+  - 新增 `coding_orchestration/run_dispatch_service.py`。
+  - `CodingOrchestrator.start_run()` 改为调用 `run_dispatch_service.dispatch_run()`；原 checkpoint failure / runner.run / runner exception try-except 不再内联。
+  - reviewer 指出未跟踪文件、docs/context 同步和委托测试偏薄风险；已增强测试并同步 canonical docs。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4792 行。
+  - `coding_orchestration/run_dispatch_service.py`：46 行。
+  - `tests/test_run_dispatch_service.py`：342 行。
+  - `coding_orchestration/run_orchestration_service.py`：419 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_dispatch_service -v`：预期 `ModuleNotFoundError`。
+  - RED：`rtk proxy python3 -m unittest tests.test_run_dispatch_service -v`：service contract 3 tests passed，orchestrator 未委托 service 的预期 `AttributeError`。
+  - `rtk proxy python3 -m unittest tests.test_run_dispatch_service -v`：5 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_dispatch_service tests.test_run_orchestration_start_rules tests.test_plan_run_flow tests.test_implementation_workspace_flow -v`：46 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_dispatch_service.py coding_orchestration/orchestrator.py tests/test_run_dispatch_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4792 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：793 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍保留状态 transition、QA evidence 收集、implementation dirty-check、report refinement、report artifact 写回、summary/project/session/ledger 收尾和 WorkItemService 业务写回。
+  - 下一切片可继续拆 run status transition host service 或 QA evidence / dirty-check observation service；仍不得把 ledger mutation、report 写回、diff guard 或状态推进塞进 dispatch service。
+
 ### 阶段 176：解耦架构 run diff guard observation host service 拆分
 - **状态：** complete
 - 背景：

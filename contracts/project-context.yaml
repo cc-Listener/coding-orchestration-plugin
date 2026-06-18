@@ -86,6 +86,8 @@ project_map:
       reason: "Run report refinement projection helper，维护 diff guard / implementation commit missing blocked report 和 observed report status/details refinement，不执行 diff guard、workspace dirty check、report 写入或 ledger 推进。"
     - path: coding_orchestration/run_diff_guard_service.py
       reason: "Run diff guard observation host service，维护 before snapshot、changed files 观测、QA report artifact 过滤、policy violations 组合、plan-only 写入 violations 补充和 diff summary 写回；不写 ledger/report/manifest/summary、不启动 runner、不推进状态。"
+    - path: coding_orchestration/run_dispatch_service.py
+      reason: "Run dispatch host service，维护 checkpoint failure gate、runner.run 调度和 runner exception fallback；不写 ledger/report/manifest/summary、不执行 diff guard、不收集 QA evidence、不推进状态。"
     - path: coding_orchestration/run_start_selection_projection.py
       reason: "Run start selection projection helper，维护 context source、checkpoint selection、QA evidence observation、source branch recording、project path requirement、workspace selection 和 manifest checkpoint preparation selection 纯规则，不读取 workspace、不准备 checkpoint、不写 manifest 或 ledger。"
     - path: coding_orchestration/run_session_projection.py
