@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 175：解耦架构 run session writeback host service 拆分（complete，Task 30 继续）
+阶段 176：解耦架构 run diff guard observation host service 拆分（complete，Task 30 继续）
 
 ## 各阶段
 
@@ -1356,6 +1356,14 @@
 - [x] 迁移：`CodingOrchestrator.start_run()` 与 `_reconcile_completed_active_run()` 的 run start base/workspace/active、transition 失败清理、runner reconcile 和 completion session update 改为委托 service；不迁 delivery/decomposition/kanban 等非本切片 session 写回。
 - [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
 - [x] 验证：运行 run session writeback service contract、run session projection、plan/status/QA/merge-test 相邻 flow、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 176：解耦架构 run diff guard observation host service 拆分
+- [x] TDD：新增 `tests/test_run_diff_guard_service.py`，覆盖 diff guard snapshot/observe service 合同，以及 `CodingOrchestrator.start_run()` 委托 service 后 changed files / violations 继续流入 report refinement 和 ledger records。
+- [x] 实现：新增 `coding_orchestration/run_diff_guard_service.py`，集中处理 run diff guard snapshot、changed files 观测、QA artifact 过滤、policy violations 组合和 diff summary 写回。
+- [x] 迁移：`CodingOrchestrator.start_run()` 不再直接调用 `self.diff_guard.snapshot()`、`changed_files()`、`find_violations()` 或 `write_diff_summary()`，改为消费 `snapshot_run_diff_guard()` / `observe_run_diff_guard()`；删除 `_diff_guard_changed_files_for_mode()` wrapper。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 run diff guard service contract、diff guard/start/plan/implementation 相邻 flow、文档/架构、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ## 关键问题

@@ -84,6 +84,7 @@ from . import (
     merge_test_presenter,
     run_background_orchestration,
     run_artifact_paths,
+    run_diff_guard_service,
     run_ledger_projection,
     run_ledger_writeback_service,
     run_orchestration_service,
@@ -3500,7 +3501,10 @@ class CodingOrchestrator:
             report_schema_writer=self._write_report_schema,
         )
 
-        before = self.diff_guard.snapshot(execution_root)
+        before = run_diff_guard_service.snapshot_run_diff_guard(
+            diff_guard=self.diff_guard,
+            execution_root=execution_root,
+        )
         running_phase = self.run_service.running_phase_for_mode(mode)
         run_session_writeback_service.write_run_session_update(
             task_id=task_id,
@@ -3550,19 +3554,16 @@ class CodingOrchestrator:
                     error=exc,
                 )
 
-        changed_files = self.diff_guard.changed_files(execution_root, before)
-        diff_guard_changed_files = self._diff_guard_changed_files_for_mode(mode, changed_files)
-        violations = self.diff_guard.find_violations(
-            changed_files=diff_guard_changed_files,
-            allowed_paths=workflow.allowed_paths,
-            forbidden_paths=workflow.forbidden_paths,
-        )
-        violations = run_orchestration_service.build_run_diff_guard_violations(
+        diff_guard_observation = run_diff_guard_service.observe_run_diff_guard(
+            diff_guard=self.diff_guard,
+            execution_root=execution_root,
+            before_snapshot=before,
             mode=mode,
-            violations=violations,
-            changed_files=changed_files,
+            workflow=workflow,
+            diff_path=result.artifacts.diff,
         )
-        self.diff_guard.write_diff_summary(result.artifacts.diff, changed_files, violations)
+        changed_files = diff_guard_observation.changed_files
+        violations = diff_guard_observation.violations
         observe_qa_evidence = run_orchestration_service.run_observes_qa_evidence(mode)
         qa_artifacts = self._collect_qa_artifacts(workspace_path) if observe_qa_evidence else {}
         qa_tested_commit = self._git_head(workspace_path) if observe_qa_evidence else ""
@@ -3785,10 +3786,6 @@ class CodingOrchestrator:
 
     def _merge_test_workspace(self, task: dict[str, Any]) -> Path | None:
         return self.workspace_checkpoint_service.merge_test_workspace(task)
-
-    @staticmethod
-    def _diff_guard_changed_files_for_mode(mode: RunMode, changed_files: list[str]) -> list[str]:
-        return workspace_checkpoint_service.diff_guard_changed_files_for_mode(mode, changed_files)
 
     @staticmethod
     def _collect_qa_artifacts(workspace_path: Path | None) -> dict[str, str]:

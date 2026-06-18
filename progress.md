@@ -2,6 +2,39 @@
 
 ## 会话：2026-06-16
 
+### 阶段 176：解耦架构 run diff guard observation host service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 175 后 run lifecycle session callback 已迁出，但 `CodingOrchestrator.start_run()` 仍直接调用 `self.diff_guard.snapshot()`、`changed_files()`、`find_violations()` 和 `write_diff_summary()`。
+  - diff guard observation 是 run lifecycle 的 host 副作用边界；orchestrator 应只传入 diff guard、execution root、workflow、mode 和 diff artifact path，然后消费标准 observation。
+- 当前边界：
+  - `run_diff_guard_service.snapshot_run_diff_guard()` 只调用注入 diff guard 生成 before snapshot。
+  - `run_diff_guard_service.observe_run_diff_guard()` 负责 changed files 观测、QA report artifact 过滤、allowed/forbidden path violations、plan-only 写入 violations 补充和 diff summary artifact 写回。
+  - service 不写 ledger，不写 report/manifest/summary，不启动 runner，不推进 task/run 状态，不收集 QA evidence，不做 implementation commit dirty-check。
+- 执行的操作：
+  - 新增 `tests/test_run_diff_guard_service.py`，覆盖 service snapshot/observe contract 和 `start_run()` 委托 service 后 changed files / violations 继续进入 report refinement 与 ledger records。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_diff_guard_service` 缺失出现预期 `ModuleNotFoundError`。
+  - RED 已确认：service 创建后，`CodingOrchestrator.start_run()` 尚未导入/委托 service 时出现预期 `AttributeError`。
+  - 新增 `coding_orchestration/run_diff_guard_service.py`。
+  - `CodingOrchestrator.start_run()` 改为调用 `snapshot_run_diff_guard()` / `observe_run_diff_guard()`；删除 `_diff_guard_changed_files_for_mode()` wrapper。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4802 行。
+  - `coding_orchestration/run_diff_guard_service.py`：46 行。
+  - `tests/test_run_diff_guard_service.py`：169 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_diff_guard_service -v`：预期 `ModuleNotFoundError`。
+  - RED：`rtk proxy python3 -m unittest tests.test_run_diff_guard_service -v`：service contract 2 tests passed，orchestrator 未委托 service 的预期 `AttributeError`。
+  - `rtk proxy python3 -m unittest tests.test_run_diff_guard_service -v`：3 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_diff_guard_service tests.test_run_orchestration_start_rules tests.test_diff_guard tests.test_plan_run_flow tests.test_implementation_workspace_flow -v`：48 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_diff_guard_service.py coding_orchestration/orchestrator.py tests/test_run_diff_guard_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4802 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：788 tests passed。
+- 剩余风险：
+  - Task 30 仍是 In Progress：`start_run()` 仍保留 runner 调度、状态 transition、QA evidence 收集、implementation dirty-check、report 写回、summary/project/session/ledger 收尾和部分 artifact 写回编排。
+  - 下一切片可继续拆 runner dispatch/finalization host service 或 run status transition host service；仍不得把 runner subprocess、ledger mutation、report 写回、QA evidence 收集或状态推进塞进 diff guard service。
+
 ### 阶段 175：解耦架构 run session writeback host service 拆分
 - **状态：** complete
 - 背景：
