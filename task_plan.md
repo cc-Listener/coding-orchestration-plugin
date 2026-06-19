@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 202：Task 34 delivery materialize executor 第五切片（complete）
+阶段 203：Task 34 delivery approve-breakdown executor 第六切片（complete）
 
 ## 各阶段
 
@@ -1537,6 +1537,15 @@
 - [x] RED：确认 `coding_orchestration.delivery_command_executor` 模块缺失时测试失败。
 - [x] 实现：新增 `delivery_command_executor.py`，承接 `command_coding_materialize()` 和 `materialize_execution_tasks()`；`CodingOrchestrator.command_coding_materialize()` / `_materialize_execution_tasks()` 保留薄 wrapper。
 - [x] 文档：同步 Task 34 第五切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 delivery command executor、delivery flow/service、command run、Gateway command executor 聚焦回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 203：Task 34 delivery approve-breakdown executor 第六切片
+- [x] 定域：只迁 `/coding approve-breakdown` command-level host shell 和 human decision 写入；不迁 breakdown/analyze、materialize、`run --next`、delivery/tree status、rollup、runner、Gateway route 或 DeliveryService 纯规则。
+- [x] TDD：扩展 `tests/test_delivery_command_executor.py`，直接覆盖 approve-breakdown 空参数、未找到、未拆解、open questions、成功 append human decision 和不启动 runner/implementation。
+- [x] RED：确认 `delivery_command_executor.command_coding_approve_breakdown()` 缺失时测试失败。
+- [x] 实现：`delivery_command_executor.py` 新增 `command_coding_approve_breakdown()`；`CodingOrchestrator.command_coding_approve_breakdown()` 保留薄 wrapper。
+- [x] 文档：同步 Task 34 第六切片进度、技术方案、项目地图、组件合同、machine-readable context 和发现。
 - [x] 验证：运行 delivery command executor、delivery flow/service、command run、Gateway command executor 聚焦回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 

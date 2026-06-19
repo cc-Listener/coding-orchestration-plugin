@@ -2,6 +2,24 @@
 
 ## 会话：2026-06-19
 
+### 阶段 203：Task 34 delivery approve-breakdown executor 第六切片
+- **状态：** complete
+- 背景：
+  - 阶段 202 已把 `/coding materialize` host shell 迁入 `delivery_command_executor.py`。
+  - `/coding approve-breakdown` 仍在 `orchestrator.py` 里处理命令校验、open questions 文案和 human decision 写入；该分支无 runner/workspace 副作用，适合继续作为 Task 34 小切片。
+- 执行的操作：
+  - 扩展 `tests/test_delivery_command_executor.py`，覆盖 approve-breakdown 空参数、未找到、未拆解、open questions、成功 append human decision，以及所有分支不启动 runner / implementation。
+  - RED 已确认：`delivery_command_executor.command_coding_approve_breakdown()` 缺失导致测试失败。
+  - 修改 `coding_orchestration/delivery_command_executor.py`，新增 `command_coding_approve_breakdown()`，保留原有用户文案和 UTC ISO `created_at` human decision。
+  - `CodingOrchestrator.command_coding_approve_breakdown()` 改为薄 wrapper；`DeliveryService` 纯规则、Gateway route、runner、workspace/git 均不变。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_delivery_command_executor -v` 先失败于 missing attribute。
+  - GREEN：同一测试通过，7 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_delivery_flow tests.test_delivery_service tests.test_gateway_command_executor tests.test_command_run_flow -v`：33 tests passed。
+- 剩余风险：
+  - Task 34 后续继续迁 breakdown/analyze、`run --next`、delivery/tree status 的 host shell。
+  - `orchestrator.py` 当前 4330 行，仍是 architecture guard legacy large-file watch。
+
 ### 阶段 202：Task 34 delivery materialize executor 第五切片
 - **状态：** complete
 - 背景：
@@ -17,7 +35,7 @@
   - GREEN：`rtk proxy python3 -m unittest tests.test_delivery_command_executor -v`：5 tests passed。
   - 相邻回归：`rtk proxy python3 -m unittest tests.test_delivery_flow tests.test_delivery_service tests.test_command_run_flow tests.test_gateway_command_executor -v`：33 tests passed。
 - 剩余风险：
-  - Task 34 后续还应继续迁 breakdown/analyze、approve-breakdown、`run --next`、delivery/tree status 的 host shell。
+  - Task 34 后续还应继续迁 breakdown/analyze、`run --next`、delivery/tree status 的 host shell。
   - `orchestrator.py` 当前 4350 行，仍是 architecture guard legacy large-file watch。
 
 ### 阶段 201：Task 31 deferred source enrichment 第六切片

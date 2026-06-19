@@ -13,6 +13,7 @@ class RecordingLedger:
         self.children: dict[str, dict[str, Any]] = {}
         self.list_child_task_ids: list[str] = []
         self.created_task_ids: list[str] = []
+        self.appended_decisions: list[tuple[str, dict[str, Any]]] = []
 
     def get_task(self, task_id: str) -> dict[str, Any] | None:
         if self.task is not None and task_id == self.task["task_id"]:
@@ -29,6 +30,9 @@ class RecordingLedger:
             "task_id": kwargs["task_id"],
             "requirement_summary": kwargs["requirement_summary"],
         }
+
+    def append_human_decision(self, task_id: str, decision: dict[str, Any]) -> None:
+        self.appended_decisions.append((task_id, decision))
 
 
 class RecordingHost:
@@ -47,6 +51,73 @@ class RecordingHost:
 
 
 class DeliveryCommandExecutorTest(unittest.TestCase):
+    def test_approve_breakdown_reports_user_facing_validation_errors(self):
+        cases = [
+            (
+                "",
+                RecordingHost(RecordingLedger(None)),
+                "请提供要确认拆解的任务 ID。用法：/coding approve-breakdown <task_id>",
+            ),
+            (
+                "missing",
+                RecordingHost(RecordingLedger(None)),
+                "未找到任务：missing",
+            ),
+            (
+                "req_1",
+                RecordingHost(RecordingLedger({"task_id": "req_1", "task_session": {}})),
+                "[req_1] 还没有拆解方案。请先发送 /coding breakdown req_1。",
+            ),
+            (
+                "req_1",
+                RecordingHost(
+                    RecordingLedger(
+                        {
+                            "task_id": "req_1",
+                            "task_session": {
+                                "decomposition": {
+                                    "materialization_allowed": False,
+                                    "open_questions": ["确认后端项目边界", "补充验收标准"],
+                                }
+                            },
+                        }
+                    )
+                ),
+                "[req_1] 拆解方案仍有待澄清问题，暂不能确认。\n- 确认后端项目边界\n- 补充验收标准",
+            ),
+        ]
+
+        for raw_args, host, expected in cases:
+            with self.subTest(raw_args=raw_args):
+                self.assertEqual(delivery_command_executor.command_coding_approve_breakdown(host, raw_args), expected)
+                self.assertEqual(host.ledger.appended_decisions, [])
+                self.assertFalse(host.start_run_called)
+                self.assertFalse(host.implement_called)
+
+    def test_approve_breakdown_appends_decision_without_starting_runner(self):
+        task = {
+            "task_id": "req_1",
+            "task_session": {
+                "decomposition": {
+                    "materialization_allowed": True,
+                    "delivery_units": [{"unit_id": "unit_backend"}],
+                }
+            },
+        }
+        ledger = RecordingLedger(task)
+        host = RecordingHost(ledger)
+
+        message = delivery_command_executor.command_coding_approve_breakdown(host, "req_1")
+
+        self.assertEqual(message, "[req_1] 已确认拆解方案。下一步发送 /coding materialize req_1 生成执行任务。")
+        self.assertEqual(len(ledger.appended_decisions), 1)
+        task_id, decision = ledger.appended_decisions[0]
+        self.assertEqual(task_id, "req_1")
+        self.assertEqual(decision["type"], "breakdown_approved")
+        self.assertRegex(decision["created_at"], r"^\d{4}-\d{2}-\d{2}T")
+        self.assertFalse(host.start_run_called)
+        self.assertFalse(host.implement_called)
+
     def test_materialize_reports_user_facing_validation_errors(self):
         cases = [
             (
