@@ -4,6 +4,7 @@ import unittest
 from typing import Any
 
 from coding_orchestration import delivery_command_executor
+from coding_orchestration.models import RunMode
 from coding_orchestration.services.delivery_service import DeliveryService
 
 
@@ -14,6 +15,8 @@ class RecordingLedger:
         self.list_child_task_ids: list[str] = []
         self.created_task_ids: list[str] = []
         self.appended_decisions: list[tuple[str, dict[str, Any]]] = []
+        self.updated_sessions: list[tuple[str, dict[str, Any]]] = []
+        self.updated_hierarchies: list[tuple[str, dict[str, Any]]] = []
 
     def get_task(self, task_id: str) -> dict[str, Any] | None:
         if self.task is not None and task_id == self.task["task_id"]:
@@ -34,6 +37,12 @@ class RecordingLedger:
     def append_human_decision(self, task_id: str, decision: dict[str, Any]) -> None:
         self.appended_decisions.append((task_id, decision))
 
+    def update_task_session(self, task_id: str, patch: dict[str, Any]) -> None:
+        self.updated_sessions.append((task_id, patch))
+
+    def update_task_hierarchy(self, task_id: str, **kwargs: Any) -> None:
+        self.updated_hierarchies.append((task_id, kwargs))
+
 
 class RecordingHost:
     def __init__(self, ledger: RecordingLedger):
@@ -43,9 +52,32 @@ class RecordingHost:
         self.implement_called = False
         self.implemented_task_ids: list[str] = []
         self.rollup_task_ids: list[str] = []
+        self.start_run_calls: list[tuple[str, dict[str, Any]]] = []
+        self.start_run_result: dict[str, Any] = {
+            "report": {
+                "status": "succeeded",
+                "user_facing_summary": "已拆成后端和前端交付单元。",
+                "delivery_units": [
+                    {
+                        "unit_id": "unit_backend",
+                        "title": "后端订单查询能力",
+                        "project_key": "backend-api",
+                        "summary": "后端订单查询能力",
+                    }
+                ],
+                "open_questions": [],
+                "materialization_allowed": True,
+            }
+        }
+        self.start_run_error: ValueError | None = None
+        self.blocked_messages: list[tuple[str, dict[str, Any]]] = []
 
-    def start_run(self, *args: Any, **kwargs: Any) -> None:
+    def start_run(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
         self.start_run_called = True
+        self.start_run_calls.append((str(args[0]), kwargs))
+        if self.start_run_error:
+            raise self.start_run_error
+        return self.start_run_result
 
     def command_coding_implement(self, *args: Any, **kwargs: Any) -> str:
         self.implement_called = True
@@ -55,8 +87,92 @@ class RecordingHost:
     def _rollup_requirement_status(self, task_id: str) -> None:
         self.rollup_task_ids.append(task_id)
 
+    def _format_decomposition_blocked_message(self, task_id: str, result: dict[str, Any]) -> str:
+        self.blocked_messages.append((task_id, result))
+        return f"[{task_id}] 拆解未完成"
+
 
 class DeliveryCommandExecutorTest(unittest.TestCase):
+    def test_breakdown_reports_user_facing_validation_errors(self):
+        cases = [
+            (
+                "",
+                RecordingHost(RecordingLedger(None)),
+                "请提供要拆解的任务 ID。用法：/coding breakdown <task_id>",
+            ),
+            (
+                "missing",
+                RecordingHost(RecordingLedger(None)),
+                "未找到任务：missing",
+            ),
+        ]
+
+        for raw_args, host, expected in cases:
+            with self.subTest(raw_args=raw_args):
+                self.assertEqual(delivery_command_executor.command_coding_breakdown(host, raw_args), expected)
+                self.assertFalse(host.start_run_called)
+                self.assertEqual(host.ledger.updated_sessions, [])
+                self.assertEqual(host.ledger.updated_hierarchies, [])
+
+    def test_breakdown_returns_start_run_error_without_writes(self):
+        host = RecordingHost(RecordingLedger({"task_id": "req_1"}))
+        host.start_run_error = ValueError("计划尚未就绪")
+
+        message = delivery_command_executor.command_coding_breakdown(host, "req_1")
+
+        self.assertEqual(message, "计划尚未就绪")
+        self.assertEqual(host.start_run_calls, [("req_1", {"mode": RunMode.DECOMPOSITION})])
+        self.assertEqual(host.ledger.updated_sessions, [])
+        self.assertEqual(host.ledger.updated_hierarchies, [])
+
+    def test_breakdown_formats_blocked_result_without_session_or_hierarchy_writes(self):
+        host = RecordingHost(RecordingLedger({"task_id": "req_1"}))
+        host.start_run_result = {"report": {"status": "blocked"}}
+
+        message = delivery_command_executor.command_coding_breakdown(host, "req_1")
+
+        self.assertEqual(message, "[req_1] 拆解未完成")
+        self.assertEqual(host.start_run_calls, [("req_1", {"mode": RunMode.DECOMPOSITION})])
+        self.assertEqual(host.blocked_messages, [("req_1", {"report": {"status": "blocked"}})])
+        self.assertEqual(host.ledger.updated_sessions, [])
+        self.assertEqual(host.ledger.updated_hierarchies, [])
+
+    def test_breakdown_success_writes_decomposition_and_requirement_hierarchy(self):
+        host = RecordingHost(RecordingLedger({"task_id": "req_1"}))
+
+        message = delivery_command_executor.command_coding_breakdown(host, "req_1")
+
+        self.assertIn("[req_1] 已生成交付拆解方案。", message)
+        self.assertIn("下一步：发送 /coding approve-breakdown req_1 确认拆解方案。", message)
+        self.assertEqual(host.start_run_calls, [("req_1", {"mode": RunMode.DECOMPOSITION})])
+        self.assertEqual(len(host.ledger.updated_sessions), 1)
+        task_id, patch = host.ledger.updated_sessions[0]
+        self.assertEqual(task_id, "req_1")
+        self.assertEqual(patch["decomposition"]["delivery_units"][0]["unit_id"], "unit_backend")
+        self.assertTrue(patch["decomposition"]["materialization_allowed"])
+        self.assertEqual(
+            host.ledger.updated_hierarchies,
+            [
+                (
+                    "req_1",
+                    {
+                        "task_kind": "requirement",
+                        "root_task_id": "req_1",
+                        "parent_task_id": None,
+                        "dependency_task_ids": [],
+                    },
+                )
+            ],
+        )
+
+    def test_analyze_delegates_to_breakdown_executor(self):
+        host = RecordingHost(RecordingLedger({"task_id": "req_1"}))
+
+        message = delivery_command_executor.command_coding_analyze(host, "req_1")
+
+        self.assertIn("[req_1] 已生成交付拆解方案。", message)
+        self.assertEqual(host.start_run_calls, [("req_1", {"mode": RunMode.DECOMPOSITION})])
+
     def test_delivery_status_view_renders_progress_without_runner_side_effects(self):
         parent = {
             "task_id": "req_1",

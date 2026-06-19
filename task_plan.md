@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 205：Task 34 delivery status executor 第八切片（complete）
+阶段 206：Task 34 delivery breakdown executor 第九切片（complete）
 
 ## 各阶段
 
@@ -1565,6 +1565,15 @@
 - [x] 实现：`delivery_command_executor.py` 新增 `command_coding_delivery_status()`；`CodingOrchestrator.command_coding_status()` 保留缺 task、未找到和 active run reconcile 分支，delivery/tree 分支委托 executor。
 - [x] 文档：同步 Task 34 第八切片进度、技术方案、项目地图、组件合同、machine-readable context 和发现。
 - [x] 验证：运行 delivery command executor、delivery flow/service、status reconcile、command run、Gateway command executor 聚焦回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 206：Task 34 delivery breakdown executor 第九切片
+- [x] 定域：只迁 `/coding breakdown` 和 `/coding analyze` command-level host shell、decomposition run 调用、decomposition session 写回、requirement hierarchy 写回和拆解成功/失败文案委托；不迁 `start_run()` 实现、runner/workspace/git、Gateway route、普通 run/status、active run reconcile、DeliveryService 纯规则或 decomposition blocked presenter。
+- [x] TDD：扩展 `tests/test_delivery_command_executor.py`，直接覆盖 breakdown/analyze 空参数、未找到、`start_run(DECOMPOSITION)` 错误、blocked result 不写 session/hierarchy、成功写 decomposition 和 requirement hierarchy、analyze alias。
+- [x] RED：确认 `delivery_command_executor.command_coding_breakdown()` / `command_coding_analyze()` 缺失时测试失败。
+- [x] 实现：`delivery_command_executor.py` 新增 `command_coding_breakdown()` 和 `command_coding_analyze()`；`CodingOrchestrator.command_coding_breakdown()` / `command_coding_analyze()` 保留薄 wrapper。
+- [x] 文档：同步 Task 34 第九切片进度、技术方案、项目地图、组件合同、machine-readable context 和发现。
+- [x] 验证：运行 delivery command executor、delivery flow/service、Gateway command executor、command catalog、command run 聚焦回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片

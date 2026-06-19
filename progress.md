@@ -1,6 +1,30 @@
 # 进度日志
 
+说明：本日志按时间倒序记录，历史阶段中的 “In Progress” 保留当时状态；当前事实以顶部最新阶段为准。Task 30 已在阶段 185 关闭，后续大文件治理、hard code、Skill/MCP/Hermes 解耦不再挂回 Task 30。
+
 ## 会话：2026-06-19
+
+### 阶段 206：Task 34 delivery breakdown executor 第九切片
+- **状态：** complete
+- 背景：
+  - 阶段 202-205 已把 delivery command façade 的 materialize、approve-breakdown、run-next 和 delivery/tree status 迁入 `delivery_command_executor.py`。
+  - `/coding breakdown` 和 `/coding analyze` 仍在 `orchestrator.py` 里处理 task 校验、`start_run(DECOMPOSITION)`、blocked 文案委托、decomposition session 写回和 requirement hierarchy 写回；这是 delivery command façade 剩余最后一片。
+- 执行的操作：
+  - 扩展 `tests/test_delivery_command_executor.py`，覆盖 breakdown/analyze 空参数、未找到、`start_run(DECOMPOSITION)` 错误、blocked result 不写 session/hierarchy、成功写 decomposition 和 requirement hierarchy、analyze alias。
+  - RED 已确认：`delivery_command_executor.command_coding_breakdown()` / `command_coding_analyze()` 缺失导致测试失败。
+  - 修改 `coding_orchestration/delivery_command_executor.py`，新增 `command_coding_breakdown()` 和 `command_coding_analyze()`，复用 `DeliveryService.decomposition_for_session()` 与 `render_delivery_breakdown()`。
+  - `CodingOrchestrator.command_coding_breakdown()` / `command_coding_analyze()` 改为薄 wrapper；`start_run()`、runner/workspace/git、Gateway route、DeliveryService 纯规则和 decomposition blocked presenter 均不变。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_delivery_command_executor -v` 先失败于 missing attribute。
+  - GREEN：同一测试通过，17 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_delivery_flow tests.test_delivery_service tests.test_gateway_command_executor tests.test_command_catalog tests.test_command_run_flow -v`：43 tests passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4288 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：879 tests passed。
+  - multi-agent 只读探索：确认 breakdown/analyze command host shell、decomposition session 写回和 requirement hierarchy 写回可迁入 executor；`start_run()` 实现、runner/workspace/git、Gateway route、DeliveryService 纯规则和 blocked presenter 内部实现必须留在既有边界。
+- 剩余风险：
+  - Task 34 delivery command façade 已全部迁入 `delivery_command_executor.py`；`orchestrator.py` 当前 4288 行，仍是 architecture guard legacy large-file watch。
+  - 下一轮 Task 34 应继续选择非 delivery 的 façade 降载点，不再扩展 Task 30。
 
 ### 阶段 205：Task 34 delivery status executor 第八切片
 - **状态：** complete
@@ -22,8 +46,8 @@
   - multi-agent 只读探索：确认 `/coding status <parent> --delivery/--tree` 比 breakdown/analyze 更适合作为本切片，active run reconcile 必须留在 orchestrator。
   - multi-agent 只读 review：无阻断问题；按建议补充 active run + `--delivery` 仍先 reconcile 的组合测试。
 - 剩余风险：
-  - Task 34 delivery command façade 后续只剩 breakdown/analyze host shell。
-  - `orchestrator.py` 当前 4312 行，仍是 architecture guard legacy large-file watch。
+  - 阶段 205 完成时 Task 34 delivery command façade 只剩 breakdown/analyze host shell；阶段 206 已迁完。
+  - `orchestrator.py` 阶段 205 完成时为 4312 行，仍是 architecture guard legacy large-file watch。
 
 ### 阶段 204：Task 34 delivery run-next executor 第七切片
 - **状态：** complete

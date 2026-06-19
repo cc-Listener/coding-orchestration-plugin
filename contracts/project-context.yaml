@@ -92,7 +92,7 @@ project_map:
     - path: coding_orchestration/gateway_rewrite_context.py
       reason: "Gateway rewrite context 纯投影 helper，只消费已采集的 task/project/media/catalog 事实并返回 LLM rewrite context 与 next-step hint；不读 ledger、不持有 Gateway event、不调用 command_rewriter、不发送回复。"
     - path: coding_orchestration/delivery_command_executor.py
-      reason: "Delivery command executor host shell，维护 /coding approve-breakdown、/coding materialize、/coding run <parent> --next、/coding status <parent> --delivery/--tree 用户可见分支和 human decision / ledger / rollup callback 绑定；不承载 DeliveryService 纯规则、不直接启动 runner、不触碰 Gateway route 或 workspace/git 副作用。"
+      reason: "Delivery command executor host shell，维护 /coding breakdown、/coding analyze、/coding approve-breakdown、/coding materialize、/coding run <parent> --next、/coding status <parent> --delivery/--tree 用户可见分支和 decomposition / human decision / ledger / rollup callback 绑定；不承载 DeliveryService 纯规则、不实现 runner、不触碰 Gateway route 或 workspace/git 副作用。"
     - path: coding_orchestration/source_projection.py
       reason: "SourceProjection 纯投影层，把 SourceResult / legacy source_context 映射为 prompt/context/status/manifest/run-preflight 稳定字段，并提供 context-index 序列化 payload；不读外部来源、不写 ledger、不推进状态、不改变 source_context 持久化。"
     - path: coding_orchestration/run_diff_guard_service.py
@@ -426,7 +426,7 @@ component_contract:
     - name: delivery_command_executor
       path: coding_orchestration/delivery_command_executor.py
       use_instead_of:
-        - "在 orchestrator 中继续新增 /coding approve-breakdown、/coding materialize、/coding run <parent> --next、/coding status <parent> --delivery/--tree 用户可见分支、human decision 写入、物化错误处理、ledger callback 绑定、run-next rollup callback 绑定或 delivery/tree status render。"
+        - "在 orchestrator 中继续新增 /coding breakdown、/coding analyze、/coding approve-breakdown、/coding materialize、/coding run <parent> --next、/coding status <parent> --delivery/--tree 用户可见分支、decomposition session 写回、requirement hierarchy 写回、human decision 写入、物化错误处理、ledger callback 绑定、run-next rollup callback 绑定或 delivery/tree status render。"
     - name: RunnerRouter
       path: coding_orchestration/runner_router.py
       use_instead_of:

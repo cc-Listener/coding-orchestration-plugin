@@ -26,9 +26,6 @@ from .doctor_presenter import (
 )
 from .execution_policy import control_policy_for_mode
 from .feishu_copy import render_user_update
-from .feishu_messages import (
-    render_delivery_breakdown,
-)
 from .feishu_project_reader import FeishuProjectReader
 from .feishu_project_mcp import (
     READ_TOOLS,
@@ -916,31 +913,10 @@ class CodingOrchestrator:
         return self._format_run_completion_message(task_id, result)
 
     def command_coding_analyze(self, raw_args: str) -> str:
-        return self.command_coding_breakdown(raw_args)
+        return delivery_command_executor.command_coding_analyze(self, raw_args)
 
     def command_coding_breakdown(self, raw_args: str) -> str:
-        task_id = raw_args.strip()
-        if not task_id:
-            return "请提供要拆解的任务 ID。用法：/coding breakdown <task_id>"
-        task = self.ledger.get_task(task_id)
-        if not task:
-            return f"未找到任务：{task_id}"
-        try:
-            result = self.start_run(task_id, mode=RunMode.DECOMPOSITION)
-        except ValueError as exc:
-            return str(exc)
-        report = result.get("report") or {}
-        if str(report.get("status") or "") != AgentRunStatus.SUCCEEDED.value:
-            return self._format_decomposition_blocked_message(task_id, result)
-        self.ledger.update_task_session(task_id, {"decomposition": self._decomposition_for_session(report)})
-        self.ledger.update_task_hierarchy(
-            task_id,
-            task_kind=TaskKind.REQUIREMENT.value,
-            root_task_id=task_id,
-            parent_task_id=None,
-            dependency_task_ids=[],
-        )
-        return render_delivery_breakdown(task_id=task_id, report=report)
+        return delivery_command_executor.command_coding_breakdown(self, raw_args)
 
     def command_coding_approve_breakdown(self, raw_args: str) -> str:
         return delivery_command_executor.command_coding_approve_breakdown(self, raw_args)
