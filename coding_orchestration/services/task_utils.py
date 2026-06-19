@@ -5,6 +5,7 @@ from typing import Any
 from ..models import TaskStatus, canonical_task_status
 from ..ports import SourceResult
 from ..source_links import extract_feishu_document_link, extract_feishu_project_link
+from ..source_projection import SourceProjection, source_projection_from_context, source_projection_from_source
 from ..source_recovery import feishu_document_lark_cli_command, feishu_document_recovery_action
 from ..state_machine import TaskStateMachine
 
@@ -283,10 +284,28 @@ def latest_agent_run(task: dict[str, Any]) -> dict[str, Any] | None:
     return runs[-1] if runs else None
 
 
-def next_actions_for_task_payload(task: dict[str, Any], source_context: dict[str, Any]) -> list[str]:
-    source_status = source_status_from_context(source_context)
+def source_projection_for_task_payload(source_or_context: dict[str, Any] | None) -> SourceProjection:
+    if not isinstance(source_or_context, dict):
+        return source_projection_from_context(None)
+    source_shape_keys = {
+        "source_context",
+        "type",
+        "raw_text",
+        "normalized_text",
+        "project_name",
+        "message_summary",
+        "related_task_id",
+    }
+    if any(key in source_or_context for key in source_shape_keys):
+        return source_projection_from_source(source_or_context)
+    return source_projection_from_context(source_or_context)
+
+
+def next_actions_for_task_payload(task: dict[str, Any], source_or_context: dict[str, Any] | None) -> list[str]:
+    source_projection = source_projection_for_task_payload(source_or_context)
+    source_status = source_projection.status
     if source_status in {"deferred", "auth_needed", "permission_missing"}:
-        if source_context.get("codex_resolvable") or source_context.get("resolution_owner") == "codex":
+        if source_projection.codex_resolvable or source_projection.resolution_owner == "codex":
             return ["coding_task_run", "coding_task_status"]
         return ["coding_lark_preflight", "coding_source_resolve", "coding_task_status"]
     status = (canonical_task_status(task.get("status")) or TaskStatus.NEW).value

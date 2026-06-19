@@ -2,6 +2,23 @@
 
 ## 会话：2026-06-19
 
+### 阶段 199：Task 31 TaskService status payload 第四切片
+- **状态：** complete
+- 背景：
+  - `TaskService.task_status_payload()` 和 `next_actions_for_task_payload()` 仍直接读取 legacy `source_context` 的状态、类型、URL、恢复动作和 Codex 可读性。
+  - 本切片只迁 status payload 消费层，不改 task 创建、ledger 持久化、manifest 权限判断或 orchestrator run 前 source enrichment。
+- 执行的操作：
+  - 扩展 `tests/test_task_service.py`，patch `task_utils.source_projection_from_source()` 返回 fake projection，要求 payload source 字段和 next_actions 消费 projection。
+  - RED 已确认：旧实现继续输出 legacy `source_context.source_type` 导致测试失败。
+  - `coding_orchestration/services/task_utils.py` 新增 `source_projection_for_task_payload()`，`next_actions_for_task_payload()` 改为基于 `SourceProjection` 状态、`codex_resolvable` 和 `resolution_owner` 判断；完整 source dict 和 legacy context dict 保持兼容区分，避免无 `source_context` 的手动来源误判为 failed。
+  - `coding_orchestration/services/task_service.py` 的 `task_status_payload()` 改为通过 projection 输出 `source_status`、`source_type`、`source_url`、`source_recovery_action` 和 next_actions。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_task_service.TaskServiceTest.test_task_status_payload_reads_source_fields_from_projection -v` 失败于旧实现输出 legacy source。
+  - GREEN：同一测试通过。
+  - 聚焦回归：`rtk proxy python3 -m unittest tests.test_task_service tests.test_task_status_payload tests.test_source_projection -v`：12 tests passed。
+- 剩余风险：
+  - `run_manifest_service.source_requires_codex_plan_permissions()` 和 `orchestrator._enrich_deferred_source_context_before_run()` 仍消费 legacy `source_context`；前者会影响 runner 权限，应单独验证后再迁。
+
 ### 阶段 198：Task 31 ContextAssembler source summary 第三切片
 - **状态：** complete
 - 背景：

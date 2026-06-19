@@ -52,6 +52,7 @@ class TaskService:
     source_context_for_ledger = staticmethod(task_utils.source_context_for_ledger)
     source_context_requires_human = staticmethod(task_utils.source_context_requires_human)
     source_status_from_context = staticmethod(task_utils.source_status_from_context)
+    source_projection_for_task_payload = staticmethod(task_utils.source_projection_for_task_payload)
     latest_agent_run = staticmethod(task_utils.latest_agent_run)
     next_actions_for_task_payload = staticmethod(task_utils.next_actions_for_task_payload)
     default_event_source_for_ledger = staticmethod(task_utils.default_event_source_for_ledger)
@@ -292,7 +293,7 @@ class TaskService:
         if not task:
             return {"ok": False, "task_id": task_id, "error": f"task not found: {task_id}"}
         source = task.get("source") or {}
-        source_context = source.get("source_context") or {}
+        source_projection = self.source_projection_for_task_payload(source)
         session = task.get("task_session") or {}
         runner = session.get("runner") or {}
         latest_run = self.latest_agent_run(task)
@@ -305,16 +306,16 @@ class TaskService:
             "phase": task.get("phase"),
             "project_name": source.get("project_name") or session.get("project_name"),
             "project_path": task.get("project_path"),
-            "source_status": self.source_status_from_context(source_context),
-            "source_type": source_context.get("source_type") or source.get("type"),
-            "source_url": source_context.get("url") or "",
-            "source_recovery_action": source_context.get("recovery_action") or "",
+            "source_status": source_projection.status,
+            "source_type": source_projection.source_type or source.get("type"),
+            "source_url": source_projection.url,
+            "source_recovery_action": source_projection.recovery_action,
             "runner": runner.get("provider") or runner.get("name") or "",
             "last_run_id": (latest_run or {}).get("run_id") or "",
             "runtime_status": (latest_run or {}).get("status") or "",
             "kanban_task_id": session.get("kanban_task_id") or "",
             "kanban_sync": session.get("kanban_sync") or {},
-            "next_actions": self.next_actions_for_task_payload(task, source_context),
+            "next_actions": self.next_actions_for_task_payload(task, source),
         }
 
     def index_source_context(self, text: str) -> dict[str, Any] | None:

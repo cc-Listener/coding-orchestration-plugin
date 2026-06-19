@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 198：Task 31 ContextAssembler source summary 第三切片（complete）
+阶段 199：Task 31 TaskService status payload 第四切片（complete）
 
 ## 各阶段
 
@@ -1556,6 +1556,15 @@
 - [x] 实现：`context_assembler.py` 引入 `source_projection_from_source()`，当前任务块只消费 projection 的 `raw_fields_summary`。
 - [x] 文档：同步 Task 31 第三切片进度、技术方案、实施计划、组件合同和发现。
 - [x] 验证：运行 context assembler/source projection 聚焦回归、source/source-plan/task-service/run context artifact 相邻回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 199：Task 31 TaskService status payload 第四切片
+- [x] 定域：只让 `TaskService.task_status_payload()` 和 `next_actions_for_task_payload()` 消费 `SourceProjection`；不改 task 创建、ledger schema、manifest 权限判断、orchestrator deferred enrichment 或 source reader。
+- [x] TDD：扩展 `tests/test_task_service.py`，patch `task_utils.source_projection_from_source()` 并确认 status payload 的 source 字段和 next_actions 来自 projection。
+- [x] RED：确认旧实现继续读取 legacy `source_context` 时测试失败。
+- [x] 实现：`task_utils.py` 新增 `source_projection_for_task_payload()`，`next_actions_for_task_payload()` 基于 projection 状态和 Codex 可读性判断；`TaskService.task_status_payload()` 通过 projection 输出 `source_status`、`source_type`、`source_url` 和 `source_recovery_action`。
+- [x] 文档：同步 Task 31 第四切片进度、技术方案、实施计划、组件合同和发现。
+- [x] 验证：运行 task service/status payload/source projection 聚焦回归、source/source-plan/context artifact/context assembler 相邻回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ## 关键问题

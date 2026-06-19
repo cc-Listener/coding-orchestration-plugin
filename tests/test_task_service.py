@@ -1,6 +1,8 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
@@ -134,6 +136,104 @@ class TaskServiceTest(unittest.TestCase):
             self.assertEqual(result["status"], "planned")
             self.assertEqual(result["project_path"], "/repo/bps-admin")
             self.assertEqual(result["next_actions"], ["coding_task_run"])
+
+    def test_task_status_payload_reads_source_fields_from_projection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service, ledger, _source_indexer, _kanban = _make_service(tmp)
+            ledger.create_task(
+                task_id="task_projection",
+                source={
+                    "type": "legacy_type",
+                    "project_name": "bps-admin",
+                    "source_context": {
+                        "read_status": "failed",
+                        "source_type": "legacy_source",
+                        "url": "https://legacy.example/doc",
+                        "error": "missing scope",
+                        "recovery_action": "legacy recovery",
+                    },
+                },
+                requirement_summary="订单列表新增店铺筛选",
+                project_path="/repo/bps-admin",
+                status="planned",
+                llm_wiki_refs=[],
+                human_decisions=[],
+            )
+            projection = SimpleNamespace(
+                status="permission_missing",
+                source_type="projected_source",
+                url="https://projected.example/doc",
+                recovery_action="projected recovery",
+                codex_resolvable=True,
+                resolution_owner="codex",
+            )
+
+            with patch(
+                "coding_orchestration.services.task_utils.source_projection_from_source",
+                return_value=projection,
+                create=True,
+            ):
+                payload = service.task_status_payload("task_projection")
+
+            self.assertEqual(payload["source_status"], "permission_missing")
+            self.assertEqual(payload["source_type"], "projected_source")
+            self.assertEqual(payload["source_url"], "https://projected.example/doc")
+            self.assertEqual(payload["source_recovery_action"], "projected recovery")
+            self.assertEqual(payload["next_actions"], ["coding_task_run", "coding_task_status"])
+
+    def test_task_status_payload_keeps_source_without_context_as_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            service, ledger, _source_indexer, _kanban = _make_service(tmp)
+            ledger.create_task(
+                task_id="task_manual",
+                source={
+                    "type": "manual",
+                    "project_name": "bps-admin",
+                },
+                requirement_summary="订单列表新增店铺筛选",
+                project_path="/repo/bps-admin",
+                status="planned",
+                llm_wiki_refs=[],
+                human_decisions=[],
+            )
+
+            payload = service.task_status_payload("task_manual")
+
+            self.assertEqual(payload["source_status"], "missing")
+            self.assertEqual(payload["source_type"], "manual")
+            self.assertEqual(payload["next_actions"], ["coding_task_run"])
+
+    def test_next_actions_for_task_payload_uses_projection_readability(self):
+        task = {"status": "planned"}
+        self.assertEqual(
+            TaskService.next_actions_for_task_payload(
+                task,
+                {
+                    "source_context": {
+                        "read_status": "indexed",
+                        "source_type": "feishu_docx",
+                        "url": "https://example.feishu.cn/docx/Token",
+                        "deferred_source_resolution": True,
+                        "codex_resolvable": True,
+                    }
+                },
+            ),
+            ["coding_task_run", "coding_task_status"],
+        )
+        self.assertEqual(
+            TaskService.next_actions_for_task_payload(
+                task,
+                {
+                    "source_context": {
+                        "read_status": "failed",
+                        "source_type": "feishu_docx",
+                        "url": "https://example.feishu.cn/docx/Token",
+                        "error": "missing scope: docx:document:readonly",
+                    }
+                },
+            ),
+            ["coding_lark_preflight", "coding_source_resolve", "coding_task_status"],
+        )
 
 
 if __name__ == "__main__":
