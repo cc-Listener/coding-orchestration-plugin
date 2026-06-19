@@ -2,6 +2,19 @@
 
 ## 会话：2026-06-19
 
+### 阶段 185：Task 30 closure cleanup
+- **状态：** complete
+- 背景：
+  - 阶段 184 完成后，fresh completed run 与 active run reconcile 两条完成态写回 coordinator 均已迁出，Task 30 不应继续承接新的 run lifecycle 切片。
+  - 用户要求当前目标长期迭代但职责清晰，因此需要把 Task 30 从“继续”改为“关闭”，并把后续大文件治理、hard code 清理、MCP Skill / Hermes 深度解耦拆到后续任务。
+- 执行的操作：
+  - `task_plan.md` 当前阶段更新为阶段 185 complete，明确 Task 30 已收敛关闭。
+  - 明确 Task 30 之后的剩余工作不再挂入本任务：`orchestrator.py` 降到 3000 行以内、hard code 清理、MCP Skill / Hermes 深度解耦、Gateway 执行副作用继续下沉等进入 Task 31+ / Task 18/20 长期治理。
+- 验证：
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4658 lines`。
+  - `rtk proxy git diff --check`：passed。
+
 ### 阶段 184：解耦架构 active run reconcile writeback coordinator service 拆分
 - **状态：** complete
 - 背景：

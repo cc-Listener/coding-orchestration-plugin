@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 184：解耦架构 active run reconcile writeback coordinator service 拆分（complete，Task 30 closure cleanup 下一步）
+阶段 185：Task 30 closure cleanup（complete，Task 30 已收敛关闭）
 
 ## 各阶段
 
@@ -1428,6 +1428,13 @@
 - [x] 迁移：`CodingOrchestrator._reconcile_completed_active_run()` 只保留 task/session/run/report 读取、mode/status/details/changed_files 观测与 artifact 前置归一化，完成态写回 tail 委托 service。
 - [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
 - [x] 验证：运行 reconcile writeback service contract、相邻 writeback/reconcile/status flow、主流程、文档/架构、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 185：Task 30 closure cleanup
+- [x] 将 Task 30 当前状态收敛为关闭：fresh completed run 与 active run reconcile 两条完成态写回 coordinator 均已迁出。
+- [x] 明确后续工作不再挂入 Task 30：`orchestrator.py` 降到 3000 行以内、hard code 清理、MCP Skill / Hermes 深度解耦、Gateway 执行副作用继续下沉等进入 Task 31+ / Task 18/20 长期治理。
+- [x] 同步 `task_plan.md`、`progress.md`、`findings.md`、实施计划和技术方案，避免“Task 30 继续”成为开放尾巴。
+- [x] 验证：文档/架构测试、architecture guard、diff check。
 - **状态：** complete
 
 ## 关键问题
