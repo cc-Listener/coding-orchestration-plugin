@@ -26,6 +26,7 @@
 - Fresh completed run writeback coordinator 优先维护在 `coding_orchestration/run_completion_writeback_service.py`；该模块只消费已完成 runner result 的投影数据和注入 callback，协调 report artifact、状态 transition、ledger/session/summary/project writeback 与 result payload，不启动 runner、不执行 diff guard、不收集 QA evidence、不判断 dirty、不准备 checkpoint、不解析 stdout、不直接持有 host adapter。
 - Hermes native tools 注册在 `coding_orchestration/plugin_tools.py`，工具 operation 分发在 `coding_orchestration/tool_operation_dispatcher.py`，CLI 子命令注册在 `coding_orchestration/cli.py`。`plugin_tools.py` 只做 host payload 归一和 `ToolSpec.operation_id` handler 包装，不维护 `operation_id -> CodingOrchestrator.tool_*` 方法映射；CLI 中 `lark-preflight`、`source-resolve`、普通 `status <task_id>` 和带 host config gate 的 `project-mcp-preflight` 直接走 `dispatch_tool_operation()`。
 - Gateway diagnostic route 保持在 `coding_orchestration/gateway_command_controller.py` / `orchestrator.py` 的 host reply 边界；`/coding project-mcp-preflight` 只作为 immediate reply 复用 project MCP preflight façade，不把 `doctor` 聚合或 `status` presentation 下沉为单个 tool operation。
+- 本地项目文件夹识别、搜索根去重、路径解析和人工别名抽取优先维护在 `coding_orchestration/gateway_project_context.py`；orchestrator 只保留兼容 wrapper 和默认 fallback，不把 Gateway 回复、profile 写入或 active project binding 塞入该 helper。
 - 通用 skill 规则维护在 `coding_orchestration/skills/coding-operator-core/` 和 `coding-health-core/`；Hermes 绑定映射维护在 `hermes-coding-operator/` 和 `hermes-coding-health-check/`。
 - Codex CLI 命令构造、resume、sandbox、结构化 report 读取在 `coding_orchestration/runners/codex_cli.py`。
 - 安装和卸载逻辑优先改 `coding_orchestration/install.py`，脚本只保留入口和用户输出。

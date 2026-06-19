@@ -80,6 +80,7 @@ from . import (
     gateway_command_controller,
     gateway_command_executor,
     gateway_pending_action_executor,
+    gateway_project_context,
     gateway_rewrite_presenter,
     merge_test_presenter,
     run_background_orchestration,
@@ -158,6 +159,7 @@ class CodingOrchestrator:
     source_resolver: Any | None = None
     gateway_binding_service: Any | None = None
     workspace_checkpoint_service: Any | None = None
+    local_project_search_roots: list[Path] | None = None
     knowledge: KnowledgePort | None = None
     dispatch_tool: Any | None = None
     kanban_bridge: Any | None = None
@@ -2970,86 +2972,30 @@ class CodingOrchestrator:
 
     @staticmethod
     def _unique_project_candidates(candidates: list[str]) -> list[str]:
-        seen: set[str] = set()
-        unique: list[str] = []
-        for candidate in candidates:
-            value = normalize_project_text(str(candidate or "")).strip().strip("，,。；;")
-            if not value or value in seen:
-                continue
-            seen.add(value)
-            unique.append(value)
-        return unique
+        return gateway_project_context.unique_project_candidates(candidates)
 
     def _apply_active_project_to_task_if_missing(self, task: dict[str, Any], event: Any | None) -> dict[str, Any]:
         return gateway_active_context.apply_active_project_to_task_if_missing(self, task, event)
 
     @staticmethod
     def _project_folder_candidates_from_text(text: str) -> list[str]:
-        candidates: list[str] = []
-        candidates.extend(match.strip() for match in re.findall(r"`([^`]+)`", text) if match.strip())
-        patterns = [
-            r"(?:项目(?:文件夹|目录)?名称|文件夹名称|项目文件夹|项目目录|项目路径|本地目录|本地路径|路径|目录)\s*(?:为|是|叫|=|:|：)?\s*([~/A-Za-z0-9_.\-/]+)",
-            r"(?:folder|directory|repo|repository)\s*(?:is|=|:)?\s*([~/A-Za-z0-9_.\-/]+)",
-        ]
-        for pattern in patterns:
-            candidates.extend(match.strip() for match in re.findall(pattern, text, flags=re.I) if match.strip())
-        seen: set[str] = set()
-        unique: list[str] = []
-        for candidate in candidates:
-            value = candidate.strip().strip("，,。；;")
-            if not value or value in seen:
-                continue
-            seen.add(value)
-            unique.append(value)
-        return unique
+        return gateway_project_context.project_folder_candidates_from_text(text)
 
     def _local_project_path_for_candidate(self, candidate: str) -> Path | None:
-        value = candidate.strip()
-        if not value:
-            return None
-        direct = Path(value).expanduser()
-        if direct.is_dir():
-            return direct.resolve()
-        for root in self._local_project_search_roots():
-            path = root / value
-            if path.is_dir():
-                return path.resolve()
-        return None
+        return gateway_project_context.local_project_path_for_candidate(
+            candidate,
+            search_roots=self._local_project_search_roots(),
+        )
 
     def _local_project_search_roots(self) -> list[Path]:
-        roots: list[Path] = []
-        for project in self.resolver.registry.projects:
-            try:
-                parent = Path(project.path).expanduser().resolve().parent
-            except Exception:
-                continue
-            roots.append(parent)
-        roots.append(Path.home() / "Desktop" / "project")
-        seen: set[Path] = set()
-        unique: list[Path] = []
-        for root in roots:
-            try:
-                resolved = root.expanduser().resolve()
-            except Exception:
-                continue
-            if resolved in seen or not resolved.is_dir():
-                continue
-            seen.add(resolved)
-            unique.append(resolved)
-        return unique
+        return gateway_project_context.local_project_search_roots(
+            registry_project_paths=[project.path for project in self.resolver.registry.projects],
+            extra_roots=self.local_project_search_roots or [Path.home() / "Desktop" / "project"],
+        )
 
     @staticmethod
     def _project_aliases_from_human_text(text: str, project_name: str) -> list[str]:
-        aliases: list[str] = [project_name]
-        for match in re.findall(r"项目(?:为|是|叫)\s*([^，,。；;\s`]+)", text):
-            value = match.strip()
-            if value and value not in aliases:
-                aliases.append(value)
-        for match in re.findall(r"([\w\u4e00-\u9fff-]*后台)", text):
-            value = re.sub(r"^(?:这是|项目为|项目是|项目叫|为|是|叫)", "", match.strip())
-            if value and value not in aliases:
-                aliases.append(value)
-        return aliases
+        return gateway_project_context.project_aliases_from_human_text(text, project_name)
 
     def _upsert_human_project_profile(
         self,

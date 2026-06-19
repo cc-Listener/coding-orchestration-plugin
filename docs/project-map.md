@@ -19,6 +19,7 @@
 | `coding_orchestration/gateway_command_executor.py` | Gateway `/coding` custom route host shell：消费 controller route metadata，承接 task/run/delivery/implementation/QA/prepare/merge-test 等复杂命令分发；通过 orchestrator façade/callback 触发 ledger、runner、pending action 和消息回复，迁移期不承载纯解析规则。 |
 | `coding_orchestration/gateway_pending_action_executor.py` | Gateway pending action host shell：处理待确认动作的确认/取消回复、latest human_required merge-test fallback、取消任务 gate 和显式命令续接；通过 orchestrator façade/callback 调用 binding、ledger 和消息回复，不承载 controller 纯解析规则。 |
 | `coding_orchestration/gateway_active_context.py` | Gateway active context host helper：把会话级 active project 应用到缺少项目上下文的 task，并记录 human decision；不负责 active project binding 存取、项目初始化或项目画像生成。 |
+| `coding_orchestration/gateway_project_context.py` | Gateway project context 纯规则 helper：识别人工输入中的本地项目文件夹候选、解析本地项目路径、合并 registry/注入搜索根并抽取人工别名；不写 project profile、不绑定 active project、不发送 Gateway 回复。 |
 | `coding_orchestration/config.py` | 运行配置和工具默认值边界；用于逐步收口路径、命令、域名和 env key hard code。 |
 | `coding_orchestration/tool_specs.py` | Hermes native tools / future MCP tools 的 host-agnostic 工具规格合同。 |
 | `coding_orchestration/tool_operation_dispatcher.py` | Tool operation dispatcher：按 `ToolSpec.operation_id` 分发到当前 service/façade handler；Hermes native tool 注册层只做 host payload 归一和 handler 包装，不持有 orchestrator 方法名映射。 |

@@ -2,6 +2,28 @@
 
 ## 会话：2026-06-19
 
+### 阶段 192：Task 34 本地项目解析 helper 第一切片
+- **状态：** complete
+- 背景：
+  - Task 34 explorer 确认 `orchestrator.py` 当前 4701 行，下一步低风险降载入口是项目上下文 / 本地项目解析 helper。
+  - 本切片只迁出本地项目解析纯规则，不迁 project profile 写入、active project binding、项目列表/状态文案、source reader、Gateway 回复或 runner。
+- 执行的操作：
+  - 新增 `tests/test_gateway_project_context.py`，覆盖项目文件夹候选抽取、显式 search roots 注入、registry parent + extra roots 去重和人工别名抽取。
+  - RED 已确认：`coding_orchestration.gateway_project_context` 模块缺失导致测试失败。
+  - 新增 `coding_orchestration/gateway_project_context.py`，承接本地项目候选、搜索根、路径解析和别名抽取纯规则。
+  - 修改 `coding_orchestration/orchestrator.py`：对应函数改成 helper wrapper，并新增可注入 `local_project_search_roots`；默认兼容原 `~/Desktop/project` fallback。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_gateway_project_context -v` 先失败于 `ModuleNotFoundError`。
+  - GREEN：`rtk proxy python3 -m unittest tests.test_gateway_project_context -v`：4 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_gateway_project_context tests.test_gateway_project_task_flow tests.test_source_flow tests.test_source_plan_flow -v`：26 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4647 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：839 tests passed。
+- 剩余风险：
+  - `orchestrator.py` 仍保留 project list/status 文案、project profile 写入和 `Path.home() / Desktop / project` 默认 fallback；后续 Task 34 切片应继续把项目画像读取/格式化和默认搜索根配置化迁出。
+  - Task 31 SourceProjection 仍是独立工作，不混入本切片。
+
 ### 阶段 191：Task 32 CLI `status <task_id>` dispatcher 第五切片
 - **状态：** complete
 - 背景：
