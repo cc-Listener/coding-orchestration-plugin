@@ -903,24 +903,7 @@ class CodingOrchestrator:
     def command_coding_run(self, raw_args: str) -> str:
         args = raw_args.split()
         if "--next" in args:
-            task_id = next((part for part in args if not part.startswith("--")), "")
-            if not task_id:
-                return "请提供父级需求任务 ID。用法：/coding run <task_id> --next"
-            task = self.ledger.get_task(task_id)
-            if not task:
-                return f"未找到任务：{task_id}"
-            children = self.ledger.list_child_tasks(task_id)
-            decision = self.delivery_service.run_next_decision(task, children)
-            if decision.error == "not_requirement":
-                return f"[{task_id}] 不是父级需求任务；请直接运行该执行任务。"
-            if not decision.child:
-                if decision.should_rollup:
-                    self._rollup_requirement_status(task_id)
-                return f"[{task_id}] 暂无可运行的子任务。请查看 /coding status {task_id} --tree。"
-            message = self.command_coding_implement(decision.child["task_id"])
-            if decision.should_rollup:
-                self._rollup_requirement_status(task_id)
-            return f"[{task_id}] 已选择下一个可执行任务：{decision.child['task_id']}\n\n{message}"
+            return delivery_command_executor.command_coding_run_next(self, raw_args)
         task_id = raw_args.strip()
         if not task_id:
             return "请提供任务 ID。"

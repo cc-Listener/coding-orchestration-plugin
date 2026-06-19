@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 203：Task 34 delivery approve-breakdown executor 第六切片（complete）
+阶段 204：Task 34 delivery run-next executor 第七切片（complete）
 
 ## 各阶段
 
@@ -1546,6 +1546,15 @@
 - [x] RED：确认 `delivery_command_executor.command_coding_approve_breakdown()` 缺失时测试失败。
 - [x] 实现：`delivery_command_executor.py` 新增 `command_coding_approve_breakdown()`；`CodingOrchestrator.command_coding_approve_breakdown()` 保留薄 wrapper。
 - [x] 文档：同步 Task 34 第六切片进度、技术方案、项目地图、组件合同、machine-readable context 和发现。
+- [x] 验证：运行 delivery command executor、delivery flow/service、command run、Gateway command executor 聚焦回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 204：Task 34 delivery run-next executor 第七切片
+- [x] 定域：只迁 `/coding run <parent> --next` command-level host shell、next child 选择调用、parent rollup callback 和 implementation command 委托；不迁普通 `/coding run <task_id>`、start_run、breakdown/analyze、delivery/tree status、runner、workspace/git、Gateway route 或 DeliveryService 纯规则。
+- [x] TDD：扩展 `tests/test_delivery_command_executor.py`，直接覆盖 run-next 空参数、缺父任务、非 requirement、无可运行子任务 rollup、成功选择子任务并调用 implement 后 rollup。
+- [x] RED：确认 `delivery_command_executor.command_coding_run_next()` 缺失时测试失败。
+- [x] 实现：`delivery_command_executor.py` 新增 `command_coding_run_next()`；`CodingOrchestrator.command_coding_run()` 的 `--next` 分支保留薄 wrapper，普通 run 仍留原边界。
+- [x] 文档：同步 Task 34 第七切片进度、技术方案、项目地图、组件合同、machine-readable context 和发现。
 - [x] 验证：运行 delivery command executor、delivery flow/service、command run、Gateway command executor 聚焦回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 

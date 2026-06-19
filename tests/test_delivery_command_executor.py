@@ -41,16 +41,102 @@ class RecordingHost:
         self.delivery_service = DeliveryService()
         self.start_run_called = False
         self.implement_called = False
+        self.implemented_task_ids: list[str] = []
+        self.rollup_task_ids: list[str] = []
 
     def start_run(self, *args: Any, **kwargs: Any) -> None:
         self.start_run_called = True
 
     def command_coding_implement(self, *args: Any, **kwargs: Any) -> str:
         self.implement_called = True
-        return ""
+        self.implemented_task_ids.append(str(args[0]))
+        return f"[{args[0]}] 实现已完成"
+
+    def _rollup_requirement_status(self, task_id: str) -> None:
+        self.rollup_task_ids.append(task_id)
 
 
 class DeliveryCommandExecutorTest(unittest.TestCase):
+    def test_run_next_reports_user_facing_validation_errors(self):
+        cases = [
+            (
+                "",
+                RecordingHost(RecordingLedger(None)),
+                "请提供父级需求任务 ID。用法：/coding run <task_id> --next",
+            ),
+            (
+                "--next",
+                RecordingHost(RecordingLedger(None)),
+                "请提供父级需求任务 ID。用法：/coding run <task_id> --next",
+            ),
+            (
+                "missing --next",
+                RecordingHost(RecordingLedger(None)),
+                "未找到任务：missing",
+            ),
+            (
+                "task_1 --next",
+                RecordingHost(
+                    RecordingLedger(
+                        {
+                            "task_id": "task_1",
+                            "task_kind": "execution",
+                        }
+                    )
+                ),
+                "[task_1] 不是父级需求任务；请直接运行该执行任务。",
+            ),
+        ]
+
+        for raw_args, host, expected in cases:
+            with self.subTest(raw_args=raw_args):
+                self.assertEqual(delivery_command_executor.command_coding_run_next(host, raw_args), expected)
+                self.assertFalse(host.start_run_called)
+                self.assertFalse(host.implement_called)
+                self.assertEqual(host.rollup_task_ids, [])
+
+    def test_run_next_rolls_up_when_no_child_is_runnable(self):
+        parent = {
+            "task_id": "req_1",
+            "task_kind": "requirement",
+        }
+        ledger = RecordingLedger(parent)
+        ledger.children["task_blocked"] = {
+            "task_id": "task_blocked",
+            "task_kind": "execution",
+            "status": "blocked",
+        }
+        host = RecordingHost(ledger)
+
+        message = delivery_command_executor.command_coding_run_next(host, "req_1 --next")
+
+        self.assertEqual(message, "[req_1] 暂无可运行的子任务。请查看 /coding status req_1 --tree。")
+        self.assertEqual(ledger.list_child_task_ids, ["req_1"])
+        self.assertEqual(host.rollup_task_ids, ["req_1"])
+        self.assertFalse(host.start_run_called)
+        self.assertFalse(host.implement_called)
+
+    def test_run_next_starts_selected_child_then_rolls_up_parent(self):
+        parent = {
+            "task_id": "req_1",
+            "task_kind": "requirement",
+        }
+        ledger = RecordingLedger(parent)
+        ledger.children["task_backend"] = {
+            "task_id": "task_backend",
+            "task_kind": "execution",
+            "status": "planned",
+        }
+        host = RecordingHost(ledger)
+
+        message = delivery_command_executor.command_coding_run_next(host, "req_1 --next")
+
+        self.assertIn("[req_1] 已选择下一个可执行任务：task_backend", message)
+        self.assertIn("[task_backend] 实现已完成", message)
+        self.assertEqual(host.implemented_task_ids, ["task_backend"])
+        self.assertEqual(host.rollup_task_ids, ["req_1"])
+        self.assertFalse(host.start_run_called)
+
     def test_approve_breakdown_reports_user_facing_validation_errors(self):
         cases = [
             (
