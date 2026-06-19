@@ -87,6 +87,8 @@ project_map:
       reason: "Run report refinement projection helper，维护 diff guard / implementation commit missing blocked report 和 observed report status/details refinement，不执行 diff guard、workspace dirty check、report 写入或 ledger 推进。"
     - path: coding_orchestration/merge_test_readiness_service.py
       reason: "Blocked merge-test readiness 纯评估 service，只消费 task/run/workspace/session/report 事实并返回风险放行评估；不写 ledger、不推进状态、不触发 runner、不发送 Gateway 回复。"
+    - path: coding_orchestration/project_profile_catalog.py
+      reason: "Project profile catalog，只读取 LLM Wiki project profile、registry project facts 和初始化质量评估，返回 profile/list/status 数据或文案；不写 profile、不绑定 active project、不发送 Gateway 回复。"
     - path: coding_orchestration/run_diff_guard_service.py
       reason: "Run diff guard observation host service，维护 before snapshot、changed files 观测、QA report artifact 过滤、policy violations 组合、plan-only 写入 violations 补充和 diff summary 写回；不写 ledger/report/manifest/summary、不启动 runner、不推进状态。"
     - path: coding_orchestration/run_dispatch_service.py
@@ -204,6 +206,9 @@ component_contract:
       preferred: true
     - name: merge_test_readiness_service
       path: coding_orchestration/merge_test_readiness_service.py
+      preferred: true
+    - name: project_profile_catalog
+      path: coding_orchestration/project_profile_catalog.py
       preferred: true
     - name: run_summary_writeback_service
       path: coding_orchestration/run_summary_writeback_service.py

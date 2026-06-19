@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 193：Task 34 blocked merge-test readiness service 第二切片（complete）
+阶段 194：Task 34 project profile catalog 第三切片（complete）
 
 ## 各阶段
 
@@ -1511,6 +1511,15 @@
 - [x] 实现：新增 `coding_orchestration/merge_test_readiness_service.py`；`CodingOrchestrator._blocked_task_merge_test_assessment()` 改为只收集 implementation run、workspace、source branch、resume session 和 report，再委托 service。
 - [x] 文档：同步 Task 34 第二切片进度、技术方案、项目地图、组件合同、约定和发现。
 - [x] 验证：运行 merge-test readiness/blocked/QA gate/basic 聚焦回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 194：Task 34 project profile catalog 第三切片
+- [x] 定域：只迁出 project profile 读取、registry fallback、别名查找、动态来源计数和 project list/status 格式化；不迁 project init/upsert、active project binding、Gateway 回复副作用、rewrite 执行或 source reader。
+- [x] TDD：新增 `tests/test_project_profile_catalog.py`，覆盖 wiki + registry 合并去重、name/alias/project/path basename 查找、project list 当前标记和 project status 初始化质量。
+- [x] RED：确认新模块缺失时测试失败。
+- [x] 实现：新增 `coding_orchestration/project_profile_catalog.py`；`CodingOrchestrator` 对应 profile 函数改为薄 wrapper，通过 catalog 消费 wiki 与 registry projects。
+- [x] 文档：同步 Task 34 第三切片进度、技术方案、项目地图、组件合同、约定和发现。
+- [x] 验证：运行 project profile catalog、Gateway project/rewrite/binding 相邻回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ## 关键问题

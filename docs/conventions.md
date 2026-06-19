@@ -28,6 +28,7 @@
 - Gateway diagnostic route 保持在 `coding_orchestration/gateway_command_controller.py` / `orchestrator.py` 的 host reply 边界；`/coding project-mcp-preflight` 只作为 immediate reply 复用 project MCP preflight façade，不把 `doctor` 聚合或 `status` presentation 下沉为单个 tool operation。
 - 本地项目文件夹识别、搜索根去重、路径解析和人工别名抽取优先维护在 `coding_orchestration/gateway_project_context.py`；orchestrator 只保留兼容 wrapper 和默认 fallback，不把 Gateway 回复、profile 写入或 active project binding 塞入该 helper。
 - blocked task 是否可继续 merge-test 的 readiness 评估优先维护在 `coding_orchestration/merge_test_readiness_service.py`；该模块只消费 task/run/workspace/session/report 事实并返回评估 dict，不写 ledger、不推进状态、不触发 runner、不发送 Gateway 回复。
+- project profile 读取、registry fallback、别名/路径查找、动态来源计数和 project list/status 格式化优先维护在 `coding_orchestration/project_profile_catalog.py`；project init/upsert、active project binding 和 Gateway 回复副作用仍留在 orchestrator host 边界。
 - 通用 skill 规则维护在 `coding_orchestration/skills/coding-operator-core/` 和 `coding-health-core/`；Hermes 绑定映射维护在 `hermes-coding-operator/` 和 `hermes-coding-health-check/`。
 - Codex CLI 命令构造、resume、sandbox、结构化 report 读取在 `coding_orchestration/runners/codex_cli.py`。
 - 安装和卸载逻辑优先改 `coding_orchestration/install.py`，脚本只保留入口和用户输出。
@@ -77,6 +78,7 @@
 - 变更 active run reconcile 的完成态写回协调时，优先扩展 `tests/test_run_reconcile_writeback_service.py`，再按影响范围扩展 `tests/test_status_reconcile_flow.py`、run status/ledger/session/summary writeback tests 和 plan/implementation/QA/merge-test 主流程 tests；该 coordinator 不承担 runner dispatch、diff guard、QA evidence、dirty-check、checkpoint、manifest session metadata 或 Project writeback。
 - 变更 run-manifest 基础字段、启动期 manifest update projection、artifact record、Codex attach/resume 展示命令、manifest session metadata 字段投影、controlled bypass 权限 profile 或 source elevated plan 权限判断时，优先扩展 `tests/test_run_manifest_service.py`，再按影响范围扩展 `tests/test_implementation_session_flow.py`、`tests/test_plan_run_flow.py`、`tests/test_source_plan_flow.py`、`tests/test_qa_flow.py` 或 `tests/test_merge_test_basic_flow.py`。
 - 变更项目上下文、active project、项目目录识别、Feishu escaped project slug 或项目澄清时，优先扩展 `tests/test_gateway_project_task_flow.py`。
+- 变更 project profile 读取、registry fallback、别名查找、动态来源计数或 project list/status 格式化时，优先扩展 `tests/test_project_profile_catalog.py`，再按影响范围扩展 `tests/test_gateway_project_task_flow.py`、`tests/test_gateway_rewrite_flow.py` 或 `tests/test_gateway_binding_service.py`。
 - 变更 active project 应用到 task、project context 回填或对应 human decision 记录时，优先扩展 `tests/test_gateway_active_context.py`，再按影响范围扩展 `tests/test_gateway_project_task_flow.py`、`tests/test_gateway_natural_language_command_flow.py` 或 `tests/test_command_run_flow.py`。
 - 变更计划确认、确认过早、`/coding use`、`/coding delete` 或近期 planned task continue 行为时，优先扩展 `tests/test_gateway_task_control_flow.py`。
 - 变更 bugfix/change/continue feedback、带图反馈或 failed plan-only restart 行为时，优先扩展 `tests/test_gateway_feedback_flow.py` 和 `tests/test_gateway_change_continue_flow.py`。

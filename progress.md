@@ -5061,5 +5061,30 @@
 - 剩余风险：
   - `orchestrator.py` 仍是 4523 行 legacy façade；下一步 Task 34 优先 project profile 读取/格式化 catalog，Task 31 单独推进 `SourceResult -> source projection`，不要混入本切片。
 
+### 阶段 194：Task 34 project profile catalog 第三切片
+- **状态：** complete
+- 背景：
+  - `CodingOrchestrator` 仍直接维护 project profile 读取、registry fallback、别名/路径 basename 查找、动态来源计数和 project list/status 格式化。
+  - 这些逻辑只需要 wiki 与 registry facts，不需要 Gateway 发送、active binding、project init/upsert、ledger 写入、runner 或 source reader。
+- 执行的操作：
+  - 新增 `tests/test_project_profile_catalog.py`，覆盖 wiki profile + registry fallback 合并去重、name/alias/project/path basename 查找、project list 当前标记和 project status 初始化质量。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_project_profile_catalog -v` 因 `project_profile_catalog` 缺失出现预期 ModuleNotFoundError。
+  - 新增 `coding_orchestration/project_profile_catalog.py`，承接 `ProjectProfileCatalog.known_profiles()`、`find()`、`profile_from_doc()`、`dynamic_source_count()`、`format_list()` 和 `format_status()`。
+  - `CodingOrchestrator` 的 `_format_project_list()`、`_format_project_status()`、`_known_project_profiles()`、`_find_project_profile()`、`_project_profile_from_doc()`、`_dynamic_source_count_for_project()` 改为 thin wrapper；project init/upsert、active project binding、Gateway 回复副作用保持原边界。
+  - 同步 `task_plan.md`、项目地图、组件合同、约定、machine-readable project context、实施计划、技术方案和发现。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4423 行。
+  - `coding_orchestration/project_profile_catalog.py`：142 行。
+  - `tests/test_project_profile_catalog.py`：140 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_project_profile_catalog -v`：预期 ModuleNotFoundError。
+  - `rtk proxy python3 -m unittest tests.test_project_profile_catalog -v`：4 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/project_profile_catalog.py coding_orchestration/orchestrator.py tests/test_project_profile_catalog.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_project_profile_catalog tests.test_gateway_project_task_flow tests.test_gateway_rewrite_flow tests.test_gateway_binding_service tests.test_gateway_natural_language_command_flow -v`：37 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4423 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+- 剩余风险：
+  - `orchestrator.py` 仍是 4423 行 legacy façade；下一步 Task 34 可继续迁 rewrite context 或 delivery command façade，Task 31 单独推进 source projection。
+
 ---
 *每个阶段完成后或遇到错误时更新此文件*
