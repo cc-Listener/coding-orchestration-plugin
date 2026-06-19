@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import RunManifest, RunMode, RunnerName, TaskPhase
+from .source_projection import source_projection_from_source
 
 
 CODEX_SESSION_RUNNERS = {
@@ -98,17 +99,22 @@ def run_uses_controlled_bypass(mode: RunMode, source: dict[str, Any] | None = No
 def source_requires_codex_plan_permissions(source: dict[str, Any] | None) -> bool:
     if not isinstance(source, dict):
         return False
-    source_context = source.get("source_context")
-    if not isinstance(source_context, dict) or not source_context:
-        return False
-    if str(source_context.get("read_status") or "").strip().lower() == "success":
-        return False
-    source_type = str(source_context.get("source_type") or source.get("type") or "").strip().lower()
-    url = str(source_context.get("url") or "").strip().lower()
+    source_projection = source_projection_from_source(source)
     if (
-        source_context.get("codex_resolvable")
-        or source_context.get("resolution_owner") == "codex"
-        or source_context.get("lark_cli_command")
+        source_projection.status == "missing"
+        and not source_projection.source_type
+        and not source_projection.url
+        and not source_projection.legacy_context
+    ):
+        return False
+    if source_projection.status == "ok":
+        return False
+    source_type = source_projection.source_type.strip().lower()
+    url = source_projection.url.strip().lower()
+    if (
+        source_projection.codex_resolvable
+        or source_projection.resolution_owner == "codex"
+        or source_projection.lark_cli_command
     ):
         return True
     return (

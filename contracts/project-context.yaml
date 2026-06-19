@@ -92,7 +92,7 @@ project_map:
     - path: coding_orchestration/gateway_rewrite_context.py
       reason: "Gateway rewrite context 纯投影 helper，只消费已采集的 task/project/media/catalog 事实并返回 LLM rewrite context 与 next-step hint；不读 ledger、不持有 Gateway event、不调用 command_rewriter、不发送回复。"
     - path: coding_orchestration/source_projection.py
-      reason: "SourceProjection 纯投影层，把 SourceResult / legacy source_context 映射为 prompt/context 稳定字段，并提供 context-index 序列化 payload；不读外部来源、不写 ledger、不推进状态、不改变 source_context 持久化。"
+      reason: "SourceProjection 纯投影层，把 SourceResult / legacy source_context 映射为 prompt/context/status/manifest 稳定字段，并提供 context-index 序列化 payload；不读外部来源、不写 ledger、不推进状态、不改变 source_context 持久化。"
     - path: coding_orchestration/run_diff_guard_service.py
       reason: "Run diff guard observation host service，维护 before snapshot、changed files 观测、QA report artifact 过滤、policy violations 组合、plan-only 写入 violations 补充和 diff summary 写回；不写 ledger/report/manifest/summary、不启动 runner、不推进状态。"
     - path: coding_orchestration/run_dispatch_service.py

@@ -6,6 +6,7 @@ import unittest
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from coding_orchestration.models import ArtifactSet, RunMode, RunnerName
 from coding_orchestration.run_manifest_service import (
@@ -75,6 +76,34 @@ class RunManifestServiceTest(unittest.TestCase):
         self.assertFalse(source_requires_codex_plan_permissions(source))
         self.assertFalse(run_uses_controlled_bypass(RunMode.PLAN_ONLY, source))
         self.assertEqual(permission_profile(RunMode.PLAN_ONLY), "plan_read_only")
+
+    def test_source_permissions_use_source_projection(self):
+        source = {
+            "type": "manual",
+            "source_context": {
+                "read_status": "success",
+                "source_type": "manual",
+                "url": "https://legacy.example/source",
+            },
+        }
+
+        with patch(
+            "coding_orchestration.run_manifest_service.source_projection_from_source",
+            return_value=SimpleNamespace(
+                status="permission_missing",
+                source_type="feishu_docx",
+                url="https://projected.example/docx/token",
+                codex_resolvable=True,
+                resolution_owner="codex",
+                lark_cli_command="rtk lark-cli docs +fetch --doc https://projected.example/docx/token",
+            ),
+            create=True,
+        ):
+            self.assertTrue(source_requires_codex_plan_permissions(source))
+
+    def test_source_without_context_keeps_plan_only_read_only(self):
+        self.assertFalse(source_requires_codex_plan_permissions({"type": "manual"}))
+        self.assertFalse(run_uses_controlled_bypass(RunMode.PLAN_ONLY, {"type": "manual"}))
 
     def test_build_run_manifest_records_runner_paths_permissions_and_deadline(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -2,6 +2,22 @@
 
 ## 会话：2026-06-19
 
+### 阶段 200：Task 31 manifest source permission 第五切片
+- **状态：** complete
+- 背景：
+  - `run_manifest_service.source_requires_codex_plan_permissions()` 仍直接读取 legacy `source_context`，决定 plan-only 是否需要 source read elevated / dangerous bypass。
+  - 该判断影响 runner 权限，必须单独切片，不和 TaskService/status payload 或 orchestrator enrichment 混改。
+- 执行的操作：
+  - 扩展 `tests/test_run_manifest_service.py`，patch `source_projection_from_source()`，确认 source permission gate 消费 projection；补无 `source_context` 的手动来源保持 read-only。
+  - RED 已确认：旧实现继续读取 legacy success context，无法响应 projection 的 `permission_missing/codex_resolvable` 要求。
+  - 修改 `coding_orchestration/run_manifest_service.py`：`source_requires_codex_plan_permissions()` 通过 `SourceProjection` 判断 missing、ok、Codex 可读性、lark command 和 Feishu source 类型。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_manifest_service.RunManifestServiceTest.test_source_permissions_use_source_projection tests.test_run_manifest_service.RunManifestServiceTest.test_source_without_context_keeps_plan_only_read_only -v` 先失败于旧实现不消费 projection。
+  - GREEN：同一测试通过。
+  - 聚焦回归：`rtk proxy python3 -m unittest tests.test_run_manifest_service tests.test_source_plan_flow tests.test_codex_cli_command_facade tests.test_status_reconcile_flow -v`：38 tests passed。
+- 剩余风险：
+  - `orchestrator._enrich_deferred_source_context_before_run()` 仍消费 legacy `source_context` 并写回 ledger；这是 run 前修复/刷新路径，应继续作为独立切片处理。
+
 ### 阶段 199：Task 31 TaskService status payload 第四切片
 - **状态：** complete
 - 背景：

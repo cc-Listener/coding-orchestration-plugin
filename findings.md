@@ -353,6 +353,7 @@
 - Task 31 第二切片确认：`run_context_artifact_service.write_run_context_artifacts()` 可以在 `context-index.json` 中追加 `source_projection`，同时保留 legacy `source_context`。`source_projection_to_dict()` 只输出稳定字段，不嵌套 legacy context 或 reader-private payload；该切片仍不改变 TaskService、ledger schema、manifest 权限判断或 run 前 source enrichment。
 - Task 31 第三切片确认：`ContextAssembler._current_task_block()` 可以只通过 `SourceProjection.raw_fields_summary` 输出 `source_summary`，不需要直接读取 legacy `source_context.raw_fields_summary`。该切片不输出完整 raw_fields、不改变上下文预算/manifest shape、不改 TaskService status payload 或 run manifest 权限判断。
 - Task 31 第四切片确认：`TaskService.task_status_payload()` 和 `next_actions_for_task_payload()` 可以通过 `SourceProjection` 统一消费来源状态、类型、URL、恢复动作和 Codex 可读性；这不改变 task 创建、ledger `source_context` 持久化、source reader 或 run manifest 权限判断。manifest 权限判断仍需单独切片，因为它影响 Codex runner sandbox/bypass 行为。
+- Task 31 第五切片确认：`run_manifest_service.source_requires_codex_plan_permissions()` 可以通过 `SourceProjection` 判断 plan-only source elevation，保留 missing/ok 不提权、Codex 可解析或 Feishu unresolved source 提权的语义。该切片不改变 Codex command builder、runner、task 创建、ledger `source_context` 持久化、source reader 或 orchestrator enrichment。
 - Task 33 确认并修复：core skill 基本保持 host-agnostic；`hermes-coding-operator` 原先复制硬规则、意图分流、项目优先、需求拆解、任务下一步、反馈路由、长期记忆等通用 playbook，`hermes-coding-health-check` 原先复制 readiness 输出格式、硬规则和示例。当前两者已收敛为 core 引用 + Hermes `/coding` / native tool / doctor / preflight / 配置引用映射，通用规则归 `coding-operator-core` / `coding-health-core`。
 
 ## 视觉/浏览器发现

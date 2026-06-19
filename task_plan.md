@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 199：Task 31 TaskService status payload 第四切片（complete）
+阶段 200：Task 31 manifest source permission 第五切片（complete）
 
 ## 各阶段
 
@@ -1565,6 +1565,15 @@
 - [x] 实现：`task_utils.py` 新增 `source_projection_for_task_payload()`，`next_actions_for_task_payload()` 基于 projection 状态和 Codex 可读性判断；`TaskService.task_status_payload()` 通过 projection 输出 `source_status`、`source_type`、`source_url` 和 `source_recovery_action`。
 - [x] 文档：同步 Task 31 第四切片进度、技术方案、实施计划、组件合同和发现。
 - [x] 验证：运行 task service/status payload/source projection 聚焦回归、source/source-plan/context artifact/context assembler 相邻回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 200：Task 31 manifest source permission 第五切片
+- [x] 定域：只让 `run_manifest_service.source_requires_codex_plan_permissions()` 消费 `SourceProjection`；不改 Codex command builder、runner、source reader、task 创建、ledger schema 或 orchestrator deferred enrichment。
+- [x] TDD：扩展 `tests/test_run_manifest_service.py`，patch `source_projection_from_source()` 并确认 plan-only source elevation 由 projection 决定，同时无 `source_context` 的手动来源保持 read-only。
+- [x] RED：确认旧实现继续读取 legacy success context 时不会触发 projection 要求的 source elevation。
+- [x] 实现：`run_manifest_service.py` 通过 `source_projection_from_source()` 判断 missing/ok/Codex 可读性/飞书来源类型。
+- [x] 文档：同步 Task 31 第五切片进度、技术方案、实施计划、组件合同和发现。
+- [x] 验证：运行 run manifest/source plan/Codex command/status reconcile 聚焦回归、source/task/context 相邻回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ## 关键问题
