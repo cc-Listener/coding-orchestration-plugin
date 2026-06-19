@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .doctor_presenter import format_lark_preflight, format_project_mcp_preflight, format_source_resolve
+from .task_status_presenter import format_task_status_payload
 
 
 def register_cli(ctx: Any, orchestrator: Any) -> None:
@@ -69,6 +70,11 @@ def _handle_tool_equivalent_cli(orchestrator: Any, command: str, args: Any) -> s
         if not text:
             return "Usage: hermes coding source-resolve <feishu_or_meegle_url>"
         return format_source_resolve(dispatch("source.resolve", {"text": text}))
+    if command == "status":
+        task_id = str(getattr(args, "task_id", "") or "").strip()
+        if not task_id:
+            return None
+        return format_task_status_payload(dispatch("task.status", {"task_id": task_id}))
     if command == "project-mcp-preflight":
         config_reader = getattr(orchestrator, "project_mcp_preflight_config", None)
         command_checker = getattr(orchestrator, "project_mcp_preflight_command_available", None)

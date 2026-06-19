@@ -38,6 +38,37 @@ def format_task_status_details(task: dict[str, Any], *, include_branch: bool) ->
     return "\n".join(lines)
 
 
+def format_task_status_payload(payload: dict[str, Any]) -> str:
+    task_id = str(payload.get("task_id") or "").strip()
+    if not payload.get("ok"):
+        error = str(payload.get("error") or "unknown").strip()
+        return f"[{task_id or 'unknown'}] 状态：❌ {error}"
+    status = str(payload.get("status_display") or payload.get("status_label") or payload.get("status") or "unknown")
+    lines = [
+        f"[{task_id}] 状态：{status}",
+        f"项目：{payload.get('project_path') or payload.get('project_name') or '未确定'}",
+    ]
+    phase = str(payload.get("phase") or "").strip()
+    if phase:
+        lines.append(f"执行阶段：{phase}")
+    runtime_status = str(payload.get("runtime_status") or "").strip()
+    if runtime_status:
+        lines.append(f"最近运行：{runtime_status}")
+    kanban_sync = payload.get("kanban_sync") or {}
+    if isinstance(kanban_sync, dict) and kanban_sync:
+        lines.append(f"Kanban 同步：{kanban_sync_status_display(kanban_sync)}")
+    source_status = str(payload.get("source_status") or "").strip()
+    if source_status:
+        lines.append(f"来源状态：{source_status}")
+    recovery_action = str(payload.get("source_recovery_action") or "").strip()
+    if recovery_action:
+        lines.append(f"恢复动作：{recovery_action}")
+    next_actions = payload.get("next_actions") or []
+    if next_actions:
+        lines.append("下一步：" + ", ".join(str(action) for action in next_actions))
+    return "\n".join(lines)
+
+
 def kanban_sync_status_display(kanban_sync: dict[str, Any]) -> str:
     status = str(kanban_sync.get("status") or "").strip()
     label = {

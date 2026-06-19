@@ -2,6 +2,28 @@
 
 ## 会话：2026-06-19
 
+### 阶段 191：Task 32 CLI `status <task_id>` dispatcher 第五切片
+- **状态：** complete
+- 背景：
+  - 阶段 190 已完成 Gateway `project-mcp-preflight` diagnostic leaf command 并独立提交。
+  - Task 32 剩余最小切片是 CLI `status <task_id>` 读取 `task.status` payload，但不能迁 `command_coding_status()` 的 active run reconcile、delivery/tree 或 Gateway status presentation。
+- 执行的操作：
+  - 扩展 `tests/test_coding_cli.py`：构造只有 dispatcher 的 CLI host，要求 `status task_123` 调用 `task.status`，并禁止回落到 `command_coding_cli()`。
+  - RED 已确认：旧路径触发 `command_coding_cli()` 断言失败。
+  - 修改 `coding_orchestration/cli.py`：`status <task_id>` 直接 dispatch `task.status`；无 task id 继续回落旧 status/list façade。
+  - 修改 `coding_orchestration/task_status_presenter.py`：新增 `format_task_status_payload()`，只渲染 tool payload 中已有的 task/status/project/source/runtime/kanban/next_actions 字段。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_coding_cli.CodingCliTest.test_cli_status_with_task_id_uses_operation_dispatcher_without_command_wrapper -v` 先失败，原因为 `command_coding_cli()` 断言被触发。
+  - GREEN：同测试通过；project MCP dispatch failure 相邻断言通过。
+  - `rtk proxy python3 -m unittest tests.test_coding_cli tests.test_tool_operation_dispatcher tests.test_task_status_payload tests.test_task_status_presenter tests.test_task_service -v`：24 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4701 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：835 tests passed。
+- 剩余风险：
+  - 本切片不覆盖 CLI `status` 无 task id 的 list 语义，也不覆盖 `--tree` / `--delivery`；这些仍归 command façade / delivery presentation。
+  - `task.status` payload 不做 active run reconcile；需要回收后台完成态时仍使用 Gateway/command status 路径。
+
 ### 阶段 190：Task 32 Gateway `project-mcp-preflight` diagnostic 第四切片
 - **状态：** complete
 - 背景：

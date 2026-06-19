@@ -77,6 +77,19 @@ class DispatchOnlyCliHost:
             }
         if operation_id == "project.mcp_preflight":
             return dict(self.project_mcp_result)
+        if operation_id == "task.status":
+            return {
+                "ok": True,
+                "task_id": (args or {}).get("task_id"),
+                "status": "planned",
+                "status_display": "已规划(planned)",
+                "phase": "plan_ready",
+                "project_path": "/repo/bps-admin",
+                "runtime_status": "succeeded",
+                "last_run_id": "run_123",
+                "kanban_sync": {"status": "ok"},
+                "next_actions": ["coding_task_run"],
+            }
         return {"ok": True}
 
     def project_mcp_preflight_config(self):
@@ -220,6 +233,22 @@ class CodingCliTest(unittest.TestCase):
         self.assertEqual(host.project_mcp_command_checks, [host.project_mcp_config])
         self.assertIn("状态：❌ 不可用", stdout.getvalue())
         self.assertIn("MCP server refused request", stdout.getvalue())
+
+    def test_cli_status_with_task_id_uses_operation_dispatcher_without_command_wrapper(self):
+        host = DispatchOnlyCliHost()
+        stdout = StringIO()
+
+        with redirect_stdout(stdout):
+            exit_code = coding_cli._handle_coding_cli(
+                host,
+                SimpleNamespace(coding_command="status", task_id="task_123"),
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(host.calls, [("task.status", {"task_id": "task_123"})])
+        self.assertIn("[task_123] 状态：已规划(planned)", stdout.getvalue())
+        self.assertIn("项目：/repo/bps-admin", stdout.getvalue())
+        self.assertIn("最近运行：succeeded", stdout.getvalue())
 
     def test_coding_cli_doctor_reports_lark_kanban_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:

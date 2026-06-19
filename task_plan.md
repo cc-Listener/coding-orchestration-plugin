@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 190：Task 32 Gateway `project-mcp-preflight` diagnostic 第四切片（complete）
+阶段 191：Task 32 CLI `status <task_id>` dispatcher 第五切片（complete）
 
 ## 各阶段
 
@@ -1484,6 +1484,15 @@
 - [x] 实现：`gateway_command_controller.py` 增加 `coding-project-mcp-preflight` route 和 normalize map；`orchestrator.py` immediate route 与直接 `command_coding()` 入口复用 `_format_project_mcp_preflight()`；`command_catalog.py` 补齐 `/coding project-mcp-preflight` 帮助和 rewrite 上下文。
 - [x] 文档：同步 Task 32 第四切片进度、技术方案和发现。
 - [x] 验证：运行 Gateway diagnostic 聚焦回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 191：Task 32 CLI `status <task_id>` dispatcher 第五切片
+- [x] 定域：只让 CLI 普通 `status <task_id>` 读取 `task.status` payload；无 task id、Gateway status、`--tree` / `--delivery` 和 active run reconcile 继续保留在 command façade。
+- [x] TDD：扩展 `tests/test_coding_cli.py`，要求只有 dispatcher 的 CLI host 处理 `status task_123`，并禁止回落到 `command_coding_cli()`。
+- [x] RED：确认旧 CLI status 路径会触发 `command_coding_cli()` 断言失败。
+- [x] 实现：`coding_orchestration/cli.py` 对 `status <task_id>` 直接 dispatch `task.status`；`task_status_presenter.py` 新增 tool payload 的用户可见渲染函数。
+- [x] 文档：同步 Task 32 第五切片进度、技术方案和发现。
+- [x] 验证：运行 CLI/status/dispatcher 聚焦回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ## 关键问题
