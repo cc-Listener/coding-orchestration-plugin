@@ -144,7 +144,14 @@ class RunContextArtifactServiceTest(unittest.TestCase):
                     "type": "feishu",
                     "title": "订单需求",
                     "url": "https://example.test/doc",
-                    "source_context": {"read_status": "deferred"},
+                    "source_context": {
+                        "read_status": "deferred",
+                        "source_type": "feishu_docx",
+                        "url": "https://example.test/doc",
+                        "deferred_source_resolution": True,
+                        "codex_resolvable": True,
+                        "lark_cli_command": "rtk lark-cli docs +fetch --doc https://example.test/doc",
+                    },
                 },
                 project_name="oms",
                 wiki_docs=[{"id": "wiki_1", "title": "项目说明", "body": "项目正文"}],
@@ -166,7 +173,30 @@ class RunContextArtifactServiceTest(unittest.TestCase):
             context_index = json.loads((run_dir / "context-index.json").read_text(encoding="utf-8"))
             self.assertEqual(context_index["task_id"], "task_1")
             self.assertEqual(context_index["project_name"], "oms")
-            self.assertEqual(context_index["source"]["source_context"], {"read_status": "deferred"})
+            self.assertEqual(
+                context_index["source"]["source_context"],
+                {
+                    "read_status": "deferred",
+                    "source_type": "feishu_docx",
+                    "url": "https://example.test/doc",
+                    "deferred_source_resolution": True,
+                    "codex_resolvable": True,
+                    "lark_cli_command": "rtk lark-cli docs +fetch --doc https://example.test/doc",
+                },
+            )
+            self.assertEqual(
+                context_index["source"]["source_projection"],
+                {
+                    "ok": False,
+                    "status": "deferred",
+                    "source_type": "feishu_docx",
+                    "url": "https://example.test/doc",
+                    "title": "订单需求",
+                    "deferred_source_resolution": True,
+                    "codex_resolvable": True,
+                    "lark_cli_command": "rtk lark-cli docs +fetch --doc https://example.test/doc",
+                },
+            )
             self.assertEqual(context_index["artifacts"]["confirmed_plan"], str(run_dir / "confirmed-plan.md"))
             self.assertEqual(context_index["artifacts"]["context_index"], str(run_dir / "context-index.json"))
             self.assertEqual(artifacts["run_instructions"], str(run_dir / "run-instructions.md"))

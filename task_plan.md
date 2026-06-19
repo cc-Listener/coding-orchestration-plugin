@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 196：Task 31 SourceProjection prompt source block 第一切片（complete）
+阶段 197：Task 31 SourceProjection context-index 第二切片（complete）
 
 ## 各阶段
 
@@ -1538,6 +1538,15 @@
 - [x] 实现：新增 `coding_orchestration/source_projection.py`；`coding_orchestration/prompts/source_block.py` 改为通过 projection 渲染 `source_status`、`lark_cli_command`、`recovery_action`、raw_fields 和 deferred/Codex note。
 - [x] 文档：同步 Task 31 第一切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 source projection / prompt templates、source/source-plan/task-service/context artifact 相邻回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 197：Task 31 SourceProjection context-index 第二切片
+- [x] 定域：只让 `run_context_artifact_service.py` 写入 `context-index.json` 时追加稳定 `source_projection`；不改 legacy `source_context`、TaskService、ledger、manifest 权限判断或 run 前 source enrichment。
+- [x] TDD：扩展 `tests/test_run_context_artifact_service.py`，要求 context-index 同时保留 `source_context` 并新增 `source_projection`。
+- [x] RED：确认旧实现缺少 `source_projection` 时测试失败。
+- [x] 实现：`source_projection.py` 新增 `source_projection_to_dict()`；`write_run_context_artifacts()` 复用 `source_projection_from_source()` 写入稳定投影字段。
+- [x] 文档：同步 Task 31 第二切片进度、技术方案、实施计划、组件合同和发现。
+- [x] 验证：运行 context artifact 聚焦回归、source projection 回归、source/source-plan/task-service/context assembler 相邻回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ## 关键问题

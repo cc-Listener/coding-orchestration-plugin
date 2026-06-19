@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import RunMode
+from .source_projection import source_projection_from_source, source_projection_to_dict
 
 
 def json_dumps(data: Any) -> str:
@@ -132,5 +133,14 @@ def write_run_context_artifacts(
     source_context = source.get("source_context")
     if isinstance(source_context, dict) and source_context:
         index["source"]["source_context"] = source_context
+    source_projection = source_projection_from_source(source)
+    if (
+        source_projection.status != "missing"
+        or source_projection.source_type
+        or source_projection.url
+        or source_projection.title
+        or source_projection.legacy_context
+    ):
+        index["source"]["source_projection"] = source_projection_to_dict(source_projection)
     context_index_path.write_text(json_dumps(index), encoding="utf-8")
     return artifacts

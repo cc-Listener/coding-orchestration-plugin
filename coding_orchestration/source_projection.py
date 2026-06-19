@@ -96,6 +96,39 @@ def source_projection_from_result(result: SourceResult) -> SourceProjection:
     )
 
 
+def source_projection_to_dict(projection: SourceProjection) -> dict[str, Any]:
+    data: dict[str, Any] = {
+        "ok": projection.ok,
+        "status": projection.status,
+    }
+    optional_values: dict[str, Any] = {
+        "source_type": projection.source_type,
+        "url": projection.url,
+        "title": projection.title,
+        "summary_markdown": projection.summary_markdown,
+        "error": projection.error,
+        "recovery_action": projection.recovery_action,
+        "document_kind": projection.document_kind,
+        "document_token": projection.document_token,
+        "project_key": projection.project_key,
+        "work_item_type_key": projection.work_item_type_key,
+        "work_item_id": projection.work_item_id,
+        "resolution_owner": projection.resolution_owner,
+        "lark_cli_command": projection.lark_cli_command,
+        "raw_fields_summary": projection.raw_fields_summary,
+    }
+    data.update({key: value for key, value in optional_values.items() if value})
+    if projection.raw_fields:
+        data["raw_fields"] = list(projection.raw_fields)
+    if projection.requires_human_context:
+        data["requires_human_context"] = True
+    if projection.codex_resolvable:
+        data["codex_resolvable"] = True
+    if projection.deferred_source_resolution:
+        data["deferred_source_resolution"] = True
+    return data
+
+
 def _merge_top_level_source(projection: SourceProjection, source: dict[str, Any]) -> SourceProjection:
     return SourceProjection(
         ok=projection.ok,

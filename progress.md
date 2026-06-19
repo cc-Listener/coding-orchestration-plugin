@@ -2,6 +2,24 @@
 
 ## 会话：2026-06-19
 
+### 阶段 197：Task 31 SourceProjection context-index 第二切片
+- **状态：** complete
+- 背景：
+  - Task 31 首切片已经让 prompt source block 消费 `SourceProjection`；context-index 仍只写 legacy `source_context`。
+  - 第二切片只扩展 run context artifact 输出，给后续 Codex context 消费稳定来源字段，不改变持久化结构。
+- 执行的操作：
+  - 扩展 `tests/test_run_context_artifact_service.py`，要求 `context-index.json` 的 `source` 同时包含原 `source_context` 和新增 `source_projection`。
+  - RED 已确认：旧实现缺少 `source_projection` 时测试失败。
+  - `coding_orchestration/source_projection.py` 新增 `source_projection_to_dict()`，只输出稳定投影字段，不嵌套 legacy context。
+  - `coding_orchestration/run_context_artifact_service.py` 写 context-index 时复用 `source_projection_from_source()`，在存在来源事实时写入 `source_projection`。
+  - 同步 `task_plan.md`、`findings.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、实施计划、component contract 和 machine-readable context。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_context_artifact_service.RunContextArtifactServiceTest.test_write_run_context_artifacts_writes_implementation_context_index_contract -v` 失败于 `KeyError: 'source_projection'`。
+  - GREEN：同一测试通过。
+  - 聚焦回归：`rtk proxy python3 -m unittest tests.test_source_projection tests.test_run_context_artifact_service -v`：10 tests passed。
+- 剩余风险：
+  - TaskService status payload / next actions、run manifest source permission 和 orchestrator deferred enrichment 仍有 legacy `source_context` 消费点；后续继续按独立切片迁移。
+
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片
 - **状态：** complete
 - 背景：

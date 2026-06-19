@@ -7,6 +7,7 @@ from coding_orchestration.source_projection import (
     source_projection_from_context,
     source_projection_from_result,
     source_projection_from_source,
+    source_projection_to_dict,
 )
 
 
@@ -67,6 +68,34 @@ class SourceProjectionTest(unittest.TestCase):
         self.assertEqual(projection.status, "missing")
         self.assertFalse(projection.ok)
         self.assertEqual(projection.legacy_context, {})
+
+    def test_projection_to_dict_omits_legacy_context(self):
+        projection = source_projection_from_context(
+            {
+                "read_status": "indexed",
+                "source_type": "feishu_docx",
+                "url": "https://example.feishu.cn/docx/DocToken",
+                "deferred_source_resolution": True,
+                "codex_resolvable": True,
+                "private_reader_payload": {"token": "must-not-leak"},
+            }
+        )
+
+        payload = source_projection_to_dict(projection)
+
+        self.assertEqual(
+            payload,
+            {
+                "ok": False,
+                "status": "deferred",
+                "source_type": "feishu_docx",
+                "url": "https://example.feishu.cn/docx/DocToken",
+                "codex_resolvable": True,
+                "deferred_source_resolution": True,
+            },
+        )
+        self.assertNotIn("legacy_context", payload)
+        self.assertNotIn("private_reader_payload", payload)
 
 
 if __name__ == "__main__":
