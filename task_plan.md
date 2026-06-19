@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 182：解耦架构 run manifest session metadata writeback service 拆分（complete，Task 30 继续）
+阶段 183：解耦架构 completed run writeback coordinator service 拆分（complete，Task 30 继续）
 
 ## 各阶段
 
@@ -1412,6 +1412,14 @@
 - [x] 迁移：`CodingOrchestrator.start_run()` 的 session metadata manifest 字段设置和 `_update_manifest_session_metadata()` 调用改为委托 service；session id 来源、runner session ledger update 和 Codex attach/resume command 规则保持原边界。
 - [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
 - [x] 验证：运行 manifest session writeback service contract、run manifest/session/implementation session 相邻 tests、文档/架构、architecture guard、diff check 和必要完整单测。
+- **状态：** complete
+
+### 阶段 183：解耦架构 completed run writeback coordinator service 拆分
+- [x] TDD：新增 `tests/test_run_completion_writeback_service.py`，覆盖 fresh completed run 写回协调、stale completion 语义和 `start_run()` 委托。
+- [x] 实现：新增 `coding_orchestration/run_completion_writeback_service.py`，集中协调 fresh completed run 的 completion projection、stale observation、状态 transition、ledger/session/summary/project writeback 和 result payload。
+- [x] 迁移：`CodingOrchestrator.start_run()` 的 completed tail 改为委托 service；runner dispatch、diff guard、QA evidence、implementation dirty-check、manifest session metadata 和 active-run reconcile 保持原边界。
+- [x] 文档：同步项目地图、组件合同、约定、machine-readable project context、解耦设计、实施计划、技术方案、发现和进度。
+- [x] 验证：运行 completion writeback service contract、writeback/start 相邻 tests、主流程、文档/架构、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ## 关键问题

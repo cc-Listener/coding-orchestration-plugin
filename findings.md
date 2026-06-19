@@ -245,6 +245,7 @@
 | Run summary artifact 读写需要独立 service | `summary.md` 是 run artifact 文件边界；`run_summary_artifact_service.py` 只读写指定 summary artifact，不生成 summary 内容、不写 report/manifest/ledger、不启动 runner、不推进状态 |
 | Run ledger 写回需要拆成 projection 与 host callback service | artifact / agent_run / merge-test record 的组装是 ledger append 前的纯数据合同；`run_ledger_projection.py` 只返回 records；`run_ledger_writeback_service.py` 只消费 records 并调用注入 ledger callback，不直接持有 `TaskLedger` / storage repository |
 | Run session 写回需要拆成 projection 与 host callback service | task session update payload 归属 `run_session_projection.py`；实际 `update_task_session` host callback 归属 `run_session_writeback_service.py`，只消费已构造 update、空 update 跳过并调用注入 callback，不直接持有 `TaskLedger` / storage repository |
+| Fresh completed run 写回需要独立 coordinator | `start_run()` 的 fresh completed path 已迁到 `run_completion_writeback_service.py`，集中协调 completion projection、stale observation、状态 transition、ledger/session/summary/project writeback 和 final result payload；该 service 只通过注入 callback 工作，不启动 runner、不执行 diff guard、不收集 QA evidence、不判断 dirty、不准备 checkpoint、不解析 stdout、不直接持有 host adapter。Task 30 下一步应迁 active run reconcile writeback coordinator，而不是继续扩大 fresh completion service |
 
 ## 资源
 - `/Users/xiaojing/.hermes/coding-orchestration/runs/task_43141b20c03e`

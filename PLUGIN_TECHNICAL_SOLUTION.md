@@ -441,9 +441,11 @@ Task 30 最新补充：`run_implementation_checkpoint_service.py` 已承接 impl
 
 Task 30 最新补充：`run_manifest_session_writeback_service.py` 已承接 runner session metadata 到 run manifest 的 host callback 接线；它只消费已解析 `session_id`，复用 `run_manifest_service.build_manifest_session_fields()` 更新 manifest object/dict 并调用注入 manifest metadata writer，不解析 stdout、不写 ledger/report/summary、不启动 runner、不推进状态。session id 来源、task session ledger update 和 Codex attach/resume command 规则仍归原边界。
 
+Task 30 最新补充：`run_completion_writeback_service.py` 已承接 fresh completed run 的 completion projection、stale observation、状态 transition、ledger/session/summary/project writeback 和 final result payload 协调；它只消费已完成 runner result 的投影数据和注入 callback，不启动 runner、不执行 diff guard、不收集 QA evidence、不判断 dirty、不准备 checkpoint、不解析 stdout、不直接持有 `TaskLedger`、`RunSummaryWriter`、`WorkItemService` 或 MCP adapter。active run reconcile 写回协调仍是 Task 30 的下一步。
+
 大文件和 hard code 是专项治理对象，不作为“顺手优化”处理：
 
-- `orchestrator.py` 目前仍是唯一核心大文件债务，当前约 4775 行；短期目标是继续迁出 run orchestration 副作用，先降到 3000 行以内。
+- `orchestrator.py` 目前仍是唯一核心大文件债务，当前约 4704 行；短期目标是完成 active run reconcile 写回协调迁移和 Task 30 closure cleanup，再进入 3000 行以内的 façade 降载。
 - 新增业务模块超过 600 行必须说明职责边界；超过 1000 行必须拆分或登记明确例外。
 - core/service/tool 层不允许新增 Hermes 命令、`lark-cli` 命令、`Path.home()`、`os.getenv()`、`subprocess`、token key 或真实 secret 模式。
 - hard code 只允许落在 config、adapter binding、domain policy 或明确的测试 fixture 中。

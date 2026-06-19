@@ -85,6 +85,7 @@ from . import (
     run_background_orchestration,
     run_artifact_paths,
     run_checkpoint_preparation_service,
+    run_completion_writeback_service,
     run_diff_guard_service,
     run_dispatch_service,
     run_evidence_observation_service,
@@ -3588,120 +3589,48 @@ class CodingOrchestrator:
             status = refinement.status
             report = refinement.report
         report = self._ensure_verification_limitations(report, status, result.artifacts)
-        run_report_artifact_service.write_run_report_artifact(report_path=result.artifacts.report, report=report)
-
-        completion_projection = run_orchestration_service.project_run_completion(
-            mode=mode,
-            status=status,
-            details=details,
-            report=report,
-            running_phase=running_phase,
-        )
-        status = completion_projection.status
-        task_status = completion_projection.task_status
-        task_phase = completion_projection.task_phase
-        run_still_active = completion_projection.run_still_active
-        report = completion_projection.report
-        run_report_artifact_service.write_run_report_artifact(report_path=result.artifacts.report, report=report)
         current_task = self.ledger.get_task(task_id) or {}
-        stale_observation = run_orchestration_service.observe_stale_completion(current_task, run_id=run_id)
-        observed_active_run_id = stale_observation.observed_active_run_id
-        stale_completion = stale_observation.stale_completion
-        run_status_transition_service.transition_completed_run_task_status(
-            task_id=task_id,
-            mode=mode,
-            status=status,
-            task_status=task_status,
-            task_phase=task_phase,
-            stale_completion=stale_completion,
-            transition_task_status_callback=self._transition_task_status,
-        )
         run_source_branch = (
             self._source_branch_for_task(task, project_name)
             if run_orchestration_service.run_records_source_branch(mode)
             else None
         )
-        ledger_records = run_ledger_projection.build_run_ledger_writeback_records(
-            artifacts=result.artifacts,
+        completion_writeback = run_completion_writeback_service.write_completed_run_finalization(
+            task_id=task_id,
             run_id=run_id,
-            runner_name=runner.name,
             mode=mode,
+            running_phase=running_phase,
             status=status,
-            task_status=task_status,
+            details=details,
             report=report,
+            current_task=current_task,
+            artifacts=result.artifacts,
+            runner_name=runner.name,
             exit_code=result.exit_code,
             workspace_path=workspace_path,
             source_branch=run_source_branch,
             implementation_checkpoint=manifest.implementation_checkpoint,
             qa_artifacts=qa_artifacts,
             tested_commit=qa_tested_commit,
-            stale_completion=stale_completion,
             changed_files=changed_files,
             violations=violations,
-            merge_record_created_at=(
-                datetime.now(timezone.utc).isoformat()
-                if mode == RunMode.MERGE_TEST and not stale_completion
-                else ""
-            ),
-        )
-        artifact_record = ledger_records.artifact_record
-        run_ledger_writeback_service.write_run_ledger_completion(
-            task_id=task_id,
-            records=ledger_records,
+            session_id=session_id,
+            attach_command=self._codex_attach_command(session_id) if session_id else "",
+            project_name=project_name,
+            merge_record_created_at=datetime.now(timezone.utc).isoformat()
+            if mode == RunMode.MERGE_TEST
+            else "",
+            write_report_artifact_callback=run_report_artifact_service.write_run_report_artifact,
+            read_summary_artifact_callback=run_summary_artifact_service.read_run_summary_artifact,
+            transition_task_status_callback=self._transition_task_status,
             append_artifact_callback=self.ledger.append_artifact,
             append_agent_run_callback=self.ledger.append_agent_run,
             append_merge_record_callback=self.ledger.append_merge_record,
-        )
-        if not stale_completion:
-            completion_session_update = run_orchestration_service.build_completion_session_update(
-                mode=mode,
-                report=report,
-                stale_completion=stale_completion,
-                runner_name=runner.name,
-                run_id=run_id,
-                status=status,
-                session_id=session_id,
-                run_still_active=run_still_active,
-                attach_command=self._codex_attach_command(session_id) if session_id else "",
-            )
-            run_session_writeback_service.write_run_session_update(
-                task_id=task_id,
-                update=completion_session_update,
-                update_task_session_callback=self.ledger.update_task_session,
-            )
-        summary = run_summary_artifact_service.read_run_summary_artifact(summary_path=result.artifacts.summary)
-        run_summary_writeback_service.write_completed_run_summary(
-            task_id=task_id,
-            run_id=run_id,
-            runner=runner.name,
-            project_name=project_name,
-            report=report,
-            summary=summary,
+            update_task_session_callback=self.ledger.update_task_session,
             write_summary_callback=self.summary_writer.write_run_summary,
+            project_writeback_callback=self._writeback_project_bugfix_completion,
         )
-        project_writeback = run_project_writeback_service.write_run_project_completion(
-            task_id=task_id,
-            mode=mode,
-            run_id=run_id,
-            status=status,
-            task_status=task_status,
-            report=report,
-            stale_completion=stale_completion,
-            writeback_callback=self._writeback_project_bugfix_completion,
-        )
-        return run_orchestration_service.build_start_run_result_payload(
-            task_id=task_id,
-            run_id=run_id,
-            mode=mode,
-            status=status,
-            task_status=task_status,
-            stale_completion=stale_completion,
-            current_task_status=stale_observation.current_task_status,
-            observed_active_run_id=observed_active_run_id,
-            artifact_record=artifact_record,
-            report=report,
-            project_writeback=project_writeback,
-        )
+        return completion_writeback.result_payload
 
     @staticmethod
     def _looks_like_task(text: str) -> bool:
