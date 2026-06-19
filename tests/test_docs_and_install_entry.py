@@ -117,29 +117,38 @@ class DocsAndInstallEntryTest(unittest.TestCase):
 
     def test_operator_skill_next_steps_match_current_statuses(self):
         repo_root = Path(__file__).resolve().parents[1]
-        skill = (
+        binding_skill = (
             repo_root
             / "coding_orchestration"
             / "skills"
             / "hermes-coding-operator"
             / "SKILL.md"
         ).read_text(encoding="utf-8")
+        core_skill = (
+            repo_root
+            / "coding_orchestration"
+            / "skills"
+            / "coding-operator-core"
+            / "SKILL.md"
+        ).read_text(encoding="utf-8")
 
-        for status in ("failed", "runner_failed", "blocked", "plan_revision"):
+        for status in ("failed", "blocked", "plan_revision"):
             with self.subTest(status=status):
-                self.assertIn(status, skill)
-        self.assertIn("/coding run <task_id>", skill)
-        self.assertIn("/coding merge-test <task_id> --accept-risk", skill)
-        self.assertIn("/coding continue <项目或来源补充>", skill)
-        self.assertIn("/coding breakdown <task_id>", skill)
-        self.assertIn("/coding approve-breakdown <task_id>", skill)
-        self.assertIn("/coding materialize <task_id>", skill)
-        self.assertIn("/coding run <task_id> --next", skill)
-        self.assertIn("/coding status <task_id> --delivery", skill)
-        self.assertIn("/coding status <task_id> --tree", skill)
-        self.assertIn("父级需求只走 breakdown、approve-breakdown、materialize、run --next", skill)
-        self.assertIn("Codex 负责语义判断、拆解、风险和验收建议", skill)
-        self.assertIn("Report Admission Gate 拒绝的拆解 report 不能创建子任务", skill)
+                self.assertIn(status, core_skill)
+        self.assertIn("runner 或工具失败", core_skill)
+        self.assertIn("父级需求只走拆解、确认拆解、生成执行任务", core_skill)
+        self.assertIn("AI agent 负责语义判断、拆解、风险和验收建议", core_skill)
+        self.assertIn("拆解报告准入失败时，不能创建子任务", core_skill)
+
+        self.assertIn("/coding run <task_id>", binding_skill)
+        self.assertIn("/coding merge-test <task_id> --accept-risk", binding_skill)
+        self.assertIn("/coding continue <项目或来源补充>", binding_skill)
+        self.assertIn("/coding breakdown <task_id>", binding_skill)
+        self.assertIn("/coding approve-breakdown <task_id>", binding_skill)
+        self.assertIn("/coding materialize <task_id>", binding_skill)
+        self.assertIn("/coding run <task_id> --next", binding_skill)
+        self.assertIn("/coding status <task_id> --delivery", binding_skill)
+        self.assertIn("/coding status <task_id> --tree", binding_skill)
 
     def test_docs_describe_project_mcp_layer_instead_of_no_mcp_policy(self):
         repo_root = Path(__file__).resolve().parents[1]

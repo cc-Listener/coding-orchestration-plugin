@@ -247,15 +247,44 @@ class PluginRegistrationTest(unittest.TestCase):
         self.assertEqual(second_ctx.tools, {})
         self.assertEqual(second_ctx.cli_commands, {})
 
-    def test_plugin_skill_contains_project_first_playbooks(self):
+    def test_hermes_operator_binding_only_contains_host_mapping(self):
         skill_path = Path(coding_orchestration.__file__).parent / "skills" / "hermes-coding-operator" / "SKILL.md"
 
         text = skill_path.read_text(encoding="utf-8")
 
-        self.assertIn("project-first workflow", text)
-        self.assertIn("intent triage", text)
-        self.assertIn("不默认使用插件仓库", text)
-        self.assertIn("低置信度不创建开发任务", text)
+        self.assertIn("Required core skill: `../coding-operator-core/SKILL.md`", text)
+        self.assertIn("将 core intent 映射到 Hermes `/coding`", text)
+        self.assertIn("普通回复", text)
+        self.assertIn("/coding task", text)
+        self.assertIn("coding_lark_preflight", text)
+        self.assertIn("coding_source_resolve", text)
+
+        generic_playbook_headers = (
+            "## 硬规则",
+            "## 意图分流",
+            "## 项目优先流程",
+            "## 需求交付拆解流程",
+            "## 任务下一步",
+            "## 反馈路由",
+            "## 长期记忆辅助",
+            "## merge-test 风险辅助",
+        )
+        for header in generic_playbook_headers:
+            self.assertNotIn(header, text)
+
+        internal_status_terms = (
+            "materialization_allowed",
+            "source_status",
+            "source_recovery_action",
+            "raw_status",
+            "last_run_raw_status",
+            "failure_type",
+            "verification_limitations",
+            "Task Ledger",
+            "LLM Wiki",
+        )
+        for term in internal_status_terms:
+            self.assertNotIn(term, text)
 
     def test_core_skill_files_are_host_agnostic(self):
         skill_root = Path(coding_orchestration.__file__).parent / "skills"
@@ -273,16 +302,22 @@ class PluginRegistrationTest(unittest.TestCase):
         self.assertIn("低置信度不创建开发任务", operator_core)
         self.assertIn("health check", health_core)
         self.assertIn("每个系统单独分区", health_core)
+        self.assertIn("状态：✅ 可用", health_core)
         self.assertIn("修复命令：", health_core)
         self.assertIn("验证命令：", health_core)
 
         forbidden_terms = (
             "/coding",
+            "Hermes",
+            "rtk ",
+            "lark-cli",
             "Hermes Gateway",
             "Task Ledger",
             "LLM Wiki",
             "~/.hermes",
             "ledger.db",
+            "MCP_USER_TOKEN",
+            "FEISHU_APP_SECRET",
         )
         for text in (operator_core, health_core):
             for term in forbidden_terms:
@@ -302,7 +337,7 @@ class PluginRegistrationTest(unittest.TestCase):
         self.assertIn("将 core health check 输出映射到 Hermes", health_binding)
         self.assertIn("/coding doctor", health_binding)
 
-    def test_health_check_skill_contains_user_facing_doctor_rules(self):
+    def test_hermes_health_binding_only_contains_host_recovery_mapping(self):
         skill_path = (
             Path(coding_orchestration.__file__).parent
             / "skills"
@@ -312,15 +347,32 @@ class PluginRegistrationTest(unittest.TestCase):
 
         text = skill_path.read_text(encoding="utf-8")
 
-        self.assertIn("health check", text)
-        self.assertIn("每个系统单独分区", text)
-        self.assertIn("状态：✅ 可用", text)
-        self.assertIn("状态：❌ 不可用", text)
-        self.assertIn("修复命令：", text)
-        self.assertIn("验证命令：", text)
+        self.assertIn("Required core skill: `../coding-health-core/SKILL.md`", text)
+        self.assertIn("将 core health check 输出映射到 Hermes", text)
+        self.assertIn("/coding doctor", text)
+        self.assertIn("rtk hermes coding doctor", text)
         self.assertIn("lark-cli auth status --verify", text)
-        self.assertIn("tokenStatus=needs_refresh", text)
-        self.assertIn("不要输出 Task Ledger、ledger.db 或定时检查建议", text)
+        self.assertIn("~/.hermes/coding-orchestration/mcp.json", text)
+        self.assertIn("<MCP_USER_TOKEN_VALUE>", text)
+
+        copied_core_headers = (
+            "## 核心原则",
+            "## 输出格式",
+            "## 硬规则",
+            "## 示例",
+        )
+        for header in copied_core_headers:
+            self.assertNotIn(header, text)
+
+        copied_core_phrases = (
+            "每个系统单独分区",
+            "每个系统固定使用这些字段",
+            "`状态：✅ 可用 | ❌ 不可用 | ❌ 未启用`",
+            "不要输出 raw status",
+            "健康检查只解释和修复运行条件",
+        )
+        for phrase in copied_core_phrases:
+            self.assertNotIn(phrase, text)
 
 
 if __name__ == "__main__":

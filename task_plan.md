@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 185：Task 30 closure cleanup（complete，Task 30 已收敛关闭）
+阶段 188：Task 33 Skill 零耦合复查（complete，Hermes binding skill 已收敛为 host 映射）
 
 ## 各阶段
 
@@ -1453,6 +1453,16 @@
 - [x] 兼容：`doctor`、`project-mcp-preflight`、`status` 暂不纳入本切片，避免把 preflight 配置检查和状态展示混入 Tool dispatcher 改造。
 - [x] 文档：同步 Task 32 进度、技术方案和发现。
 - [x] 验证：CLI/dispatcher 聚焦回归、architecture guard、diff check 和完整单测均通过。
+- **状态：** complete
+
+### 阶段 188：Task 33 Skill 零耦合复查
+- [x] TDD：扩展 `tests/test_plugin_registration.py`，要求 core skill 不含 Hermes、`/coding`、`rtk `、`lark-cli`、运行根、ledger、LLM Wiki、token key 等 host 细节。
+- [x] RED：确认 `hermes-coding-operator` 仍复制 `## 硬规则` / `## 意图分流` / `## 项目优先流程` 等通用 playbook 时测试失败。
+- [x] RED：确认 `hermes-coding-health-check` 仍复制 core readiness 输出格式、硬规则和示例时测试失败。
+- [x] 实现：`hermes-coding-operator` 只保留 core 引用、core intent 到 `/coding` / native tools / 普通回复的映射和用户可见措辞边界。
+- [x] 实现：`hermes-coding-health-check` 只保留 core 引用、Hermes doctor/preflight 恢复命令和插件本地配置引用映射。
+- [x] 边界：Task 33 不承接 `orchestrator.py` 降载、SourcePort 消费闭环、Tool dispatcher 后续或 Gateway 执行副作用下沉；这些仍归 Task 31/32/34+。
+- [x] 验证：插件注册聚焦测试、architecture guard、diff check 和完整单测均通过。
 - **状态：** complete
 
 ## 关键问题

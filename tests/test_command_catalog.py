@@ -123,14 +123,17 @@ class CommandCatalogTest(unittest.TestCase):
         self.assertIn("飞书正文交给 Codex plan 阶段用 `rtk lark-cli` 读取", prompt_text)
 
     def test_operator_skill_treats_feishu_source_as_deferred_for_clear_project_tasks(self):
-        skill = Path("coding_orchestration/skills/hermes-coding-operator/SKILL.md").read_text(encoding="utf-8")
+        core_skill = Path("coding_orchestration/skills/coding-operator-core/SKILL.md").read_text(encoding="utf-8")
+        binding_skill = Path("coding_orchestration/skills/hermes-coding-operator/SKILL.md").read_text(
+            encoding="utf-8"
+        )
 
-        self.assertIn("飞书 Wiki/Docx/Meegle 来源读不到也不应阻止任务创建", skill)
-        self.assertIn("/coding task <原需求> --project <项目名或文件夹>", skill)
-        self.assertIn("不要先要求授权或粘贴正文", skill)
-        self.assertIn("对用户回复时用", skill)
-        self.assertIn("当前项目", skill)
-        self.assertIn("当前任务", skill)
+        self.assertIn("外部来源暂时读不到也不应阻止任务创建", core_skill)
+        self.assertIn("不要先要求授权或粘贴正文", core_skill)
+        self.assertIn("对用户回复时用", core_skill)
+        self.assertIn("/coding task <原需求> --project <项目名或文件夹>", binding_skill)
+        self.assertIn("当前项目", binding_skill)
+        self.assertIn("当前任务", binding_skill)
 
 
 if __name__ == "__main__":

@@ -2,6 +2,30 @@
 
 ## 会话：2026-06-19
 
+### 阶段 188：Task 33 Skill 零耦合复查
+- **状态：** complete
+- 背景：
+  - Task 30 已关闭，Task 32 dispatcher 前两片已完成；Skill 解耦不能继续挂回 run orchestration，也不能让 Hermes binding 承载通用 playbook。
+  - 只读审查确认 `coding-operator-core` 基本保持 host-agnostic，但 `hermes-coding-operator` 复制了硬规则、意图分流、项目优先、拆解、任务下一步、反馈路由、长期记忆和风险辅助等通用规则。
+  - 追加审查确认 `hermes-coding-health-check` 也复制了 core readiness 输出格式、硬规则和示例，应收敛为 Hermes 恢复命令与配置引用映射。
+- 执行的操作：
+  - 扩展 `tests/test_plugin_registration.py`：core skill 禁止 Hermes、`/coding`、`rtk `、`lark-cli`、`~/.hermes`、`Task Ledger`、`LLM Wiki`、`ledger.db`、token key 等 host 细节。
+  - 将 `hermes-coding-operator` 的测试从“包含 project-first playbook”改为“只包含 host mapping”，并禁止通用 playbook 标题和内部状态字段回流。
+  - RED 已确认：旧 operator binding 因 `## 硬规则` 等通用段落导致聚焦测试失败。
+  - 将 `hermes-coding-operator/SKILL.md` 瘦身为 core 引用、core intent 到 `/coding` / native tools / 普通回复的映射表和用户可见措辞边界。
+  - 将 `hermes-coding-health-check` 的测试改为“只包含 host recovery mapping”，通用 readiness 输出格式归属 `coding-health-core`。
+  - RED 已确认：旧 health binding 因 `## 核心原则` / `## 输出格式` / `## 硬规则` / `## 示例` 复制段落导致聚焦测试失败。
+  - 将 `hermes-coding-health-check/SKILL.md` 瘦身为 core 引用、Hermes doctor/preflight 恢复命令和插件本地配置引用映射。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_command_catalog tests.test_docs_and_install_entry tests.test_plugin_registration -v`：30 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plugin_registration -v`：9 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4692 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：829 tests passed。
+- 剩余风险：
+  - Task 33 已完成 Skill binding 边界收敛；`orchestrator.py` 仍是 4692 行 large-file watch，归 Task 34。
+  - Task 31 SourcePort 消费闭环、Task 32 dispatcher 后续和 Task 29 Gateway 执行副作用仍是独立未完成项。
+
 ### 阶段 187：Task 32 CLI tool-equivalent dispatcher 第二切片
 - **状态：** complete
 - 背景：

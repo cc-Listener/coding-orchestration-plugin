@@ -340,7 +340,7 @@
 - Task 32 第一切片确认：把 `operation_id -> CodingOrchestrator.tool_*` 表从 `plugin_tools.py` 移走还不够，必须删除该表而不是搬到新模块。当前实现已改为 `ToolOperationDispatcher` + `CodingOrchestrator.dispatch_tool_operation()`，注册层和 dispatcher 模块均不再保存 `tool_*` 方法名映射；`WorkItemService.create_task` 也改为直接调用 `TaskService.tool_task_create`，减少 MCP/WorkItem intake 对 orchestrator tool wrapper 的回调耦合。
 - Task 32 第二切片确认：CLI 中 `lark-preflight` 和 `source-resolve` 是纯 tool-equivalent 命令，适合直接走 `dispatch_tool_operation()`；`doctor` 聚合多项 runtime 状态、`project-mcp-preflight` 需要本地 MCP 配置和命令可用性检查、`status` 是 task presentation 命令，不应在同一切片强行迁入 dispatcher。
 - Task 31 只读审查确认：source dict 消费面横跨 `_resolve_source_context()`、`_enrich_deferred_source_context_before_run()`、TaskService、prompt source block、context assembler 和 run context artifact；它应作为独立 task 推进，不应混入 Task 32。
-- Task 33 只读审查确认：core skill 基本保持 host-agnostic，但 `hermes-coding-operator` binding skill 复制了硬规则、意图分流、项目优先、需求拆解、任务下一步、反馈路由、长期记忆等通用 playbook；下一轮应把 binding skill 收敛为 core 引用 + `/coding` / native tool / 恢复命令映射。
+- Task 33 确认并修复：core skill 基本保持 host-agnostic；`hermes-coding-operator` 原先复制硬规则、意图分流、项目优先、需求拆解、任务下一步、反馈路由、长期记忆等通用 playbook，`hermes-coding-health-check` 原先复制 readiness 输出格式、硬规则和示例。当前两者已收敛为 core 引用 + Hermes `/coding` / native tool / doctor / preflight / 配置引用映射，通用规则归 `coding-operator-core` / `coding-health-core`。
 
 ## 视觉/浏览器发现
 - 本轮没有新增浏览器或图片验证。
