@@ -597,14 +597,20 @@ class CodingOrchestrator:
     def _format_lark_preflight(self, result: dict[str, Any]) -> str:
         return format_lark_preflight(result)
 
+    def project_mcp_preflight_config(self) -> FeishuProjectMcpConfig:
+        return self._project_mcp_adapter().config
+
+    @staticmethod
+    def project_mcp_preflight_command_available(config: FeishuProjectMcpConfig) -> bool:
+        if config.transport != "stdio":
+            return True
+        command = config.command[0] if config.command else "npx"
+        return shutil.which(command) is not None
+
     def _format_project_mcp_preflight(self) -> str:
-        adapter = self._project_mcp_adapter()
-        config = adapter.config
-        command_available = True
+        config = self.project_mcp_preflight_config()
+        command_available = self.project_mcp_preflight_command_available(config)
         result: dict[str, Any] | None = None
-        if config.transport == "stdio":
-            command = config.command[0] if config.command else "npx"
-            command_available = shutil.which(command) is not None
         if bool(config.enabled) and str(config.token or "").strip() and (
             config.transport != "stdio" or command_available
         ):

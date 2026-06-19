@@ -41,6 +41,22 @@ class FakeDispatchTool:
 class DispatchOnlyCliHost:
     def __init__(self):
         self.calls = []
+        self.project_mcp_result = {
+            "ok": True,
+            "allowed_tools": ["story.search", "issue.search"],
+        }
+        self.project_mcp_command_available_result = True
+        self.project_mcp_config = SimpleNamespace(
+            enabled=True,
+            transport="stdio",
+            domain="https://project.feishu.cn",
+            command=["npx"],
+            token="configured-token",
+            config_file_hint="~/.hermes/coding-orchestration/mcp.json",
+            token_config_ref="mcpServers.feishu-project.env.MCP_USER_TOKEN",
+            server_config_ref="mcpServers.feishu-project",
+        )
+        self.project_mcp_command_checks = []
 
     def dispatch_tool_operation(self, operation_id, args=None):
         self.calls.append((operation_id, args or {}))
@@ -59,7 +75,16 @@ class DispatchOnlyCliHost:
                 "url": (args or {}).get("text"),
                 "recovery_action": "run lark-cli auth refresh",
             }
+        if operation_id == "project.mcp_preflight":
+            return dict(self.project_mcp_result)
         return {"ok": True}
+
+    def project_mcp_preflight_config(self):
+        return self.project_mcp_config
+
+    def project_mcp_preflight_command_available(self, config):
+        self.project_mcp_command_checks.append(config)
+        return self.project_mcp_command_available_result
 
     def command_coding_cli(self, args=None):
         raise AssertionError("CLI tool-equivalent command should use dispatch_tool_operation")
@@ -123,6 +148,78 @@ class CodingCliTest(unittest.TestCase):
         )
         self.assertIn("来源解析", stdout.getvalue())
         self.assertIn("run lark-cli auth refresh", stdout.getvalue())
+
+    def test_cli_project_mcp_preflight_uses_operation_dispatcher_without_command_wrapper(self):
+        host = DispatchOnlyCliHost()
+        stdout = StringIO()
+
+        with redirect_stdout(stdout):
+            exit_code = coding_cli._handle_coding_cli(
+                host,
+                SimpleNamespace(coding_command="project-mcp-preflight"),
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(host.calls, [("project.mcp_preflight", {"include_tools": True})])
+        self.assertEqual(host.project_mcp_command_checks, [host.project_mcp_config])
+        self.assertIn("飞书项目 MCP 检查", stdout.getvalue())
+        self.assertIn("状态：✅ 可用", stdout.getvalue())
+        self.assertIn("工具白名单：story.search, issue.search", stdout.getvalue())
+
+    def test_cli_project_mcp_preflight_missing_token_returns_failure_exit_code_without_dispatch(self):
+        host = DispatchOnlyCliHost()
+        host.project_mcp_config.token = ""
+        stdout = StringIO()
+
+        with redirect_stdout(stdout):
+            exit_code = coding_cli._handle_coding_cli(
+                host,
+                SimpleNamespace(coding_command="project-mcp-preflight"),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(host.calls, [])
+        self.assertEqual(host.project_mcp_command_checks, [host.project_mcp_config])
+        self.assertIn("状态：❌ 不可用", stdout.getvalue())
+        self.assertIn("MCP_USER_TOKEN", stdout.getvalue())
+
+    def test_cli_project_mcp_preflight_unavailable_stdio_command_returns_failure_exit_code_without_dispatch(self):
+        host = DispatchOnlyCliHost()
+        host.project_mcp_command_available_result = False
+        stdout = StringIO()
+
+        with redirect_stdout(stdout):
+            exit_code = coding_cli._handle_coding_cli(
+                host,
+                SimpleNamespace(coding_command="project-mcp-preflight"),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(host.calls, [])
+        self.assertEqual(host.project_mcp_command_checks, [host.project_mcp_config])
+        self.assertIn("状态：❌ 不可用", stdout.getvalue())
+        self.assertIn("npx", stdout.getvalue())
+
+    def test_cli_project_mcp_preflight_dispatch_failure_returns_failure_exit_code(self):
+        host = DispatchOnlyCliHost()
+        host.project_mcp_result = {
+            "ok": False,
+            "error": "MCP server refused request",
+            "recovery_action": "检查 MCP server token 和工具白名单。",
+        }
+        stdout = StringIO()
+
+        with redirect_stdout(stdout):
+            exit_code = coding_cli._handle_coding_cli(
+                host,
+                SimpleNamespace(coding_command="project-mcp-preflight"),
+            )
+
+        self.assertEqual(exit_code, 1)
+        self.assertEqual(host.calls, [("project.mcp_preflight", {"include_tools": True})])
+        self.assertEqual(host.project_mcp_command_checks, [host.project_mcp_config])
+        self.assertIn("状态：❌ 不可用", stdout.getvalue())
+        self.assertIn("MCP server refused request", stdout.getvalue())
 
     def test_coding_cli_doctor_reports_lark_kanban_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:

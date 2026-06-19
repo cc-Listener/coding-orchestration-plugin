@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .doctor_presenter import format_lark_preflight, format_source_resolve
+from .doctor_presenter import format_lark_preflight, format_project_mcp_preflight, format_source_resolve
 
 
 def register_cli(ctx: Any, orchestrator: Any) -> None:
@@ -39,6 +39,8 @@ def _handle_coding_cli(orchestrator: Any, args: Any) -> int:
     direct_output = _handle_tool_equivalent_cli(orchestrator, command, args)
     if direct_output is not None:
         print(direct_output)
+        if command == "project-mcp-preflight" and "状态：❌" in direct_output:
+            return 1
         return 0
 
     parts = [command]
@@ -67,6 +69,21 @@ def _handle_tool_equivalent_cli(orchestrator: Any, command: str, args: Any) -> s
         if not text:
             return "Usage: hermes coding source-resolve <feishu_or_meegle_url>"
         return format_source_resolve(dispatch("source.resolve", {"text": text}))
+    if command == "project-mcp-preflight":
+        config_reader = getattr(orchestrator, "project_mcp_preflight_config", None)
+        command_checker = getattr(orchestrator, "project_mcp_preflight_command_available", None)
+        if not callable(config_reader) or not callable(command_checker):
+            return None
+        config = config_reader()
+        command_available = bool(command_checker(config))
+        result = None
+        if _should_dispatch_project_mcp_preflight(config, command_available):
+            result = dispatch("project.mcp_preflight", {"include_tools": True})
+        return format_project_mcp_preflight(
+            config,
+            command_available=command_available,
+            result=result,
+        )
     return None
 
 
@@ -77,3 +94,10 @@ def _register_cli_command(register_cli_command: Any, **kwargs: Any) -> None:
         name = kwargs["name"]
         handler_fn = kwargs["handler_fn"]
         register_cli_command(name, handler_fn, help=kwargs.get("help", ""))
+
+
+def _should_dispatch_project_mcp_preflight(config: Any, command_available: bool) -> bool:
+    enabled = bool(getattr(config, "enabled", False))
+    token_configured = bool(str(getattr(config, "token", "") or "").strip())
+    transport_ready = getattr(config, "transport", "") != "stdio" or command_available
+    return enabled and token_configured and transport_ready

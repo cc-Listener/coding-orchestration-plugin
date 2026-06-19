@@ -2,6 +2,33 @@
 
 ## 会话：2026-06-19
 
+### 阶段 189：Task 32 CLI `project-mcp-preflight` dispatcher 第三切片
+- **状态：** complete
+- 背景：
+  - Task 30 已关闭，不再承接新拆分；当前未提交代码属于 Task 32 的 CLI dispatcher 后续切片。
+  - `project-mcp-preflight` 不是纯 operation：CLI 需要先读取 host MCP config、检查 stdio command 可用性，再按条件调用 `project.mcp_preflight`，最后复用 presenter 输出。
+  - 本切片不迁 `doctor`、`status`、Gateway diagnostic，也不删除 `CodingOrchestrator.tool_*` 兼容 wrapper，避免把 presentation 或 Gateway 执行副作用混入 dispatcher。
+- 执行的操作：
+  - 扩展 `tests/test_coding_cli.py`：新增只有 dispatcher 的 CLI host，并让 `command_coding_cli()` 被调用时直接失败。
+  - RED 已确认：旧实现会走 `command_coding_cli()`，新增测试失败。
+  - 修改 `coding_orchestration/cli.py`：`project-mcp-preflight` 读取 `project_mcp_preflight_config()`、调用 `project_mcp_preflight_command_available()`，仅在 config enabled、token configured、stdio command ready 时 dispatch `project.mcp_preflight`。
+  - 修改 `coding_orchestration/orchestrator.py`：新增 project MCP preflight 的 host action，旧 `_format_project_mcp_preflight()` 继续保留兼容 façade。
+  - review 发现 direct dispatcher path 失败时 CLI 仍返回 0；补齐缺 token、stdio command unavailable、dispatcher `ok=False` 三个负向测试，RED 确认返回码错误后恢复失败退出码 1。
+  - 同步 `task_plan.md`、`findings.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、实施计划、project map 和 conventions，明确阶段 189 属于 Task 32 第三切片，不重新打开 Task 30。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_coding_cli.CodingCliTest.test_cli_project_mcp_preflight_missing_token_returns_failure_exit_code_without_dispatch tests.test_coding_cli.CodingCliTest.test_cli_project_mcp_preflight_unavailable_stdio_command_returns_failure_exit_code_without_dispatch tests.test_coding_cli.CodingCliTest.test_cli_project_mcp_preflight_dispatch_failure_returns_failure_exit_code -v`：3 failures，均为退出码 0。
+  - GREEN：同三个测试通过。
+  - `rtk proxy python3 -m unittest tests.test_coding_cli -v`：13 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_coding_cli tests.test_tool_operation_dispatcher tests.test_plugin_registration tests.test_tool_specs -v`：29 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/cli.py coding_orchestration/orchestrator.py tests/test_coding_cli.py`：passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4698 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：833 tests passed。
+- 剩余风险：
+  - Task 32 仍是 In Progress：`doctor` 聚合 runtime 状态、`status` 是 presentation 命令、Gateway diagnostic 是 host 入口，均未纳入本切片。
+  - Task 31 SourcePort 消费闭环、Task 29 Gateway 执行副作用下沉和 Task 34 `orchestrator.py` 降载仍是独立未完成项。
+
 ### 阶段 188：Task 33 Skill 零耦合复查
 - **状态：** complete
 - 背景：

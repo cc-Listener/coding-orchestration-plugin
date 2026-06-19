@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 188：Task 33 Skill 零耦合复查（complete，Hermes binding skill 已收敛为 host 映射）
+阶段 189：Task 32 CLI `project-mcp-preflight` dispatcher 第三切片（complete）
 
 ## 各阶段
 
@@ -1463,6 +1463,17 @@
 - [x] 实现：`hermes-coding-health-check` 只保留 core 引用、Hermes doctor/preflight 恢复命令和插件本地配置引用映射。
 - [x] 边界：Task 33 不承接 `orchestrator.py` 降载、SourcePort 消费闭环、Tool dispatcher 后续或 Gateway 执行副作用下沉；这些仍归 Task 31/32/34+。
 - [x] 验证：插件注册聚焦测试、architecture guard、diff check 和完整单测均通过。
+- **状态：** complete
+
+### 阶段 189：Task 32 CLI `project-mcp-preflight` dispatcher 第三切片
+- [x] TDD：新增 `tests/test_coding_cli.py` 覆盖 CLI `project-mcp-preflight` 不再绕回 `command_coding_cli()`，而是读取 host preflight config、检查 stdio command 可用性，并按条件 dispatch `project.mcp_preflight`。
+- [x] RED：确认旧路径会触发 `command_coding_cli()` 断言失败。
+- [x] 实现：`coding_orchestration/cli.py` 对 `project-mcp-preflight` 复用 `format_project_mcp_preflight()`，仅在 enabled、token configured、stdio command ready 时调用 dispatcher。
+- [x] 兼容：`CodingOrchestrator._format_project_mcp_preflight()` 保留旧 façade，但配置读取和 command availability 检查拆成 host action，便于 CLI 直接集成。
+- [x] 边界：本切片不迁 `doctor`、`status`、Gateway diagnostic，也不删除 `CodingOrchestrator.tool_*` 兼容 wrapper；这些继续归 Task 32 后续或 presentation/Gateway 专项。
+- [x] 修复：review 发现 direct dispatcher path 失败时 CLI 仍返回 0；新增缺 token、stdio command 不可用、dispatcher 返回失败三个负向测试并恢复失败退出码 1。
+- [x] 文档：同步 Task 32 第三切片进度、技术方案、实施计划、项目地图、约定和发现。
+- [x] 验证：运行 CLI/dispatcher 聚焦回归、architecture guard、diff check、文档/架构测试和完整单测。
 - **状态：** complete
 
 ## 关键问题
