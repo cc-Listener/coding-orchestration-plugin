@@ -2,6 +2,40 @@
 
 ## 会话：2026-06-19
 
+### 阶段 184：解耦架构 active run reconcile writeback coordinator service 拆分
+- **状态：** complete
+- 背景：
+  - 阶段 183 后 fresh completed run 的完成态写回已迁出，但 `CodingOrchestrator._reconcile_completed_active_run()` 仍内联 active run reconcile 的 completion projection、report finalization、状态 transition、ledger/session/summary writeback 和 result payload 构造。
+  - 本切片只迁 active run reconcile writeback coordinator；runner dispatch、diff guard、QA evidence、implementation dirty-check、checkpoint、manifest session metadata、fresh completed run 和 Task 31+ 不属于本切片。
+- 当前边界：
+  - 新 service 应消费已归一化的 active run report、mode/status/details、changed files、artifact set、runner/session 元数据和注入 callback。
+  - service 负责二次完成态投影、最终 `report.json` 写回、reconcile task transition、ledger upsert、runner session update、summary writer callback 和 result payload 构造。
+  - service 不读取 workspace、不启动 runner、不执行 diff guard、不收集 QA evidence、不判断 dirty、不准备 checkpoint、不解析 stdout、不直接持有 `TaskLedger` / `RunSummaryWriter` / MCP adapter。
+- 执行中的操作：
+  - 已将 `task_plan.md` 当前阶段推进到阶段 184，避免 Task 30 继续停留在“阶段 183 complete 但仍继续”的不可见状态。
+  - 新增 `tests/test_run_reconcile_writeback_service.py`，覆盖 active run reconcile 完成态写回协调和 `_reconcile_completed_active_run()` 委托。
+  - RED 已确认：首次运行时因 `coding_orchestration.run_reconcile_writeback_service` 缺失出现预期 `ModuleNotFoundError`。
+  - 新增 `coding_orchestration/run_reconcile_writeback_service.py`。
+  - `CodingOrchestrator._reconcile_completed_active_run()` 的完成态写回 tail 改为委托 `write_reconciled_run_finalization()`；task/session/run/report 读取、cancelled/running early return、mode/status/details/changed_files 观测和 artifact 前置归一化保持原边界。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、解耦设计、实施计划、技术方案、`findings.md` 和 `task_plan.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4658 行。
+  - `coding_orchestration/run_reconcile_writeback_service.py`：137 行。
+  - `tests/test_run_reconcile_writeback_service.py`：238 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_run_reconcile_writeback_service -v`：预期 `ModuleNotFoundError`。
+  - `rtk proxy python3 -m unittest tests.test_run_reconcile_writeback_service -v`：2 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_reconcile_writeback_service tests.test_status_reconcile_flow tests.test_run_completion_writeback_service tests.test_run_status_transition_service tests.test_run_ledger_writeback_service tests.test_run_session_writeback_service tests.test_run_summary_writeback_service -v`：32 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_run_reconcile_writeback_service tests.test_run_completion_writeback_service tests.test_run_ledger_writeback_service tests.test_run_session_writeback_service tests.test_run_summary_writeback_service tests.test_run_orchestration_reconcile_rules tests.test_status_reconcile_flow -v`：27 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：34 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/run_reconcile_writeback_service.py coding_orchestration/orchestrator.py tests/test_run_reconcile_writeback_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4658 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：823 tests passed。
+- 剩余风险：
+  - Task 30 的实现切片已收敛到 closure cleanup；不要再把大文件降载、hard code 清理、MCP Skill / Hermes 深度解耦继续挂入 Task 30。
+
 ### 阶段 183：解耦架构 completed run writeback coordinator service 拆分
 - **状态：** complete
 - 背景：

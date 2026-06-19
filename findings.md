@@ -246,6 +246,7 @@
 | Run ledger 写回需要拆成 projection 与 host callback service | artifact / agent_run / merge-test record 的组装是 ledger append 前的纯数据合同；`run_ledger_projection.py` 只返回 records；`run_ledger_writeback_service.py` 只消费 records 并调用注入 ledger callback，不直接持有 `TaskLedger` / storage repository |
 | Run session 写回需要拆成 projection 与 host callback service | task session update payload 归属 `run_session_projection.py`；实际 `update_task_session` host callback 归属 `run_session_writeback_service.py`，只消费已构造 update、空 update 跳过并调用注入 callback，不直接持有 `TaskLedger` / storage repository |
 | Fresh completed run 写回需要独立 coordinator | `start_run()` 的 fresh completed path 已迁到 `run_completion_writeback_service.py`，集中协调 completion projection、stale observation、状态 transition、ledger/session/summary/project writeback 和 final result payload；该 service 只通过注入 callback 工作，不启动 runner、不执行 diff guard、不收集 QA evidence、不判断 dirty、不准备 checkpoint、不解析 stdout、不直接持有 host adapter。Task 30 下一步应迁 active run reconcile writeback coordinator，而不是继续扩大 fresh completion service |
+| Active run reconcile 写回需要独立 coordinator | `_reconcile_completed_active_run()` 中剩余的完成态 report finalization、reconcile transition、ledger upsert、runner session update、summary writer 和 result payload 应迁到 `run_reconcile_writeback_service.py`；该 service 只协调已归一化 report 与注入 callback，不启动 runner、不执行 diff guard、不收集 QA evidence、不判断 dirty、不准备 checkpoint、不解析 stdout，也不承接 fresh completed run |
 
 ## 资源
 - `/Users/xiaojing/.hermes/coding-orchestration/runs/task_43141b20c03e`

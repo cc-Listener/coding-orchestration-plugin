@@ -100,6 +100,7 @@ from . import (
     run_report_artifact_service,
     run_stderr_artifact_service,
     run_project_writeback_service,
+    run_reconcile_writeback_service,
     run_session_writeback_service,
     run_status_transition_service,
     run_summary_writeback_service,
@@ -3187,80 +3188,33 @@ class CodingOrchestrator:
         if summary:
             run_summary_artifact_service.write_run_summary_artifact(summary_path=artifacts.summary, summary=summary)
 
-        completion_projection = run_orchestration_service.project_run_completion(
-            mode=mode,
-            status=status,
-            details=details,
-            report=report,
-            running_phase=self.run_service.running_phase_for_mode(mode),
-        )
-        status = completion_projection.status
-        task_status = completion_projection.task_status
-        task_phase = completion_projection.task_phase
-        report = completion_projection.report
-        run_report_artifact_service.write_run_report_artifact(report_path=artifacts.report, report=report)
-        run_status_transition_service.transition_reconciled_run_task_status(
-            task_id=task_id,
-            mode=mode,
-            status=status,
-            task_status=task_status,
-            task_phase=task_phase,
-            transition_task_status_callback=self._transition_task_status,
-        )
-
-        ledger_records = run_ledger_projection.build_reconciled_run_ledger_writeback_records(
-            artifacts=artifacts,
-            existing_run=run,
-            run_id=run_id,
-            runner_name=runner_name,
-            mode=mode,
-            status=status,
-            report=report,
-            changed_files=changed_files,
-        )
-        artifact_record = ledger_records.artifact_record
-        merged_run = ledger_records.agent_run_record
-        run_ledger_writeback_service.write_reconciled_run_ledger(
-            task_id=task_id,
-            records=ledger_records,
-            upsert_artifact_callback=self.ledger.upsert_artifact,
-            upsert_agent_run_callback=self.ledger.upsert_agent_run,
-        )
-
         session_id = self._thread_id_from_artifact(artifacts.stdout) or self._codex_resume_session_id_for_task(task)
-        runner_update = run_orchestration_service.build_runner_session_update(
-            runner_name=runner_name,
-            run_id=run_id,
-            status=status,
-            report=report,
-            session_id=session_id,
-            run_still_active=False,
-            attach_command=self._codex_attach_command(session_id) if session_id else "",
-            reconciled_at=datetime.now(timezone.utc).isoformat(),
-        )
-        run_session_writeback_service.write_run_session_update(
-            task_id=task_id,
-            update={"runner": runner_update},
-            update_task_session_callback=self.ledger.update_task_session,
-        )
-        run_summary_writeback_service.write_reconciled_run_summary(
+        result = run_reconcile_writeback_service.write_reconciled_run_finalization(
             task_id=task_id,
             run_id=run_id,
             task=task,
             session=session,
-            merged_run=merged_run,
+            existing_run=run,
+            artifacts=artifacts,
+            mode=mode,
+            running_phase=self.run_service.running_phase_for_mode(mode),
+            status=status,
+            details=details,
             report=report,
+            changed_files=changed_files,
+            runner_name=runner_name,
+            session_id=session_id,
+            attach_command=self._codex_attach_command(session_id) if session_id else "",
+            reconciled_at=datetime.now(timezone.utc).isoformat(),
             summary=summary,
+            write_report_artifact_callback=run_report_artifact_service.write_run_report_artifact,
+            transition_task_status_callback=self._transition_task_status,
+            upsert_artifact_callback=self.ledger.upsert_artifact,
+            upsert_agent_run_callback=self.ledger.upsert_agent_run,
+            update_task_session_callback=self.ledger.update_task_session,
             write_summary_callback=self.summary_writer.write_run_summary,
         )
-        return run_orchestration_service.build_reconcile_result_payload(
-            task_id=task_id,
-            run_id=run_id,
-            mode=mode,
-            status=status,
-            task_status=task_status,
-            artifact_record=artifact_record,
-        )
+        return result.result_payload
 
     @staticmethod
     def _agent_run_for_id(task: dict[str, Any], run_id: str) -> dict[str, Any] | None:
