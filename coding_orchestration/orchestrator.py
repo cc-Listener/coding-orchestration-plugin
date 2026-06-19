@@ -28,8 +28,6 @@ from .execution_policy import control_policy_for_mode
 from .feishu_copy import render_user_update
 from .feishu_messages import (
     render_delivery_breakdown,
-    render_delivery_status,
-    render_task_tree_status,
 )
 from .feishu_project_reader import FeishuProjectReader
 from .feishu_project_mcp import (
@@ -832,11 +830,12 @@ class CodingOrchestrator:
                 ]
             )
         if delivery_view or tree_view:
-            children = self.ledger.list_child_tasks(task_id)
-            if tree_view:
-                return render_task_tree_status(parent=task, children=children)
-            projection = self.delivery_service.status_projection(task, children)
-            return render_delivery_status(**projection.as_render_kwargs())
+            return delivery_command_executor.command_coding_delivery_status(
+                self,
+                task_id=task_id,
+                task=task,
+                tree_view=tree_view,
+            )
         return self._format_task_status_details(task, include_branch=False)
 
     def command_coding_cancel(self, raw_args: str) -> str:

@@ -57,6 +57,81 @@ class RecordingHost:
 
 
 class DeliveryCommandExecutorTest(unittest.TestCase):
+    def test_delivery_status_view_renders_progress_without_runner_side_effects(self):
+        parent = {
+            "task_id": "req_1",
+            "task_kind": "requirement",
+            "requirement_summary": "订单筛选能力升级",
+            "status": "planned",
+        }
+        ledger = RecordingLedger(parent)
+        ledger.children["task_backend"] = {
+            "task_id": "task_backend",
+            "task_kind": "execution",
+            "requirement_summary": "后端订单查询能力",
+            "status": "done",
+        }
+        ledger.children["task_web"] = {
+            "task_id": "task_web",
+            "task_kind": "execution",
+            "requirement_summary": "管理后台筛选入口",
+            "status": "planned",
+        }
+        host = RecordingHost(ledger)
+
+        message = delivery_command_executor.command_coding_delivery_status(
+            host,
+            task_id="req_1",
+            task=parent,
+            tree_view=False,
+        )
+
+        self.assertIn("整体进度：1/2", message)
+        self.assertIn("下一步：task_web - 管理后台筛选入口", message)
+        self.assertEqual(ledger.list_child_task_ids, ["req_1"])
+        self.assertFalse(host.start_run_called)
+        self.assertFalse(host.implement_called)
+        self.assertEqual(host.rollup_task_ids, [])
+
+    def test_delivery_status_tree_view_renders_children_without_rollup_write(self):
+        parent = {
+            "task_id": "req_1",
+            "task_kind": "requirement",
+            "requirement_summary": "订单筛选能力升级",
+            "status": "planned",
+        }
+        ledger = RecordingLedger(parent)
+        ledger.children["task_backend"] = {
+            "task_id": "task_backend",
+            "task_kind": "execution",
+            "requirement_summary": "后端订单查询能力",
+            "status": "done",
+            "dependency_task_ids": [],
+        }
+        ledger.children["task_web"] = {
+            "task_id": "task_web",
+            "task_kind": "execution",
+            "requirement_summary": "管理后台筛选入口",
+            "status": "planned",
+            "dependency_task_ids": ["task_backend"],
+        }
+        host = RecordingHost(ledger)
+
+        message = delivery_command_executor.command_coding_delivery_status(
+            host,
+            task_id="req_1",
+            task=parent,
+            tree_view=True,
+        )
+
+        self.assertIn("子任务：", message)
+        self.assertIn("- task_backend：后端订单查询能力", message)
+        self.assertIn("依赖：task_backend", message)
+        self.assertEqual(ledger.list_child_task_ids, ["req_1"])
+        self.assertFalse(host.start_run_called)
+        self.assertFalse(host.implement_called)
+        self.assertEqual(host.rollup_task_ids, [])
+
     def test_run_next_reports_user_facing_validation_errors(self):
         cases = [
             (

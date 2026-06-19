@@ -3,7 +3,22 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from .feishu_messages import render_delivery_status, render_task_tree_status
 from .services.delivery_service import DeliveryService
+
+
+def command_coding_delivery_status(
+    host: Any,
+    *,
+    task_id: str,
+    task: dict[str, Any],
+    tree_view: bool,
+) -> str:
+    children = host.ledger.list_child_tasks(task_id)
+    if tree_view:
+        return render_task_tree_status(parent=task, children=children)
+    projection = host.delivery_service.status_projection(task, children)
+    return render_delivery_status(**projection.as_render_kwargs())
 
 
 def command_coding_run_next(host: Any, raw_args: str) -> str:

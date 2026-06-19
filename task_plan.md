@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 204：Task 34 delivery run-next executor 第七切片（complete）
+阶段 205：Task 34 delivery status executor 第八切片（complete）
 
 ## 各阶段
 
@@ -1556,6 +1556,15 @@
 - [x] 实现：`delivery_command_executor.py` 新增 `command_coding_run_next()`；`CodingOrchestrator.command_coding_run()` 的 `--next` 分支保留薄 wrapper，普通 run 仍留原边界。
 - [x] 文档：同步 Task 34 第七切片进度、技术方案、项目地图、组件合同、machine-readable context 和发现。
 - [x] 验证：运行 delivery command executor、delivery flow/service、command run、Gateway command executor 聚焦回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 205：Task 34 delivery status executor 第八切片
+- [x] 定域：只迁 `/coding status <parent> --delivery/--tree` 在通用 task 校验和 active run reconcile 之后的 children 读取、delivery projection/render 和 tree render；不迁普通 status、active run reconcile、Gateway status、TaskStatus presenter、breakdown/analyze、runner、workspace/git 或 DeliveryService 纯规则。
+- [x] TDD：扩展 `tests/test_delivery_command_executor.py`，直接覆盖 delivery status progress/next child、tree status children/dependencies，并断言不启动 runner、不调用 implement、不写 rollup。
+- [x] RED：确认 `delivery_command_executor.command_coding_delivery_status()` 缺失时测试失败。
+- [x] 实现：`delivery_command_executor.py` 新增 `command_coding_delivery_status()`；`CodingOrchestrator.command_coding_status()` 保留缺 task、未找到和 active run reconcile 分支，delivery/tree 分支委托 executor。
+- [x] 文档：同步 Task 34 第八切片进度、技术方案、项目地图、组件合同、machine-readable context 和发现。
+- [x] 验证：运行 delivery command executor、delivery flow/service、status reconcile、command run、Gateway command executor 聚焦回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片

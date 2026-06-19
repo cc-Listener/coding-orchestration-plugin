@@ -2,6 +2,29 @@
 
 ## 会话：2026-06-19
 
+### 阶段 205：Task 34 delivery status executor 第八切片
+- **状态：** complete
+- 背景：
+  - 阶段 202-204 已把 `/coding materialize`、`/coding approve-breakdown` 和 `/coding run <parent> --next` host shell 迁入 `delivery_command_executor.py`。
+  - `/coding status <parent> --delivery/--tree` 仍在 `orchestrator.py` 的通用 status 流程里直接读取 children 和渲染 delivery/tree 视图；但 active run reconcile 必须继续留在 `orchestrator.command_coding_status()`。
+- 执行的操作：
+  - 扩展 `tests/test_delivery_command_executor.py`，覆盖 delivery status progress/next child、tree status children/dependencies，以及不启动 runner、不调用 implement、不写 rollup。
+  - RED 已确认：`delivery_command_executor.command_coding_delivery_status()` 缺失导致测试失败。
+  - 修改 `coding_orchestration/delivery_command_executor.py`，新增 `command_coding_delivery_status()`，负责 children 读取、`DeliveryService.status_projection()` 和 delivery/tree render。
+  - `CodingOrchestrator.command_coding_status()` 保留缺 task、未找到、active run reconcile 和普通 status；仅 delivery/tree 分支改为薄 wrapper。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_delivery_command_executor -v` 先失败于 missing attribute。
+  - GREEN：同一测试通过，12 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_delivery_status_reconcile_flow tests.test_status_reconcile_flow -v`：7 tests passed；`rtk proxy python3 -m unittest tests.test_delivery_command_executor tests.test_delivery_flow tests.test_delivery_service tests.test_command_run_flow tests.test_gateway_command_executor -v`：45 tests passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4312 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：874 tests passed。
+  - multi-agent 只读探索：确认 `/coding status <parent> --delivery/--tree` 比 breakdown/analyze 更适合作为本切片，active run reconcile 必须留在 orchestrator。
+  - multi-agent 只读 review：无阻断问题；按建议补充 active run + `--delivery` 仍先 reconcile 的组合测试。
+- 剩余风险：
+  - Task 34 delivery command façade 后续只剩 breakdown/analyze host shell。
+  - `orchestrator.py` 当前 4312 行，仍是 architecture guard legacy large-file watch。
+
 ### 阶段 204：Task 34 delivery run-next executor 第七切片
 - **状态：** complete
 - 背景：
@@ -21,8 +44,8 @@
   - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：871 tests passed。
   - multi-agent 只读 review：无阻断问题；确认普通 `/coding run <task_id>`、runner/workspace/git、Gateway route 和 `DeliveryService` 纯规则未改变。
 - 剩余风险：
-  - Task 34 后续继续迁 breakdown/analyze、delivery/tree status 的 host shell。
-  - `orchestrator.py` 当前 4313 行，仍是 architecture guard legacy large-file watch。
+  - 当时 Task 34 后续仍需迁 breakdown/analyze、delivery/tree status 的 host shell；阶段 205 已迁 delivery/tree status。
+  - `orchestrator.py` 阶段 204 完成时为 4313 行，仍是 architecture guard legacy large-file watch。
 
 ### 阶段 203：Task 34 delivery approve-breakdown executor 第六切片
 - **状态：** complete
@@ -39,7 +62,7 @@
   - GREEN：同一测试通过，7 tests passed。
   - 相邻回归：`rtk proxy python3 -m unittest tests.test_delivery_flow tests.test_delivery_service tests.test_gateway_command_executor tests.test_command_run_flow -v`：33 tests passed。
 - 剩余风险：
-  - Task 34 后续继续迁 breakdown/analyze、delivery/tree status 的 host shell。
+  - 当时 Task 34 后续仍需迁 breakdown/analyze、delivery/tree status 的 host shell；阶段 205 已迁 delivery/tree status。
   - `orchestrator.py` 阶段 203 完成时为 4330 行，仍是 architecture guard legacy large-file watch。
 
 ### 阶段 202：Task 34 delivery materialize executor 第五切片
@@ -57,7 +80,7 @@
   - GREEN：`rtk proxy python3 -m unittest tests.test_delivery_command_executor -v`：5 tests passed。
   - 相邻回归：`rtk proxy python3 -m unittest tests.test_delivery_flow tests.test_delivery_service tests.test_command_run_flow tests.test_gateway_command_executor -v`：33 tests passed。
 - 剩余风险：
-  - Task 34 后续还应继续迁 breakdown/analyze、delivery/tree status 的 host shell。
+  - 当时 Task 34 后续还需迁 breakdown/analyze、delivery/tree status 的 host shell；阶段 205 已迁 delivery/tree status。
   - `orchestrator.py` 阶段 202 完成时为 4350 行，仍是 architecture guard legacy large-file watch。
 
 ### 阶段 201：Task 31 deferred source enrichment 第六切片
