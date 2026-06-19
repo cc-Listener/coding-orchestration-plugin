@@ -65,7 +65,6 @@ from .models import (
     TaskPhase,
     TaskKind,
     TaskStatus,
-    canonical_task_status,
     normalize_agent_run_status,
     task_status_display,
     task_status_view,
@@ -81,6 +80,7 @@ from . import (
     gateway_command_executor,
     gateway_pending_action_executor,
     gateway_project_context,
+    gateway_rewrite_context,
     gateway_rewrite_presenter,
     merge_test_presenter,
     merge_test_readiness_service,
@@ -1835,79 +1835,26 @@ class CodingOrchestrator:
         media = self._event_media_for_ledger(event)
         active_task = self._active_task_for_event(event)
         active_project = self._active_project_for_event(event)
-        active_context = None
-        if active_task:
-            active_context = {
-                "task_id": str(active_task.get("task_id") or ""),
-                "status": str(active_task.get("status") or ""),
-                "phase": str(active_task.get("phase") or ""),
-                "status_label": task_status_display(active_task.get("status")),
-                "project": self._task_project_label(active_task),
-                "summary": self._task_description_label(active_task),
-                "next_step": self._task_next_step_hint(active_task, event),
-            }
         known_tasks = self.ledger.list_recent_tasks(statuses=self._active_coding_statuses(), limit=10)
-        return {
-            "user_text": text,
-            "coding_mode_enabled": True,
-            "active_task": active_context,
-            "known_task_ids": [str(task.get("task_id") or "") for task in known_tasks if task.get("task_id")],
-            "known_tasks": [
-                {
-                    "task_id": str(task.get("task_id") or ""),
-                    "status": str(task.get("status") or ""),
-                    "phase": str(task.get("phase") or ""),
-                    "project": self._task_project_label(task),
-                    "summary": self._task_description_label(task),
-                    "next_step": self._task_next_step_hint(task, event),
-                }
-                for task in known_tasks
-            ],
-            "active_project": active_project,
-            "known_projects": self._known_project_profiles(limit=10),
-            "recommended_skill": _RECOMMENDED_OPERATOR_SKILL,
-            "command_catalog": command_catalog_context(),
-            "has_media": bool(media),
-            "media_types": [str(item.get("type") or "") for item in media if item.get("type")],
-            "allowed_commands": self._coding_rewrite_allowed_commands(),
-        }
+        return gateway_rewrite_context.build_coding_rewrite_context(
+            user_text=text,
+            active_task=active_task,
+            known_tasks=known_tasks,
+            active_project=active_project,
+            known_projects=self._known_project_profiles(limit=10),
+            media=media,
+            recommended_skill=_RECOMMENDED_OPERATOR_SKILL,
+            command_catalog=command_catalog_context(),
+            allowed_commands=self._coding_rewrite_allowed_commands(),
+            project_label=self._task_project_label,
+            summary_label=self._task_description_label,
+        )
 
     def _task_next_step_hint(self, task: dict[str, Any], event: Any | None) -> str:
-        task_id = str(task.get("task_id") or "<task_id>")
-        raw_status = str(task.get("status") or "")
-        status = (canonical_task_status(raw_status) or TaskStatus.NEW).value
-        phase = str(task.get("phase") or "")
-        if raw_status == TaskStatus.CANCELLED.value:
-            return f"只能使用 /coding restore {task_id} 恢复误取消任务。"
-        if status == TaskStatus.RUNNING.value:
-            return "已有执行正在进行；不要启动新执行，先查看当前执行或等待完成。"
-        if not task.get("project_path"):
-            if self._active_project_for_event(event):
-                return (
-                    f"任务缺少项目，但当前会话已有项目；可使用 /coding run {task_id} "
-                    "自动补齐项目并重新整理计划。"
-                )
-            return f"任务缺少项目；先使用 /coding continue <项目或来源补充>。"
-        if status == TaskStatus.NEEDS_HUMAN.value:
-            return f"先使用 /coding continue <项目或来源补充> 补齐人工信息。"
-        if status == TaskStatus.PLANNED.value and phase in {TaskPhase.PLAN_READY.value, TaskPhase.PLAN_APPROVED.value}:
-            return f"计划已可执行；使用 /coding implement {task_id}。"
-        if status == TaskStatus.PLANNED.value:
-            return f"计划仍需刷新或确认；使用 /coding run {task_id}。"
-        if status == TaskStatus.FAILED.value:
-            return f"项目已确定；使用 /coding run {task_id} 重新整理计划，或查看 /coding status {task_id}。"
-        if status == TaskStatus.BLOCKED.value:
-            return (
-                f"先查看 /coding status {task_id} 的影响和建议；"
-                f"若确认目标改动已完成且接受风险，可使用 /coding merge-test {task_id} --accept-risk。"
-            )
-        if status == TaskStatus.READY_FOR_MERGE_TEST.value:
-            return f"使用 /coding merge-test {task_id}。"
-        if status == TaskStatus.MERGED_TEST.value:
-            return f"人工验收 test 后使用 /coding complete {task_id}。"
-        if status == TaskStatus.DONE.value:
-            return "任务已完成；无需继续操作。"
-        return f"先查看 /coding status {task_id}。"
+        return gateway_rewrite_context.task_next_step_hint(
+            task,
+            has_active_project=bool(self._active_project_for_event(event)),
+        )
 
     @staticmethod
     def _coding_rewrite_allowed_commands() -> list[dict[str, str]]:

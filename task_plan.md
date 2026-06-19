@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 194：Task 34 project profile catalog 第三切片（complete）
+阶段 195：Task 34 rewrite context projection 第四切片（complete）
 
 ## 各阶段
 
@@ -1520,6 +1520,15 @@
 - [x] 实现：新增 `coding_orchestration/project_profile_catalog.py`；`CodingOrchestrator` 对应 profile 函数改为薄 wrapper，通过 catalog 消费 wiki 与 registry projects。
 - [x] 文档：同步 Task 34 第三切片进度、技术方案、项目地图、组件合同、约定和发现。
 - [x] 验证：运行 project profile catalog、Gateway project/rewrite/binding 相邻回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 195：Task 34 rewrite context projection 第四切片
+- [x] 定域：只迁出 Coding Mode rewrite context 白名单投影和 task next-step hint 纯规则；不迁 command_rewriter 调用、pending rewrite 存取、确认/取消 gate、Gateway reply、active binding、ledger 读取或 project catalog 读取。
+- [x] TDD：新增 `tests/test_gateway_rewrite_context.py`，覆盖 active/known task 投影、media type 投影、command catalog / allowed commands 转发和 next-step hint 状态规则。
+- [x] RED：确认新模块缺失时测试失败。
+- [x] 实现：新增 `coding_orchestration/gateway_rewrite_context.py`；`CodingOrchestrator._coding_rewrite_context()` 只采集 event/ledger/project/catalog 事实后委托 helper，`_task_next_step_hint()` 改为兼容 wrapper。
+- [x] 文档：同步 Task 34 第四切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 rewrite context contract、Gateway rewrite/natural language/presenter 相邻回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ## 关键问题

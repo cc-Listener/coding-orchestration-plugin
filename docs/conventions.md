@@ -80,6 +80,7 @@
 - 变更项目上下文、active project、项目目录识别、Feishu escaped project slug 或项目澄清时，优先扩展 `tests/test_gateway_project_task_flow.py`。
 - 变更 project profile 读取、registry fallback、别名查找、动态来源计数或 project list/status 格式化时，优先扩展 `tests/test_project_profile_catalog.py`，再按影响范围扩展 `tests/test_gateway_project_task_flow.py`、`tests/test_gateway_rewrite_flow.py` 或 `tests/test_gateway_binding_service.py`。
 - 变更 active project 应用到 task、project context 回填或对应 human decision 记录时，优先扩展 `tests/test_gateway_active_context.py`，再按影响范围扩展 `tests/test_gateway_project_task_flow.py`、`tests/test_gateway_natural_language_command_flow.py` 或 `tests/test_command_run_flow.py`。
+- 变更 Coding Mode rewrite context 投影、active/known task 白名单字段、media type 投影或 task next-step hint 规则时，优先扩展 `tests/test_gateway_rewrite_context.py`，再按影响范围扩展 `tests/test_gateway_rewrite_flow.py` 或 `tests/test_gateway_natural_language_command_flow.py`。
 - 变更计划确认、确认过早、`/coding use`、`/coding delete` 或近期 planned task continue 行为时，优先扩展 `tests/test_gateway_task_control_flow.py`。
 - 变更 bugfix/change/continue feedback、带图反馈或 failed plan-only restart 行为时，优先扩展 `tests/test_gateway_feedback_flow.py` 和 `tests/test_gateway_change_continue_flow.py`。
 - 变更 plugin-generated message 忽略、stale run completion 或无任务强确认拦截时，优先扩展 `tests/test_gateway_safety_lifecycle_flow.py`。

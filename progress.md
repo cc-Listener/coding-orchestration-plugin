@@ -2,6 +2,29 @@
 
 ## 会话：2026-06-19
 
+### 阶段 195：Task 34 rewrite context projection 第四切片
+- **状态：** complete
+- 背景：
+  - Task 30 已关闭；当前继续的是 Task 34 orchestrator façade 降载，不把 rewrite context 迁移回填到 Task 30。
+  - 只读 explorer 建议新模块只做纯 projection，`orchestrator.py` 保留 event/ledger/project catalog 事实采集、command_rewriter 调用、pending rewrite gate 和 Gateway reply。
+- 执行的操作：
+  - 新增 `tests/test_gateway_rewrite_context.py`，覆盖 active/known task 白名单投影、media type 投影、command catalog / allowed commands 转发，以及 cancelled/running/planned/blocked/done/缺项目等 next-step hint。
+  - RED 已确认：`coding_orchestration.gateway_rewrite_context` 模块缺失导致测试失败。
+  - 新增 `coding_orchestration/gateway_rewrite_context.py`，承接 `build_coding_rewrite_context()` 和 `task_next_step_hint()`；helper 不读取 ledger、不持有 Gateway event、不调用 command_rewriter、不渲染 handoff 文案。
+  - 修改 `coding_orchestration/orchestrator.py`：`_coding_rewrite_context()` 只采集 media、active task/project、recent tasks、known projects、catalog 和 allowed commands 后委托 helper；`_task_next_step_hint()` 保留兼容 wrapper。
+  - 同步 `task_plan.md`、`findings.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、实施计划、project map、component contract、conventions 和 machine-readable context。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4370 行。
+  - `coding_orchestration/gateway_rewrite_context.py`：118 行。
+  - `tests/test_gateway_rewrite_context.py`：100 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_gateway_rewrite_context -v` 先失败于 `ModuleNotFoundError`。
+  - GREEN：`rtk proxy python3 -m unittest tests.test_gateway_rewrite_context -v`：2 tests passed。
+  - 相邻 rewrite flow：`rtk proxy python3 -m unittest tests.test_gateway_rewrite_flow tests.test_gateway_natural_language_command_flow tests.test_gateway_rewrite_presenter -v`：19 tests passed。
+- 剩余风险：
+  - `orchestrator.py` 仍是 4370 行 legacy façade；Task 34 下一步优先 delivery command façade 或 Gateway 执行副作用继续下沉。
+  - Task 31 SourceProjection 仍是独立工作，不混入 rewrite context。
+
 ### 阶段 192：Task 34 本地项目解析 helper 第一切片
 - **状态：** complete
 - 背景：
