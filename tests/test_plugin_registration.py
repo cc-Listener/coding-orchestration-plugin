@@ -207,7 +207,8 @@ class PluginRegistrationTest(unittest.TestCase):
             exit_code = ctx.cli_commands["coding"]["handler_fn"](args)
 
         self.assertEqual(exit_code, 0)
-        self.assertEqual(stdout.getvalue().strip(), "ok")
+        self.assertEqual(orchestrator.tool_calls[-1], ("source.lark_preflight", {}))
+        self.assertIn("飞书权限检查", stdout.getvalue())
 
     def test_registered_native_tool_handlers_accept_keyword_arguments(self):
         ctx = FakeContext()

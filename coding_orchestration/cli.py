@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .doctor_presenter import format_lark_preflight, format_source_resolve
+
 
 def register_cli(ctx: Any, orchestrator: Any) -> None:
     """Register Hermes CLI subcommands when available."""
@@ -34,6 +36,11 @@ def _setup_coding_cli(subparser: Any) -> None:
 
 def _handle_coding_cli(orchestrator: Any, args: Any) -> int:
     command = str(getattr(args, "coding_command", "") or "status")
+    direct_output = _handle_tool_equivalent_cli(orchestrator, command, args)
+    if direct_output is not None:
+        print(direct_output)
+        return 0
+
     parts = [command]
     if command == "source-resolve":
         parts.extend(str(part) for part in getattr(args, "source", []))
@@ -47,6 +54,20 @@ def _handle_coding_cli(orchestrator: Any, args: Any) -> int:
     if command == "project-mcp-preflight" and "状态：❌" in output:
         return 1
     return 2 if output.startswith("Usage:") else 0
+
+
+def _handle_tool_equivalent_cli(orchestrator: Any, command: str, args: Any) -> str | None:
+    dispatch = getattr(orchestrator, "dispatch_tool_operation", None)
+    if not callable(dispatch):
+        return None
+    if command == "lark-preflight":
+        return format_lark_preflight(dispatch("source.lark_preflight", {}))
+    if command == "source-resolve":
+        text = " ".join(str(part) for part in getattr(args, "source", [])).strip()
+        if not text:
+            return "Usage: hermes coding source-resolve <feishu_or_meegle_url>"
+        return format_source_resolve(dispatch("source.resolve", {"text": text}))
+    return None
 
 
 def _register_cli_command(register_cli_command: Any, **kwargs: Any) -> None:

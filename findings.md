@@ -338,7 +338,9 @@
 - 全线阶段表解决“按什么顺序做”，但还需要横向矩阵解决“每类能力归谁管”。阶段 151 将工具端、MCP / WorkItem、Skill core、Hermes binding、Gateway、run orchestration、source、storage/knowledge、presentation、大文件/hard code 固化为权威层 + Hermes 集成职责 + 禁止回流 + 验收信号，避免后续只按文件大小拆分或让 Hermes host shell 重新承载业务规则。
 - Hermes 的目标职责应收敛为 host integration：注册 hook/command/tool/skill、转换 host event、调用 service/adapter、渲染 host response。它不应成为业务规则、状态机、MCP token、Codex subprocess、source reader dict 或 LLM Wiki layout 的 owner。
 - Task 32 第一切片确认：把 `operation_id -> CodingOrchestrator.tool_*` 表从 `plugin_tools.py` 移走还不够，必须删除该表而不是搬到新模块。当前实现已改为 `ToolOperationDispatcher` + `CodingOrchestrator.dispatch_tool_operation()`，注册层和 dispatcher 模块均不再保存 `tool_*` 方法名映射；`WorkItemService.create_task` 也改为直接调用 `TaskService.tool_task_create`，减少 MCP/WorkItem intake 对 orchestrator tool wrapper 的回调耦合。
+- Task 32 第二切片确认：CLI 中 `lark-preflight` 和 `source-resolve` 是纯 tool-equivalent 命令，适合直接走 `dispatch_tool_operation()`；`doctor` 聚合多项 runtime 状态、`project-mcp-preflight` 需要本地 MCP 配置和命令可用性检查、`status` 是 task presentation 命令，不应在同一切片强行迁入 dispatcher。
 - Task 31 只读审查确认：source dict 消费面横跨 `_resolve_source_context()`、`_enrich_deferred_source_context_before_run()`、TaskService、prompt source block、context assembler 和 run context artifact；它应作为独立 task 推进，不应混入 Task 32。
+- Task 33 只读审查确认：core skill 基本保持 host-agnostic，但 `hermes-coding-operator` binding skill 复制了硬规则、意图分流、项目优先、需求拆解、任务下一步、反馈路由、长期记忆等通用 playbook；下一轮应把 binding skill 收敛为 core 引用 + `/coding` / native tool / 恢复命令映射。
 
 ## 视觉/浏览器发现
 - 本轮没有新增浏览器或图片验证。

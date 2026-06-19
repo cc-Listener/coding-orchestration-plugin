@@ -2,6 +2,28 @@
 
 ## 会话：2026-06-19
 
+### 阶段 187：Task 32 CLI tool-equivalent dispatcher 第二切片
+- **状态：** complete
+- 背景：
+  - 阶段 186 后 Hermes native tool 注册层已通过 `ToolOperationDispatcher` 分发，但 Hermes CLI 子命令中 `lark-preflight` 和 `source-resolve` 仍先拼 `command_coding_cli()` 参数，再间接调用 orchestrator tool wrapper。
+  - 本切片只处理和 tool operation 一一对应的 CLI 命令，不迁 `doctor`、`project-mcp-preflight` 或 `status`，避免混入配置检查和状态展示。
+- 执行的操作：
+  - 新增两个 TDD 测试，构造只有 `dispatch_tool_operation()` 的 CLI host，并让 `command_coding_cli()` 明确失败。
+  - RED 已确认：新增测试先失败在 `coding_orchestration/cli.py` 调用 `orchestrator.command_coding_cli(parts)` 的旧路径上。
+  - 修改 `coding_orchestration/cli.py`：`lark-preflight` 直接 dispatch `source.lark_preflight`，`source-resolve` 直接 dispatch `source.resolve` 并复用 `format_lark_preflight()` / `format_source_resolve()`。
+  - 更新 `tests/test_plugin_registration.py` 中 CLI 注册断言，保护 argparse handler 现在走 `source.lark_preflight` operation。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_coding_cli.CodingCliTest.test_cli_lark_preflight_uses_operation_dispatcher_without_command_wrapper tests.test_coding_cli.CodingCliTest.test_cli_source_resolve_uses_operation_dispatcher_without_command_wrapper -v`：2 failures，均为旧 `command_coding_cli()` 路径。
+  - `rtk proxy python3 -m unittest tests.test_coding_cli -v`：9 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_tool_operation_dispatcher tests.test_plugin_registration tests.test_tool_specs tests.test_coding_cli -v`：25 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_orchestrator_tools tests.test_workitem_service tests.test_project_intake -v`：23 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4692 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：829 tests passed。
+- 剩余风险：
+  - Task 32 仍是 In Progress：`project-mcp-preflight` 仍通过 `_format_project_mcp_preflight()` 组合配置与 operation 结果，`status` 仍走 command façade；future MCP tool 入口尚未接入 dispatcher。
+  - Task 33 只读审查确认 Hermes binding skill 有通用 playbook 回流，适合下一轮单独修。
+
 ### 阶段 186：Task 32 Tool operation dispatcher 第一切片
 - **状态：** complete
 - 背景：

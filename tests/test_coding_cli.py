@@ -1,8 +1,12 @@
 import json
 import tempfile
 import unittest
+from contextlib import redirect_stdout
+from io import StringIO
 from pathlib import Path
+from types import SimpleNamespace
 
+from coding_orchestration import cli as coding_cli
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.orchestrator import CodingOrchestrator
@@ -34,6 +38,33 @@ class FakeDispatchTool:
         return {"ok": True, "name": name, "args": args}
 
 
+class DispatchOnlyCliHost:
+    def __init__(self):
+        self.calls = []
+
+    def dispatch_tool_operation(self, operation_id, args=None):
+        self.calls.append((operation_id, args or {}))
+        if operation_id == "source.lark_preflight":
+            return {
+                "ok": False,
+                "status": "auth_needed",
+                "recovery_action": "run lark-cli auth refresh",
+            }
+        if operation_id == "source.resolve":
+            return {
+                "ok": False,
+                "source_status": "failed",
+                "task_status": "needs_human",
+                "source_type": "feishu_docx",
+                "url": (args or {}).get("text"),
+                "recovery_action": "run lark-cli auth refresh",
+            }
+        return {"ok": True}
+
+    def command_coding_cli(self, args=None):
+        raise AssertionError("CLI tool-equivalent command should use dispatch_tool_operation")
+
+
 def make_orchestrator(root: Path, source_result=None) -> CodingOrchestrator:
     orchestrator = CodingOrchestrator(
         ledger=TaskLedger(root / "ledger.db"),
@@ -57,6 +88,42 @@ def make_orchestrator(root: Path, source_result=None) -> CodingOrchestrator:
 
 
 class CodingCliTest(unittest.TestCase):
+    def test_cli_lark_preflight_uses_operation_dispatcher_without_command_wrapper(self):
+        host = DispatchOnlyCliHost()
+        stdout = StringIO()
+
+        with redirect_stdout(stdout):
+            exit_code = coding_cli._handle_coding_cli(
+                host,
+                SimpleNamespace(coding_command="lark-preflight"),
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(host.calls, [("source.lark_preflight", {})])
+        self.assertIn("飞书权限检查", stdout.getvalue())
+        self.assertIn("run lark-cli auth refresh", stdout.getvalue())
+
+    def test_cli_source_resolve_uses_operation_dispatcher_without_command_wrapper(self):
+        host = DispatchOnlyCliHost()
+        stdout = StringIO()
+
+        with redirect_stdout(stdout):
+            exit_code = coding_cli._handle_coding_cli(
+                host,
+                SimpleNamespace(
+                    coding_command="source-resolve",
+                    source=["https://bestfulfill.feishu.cn/docx/Token123"],
+                ),
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            host.calls,
+            [("source.resolve", {"text": "https://bestfulfill.feishu.cn/docx/Token123"})],
+        )
+        self.assertIn("来源解析", stdout.getvalue())
+        self.assertIn("run lark-cli auth refresh", stdout.getvalue())
+
     def test_coding_cli_doctor_reports_lark_kanban_runtime(self):
         with tempfile.TemporaryDirectory() as tmp:
             orchestrator = make_orchestrator(

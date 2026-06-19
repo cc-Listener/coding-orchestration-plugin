@@ -1446,6 +1446,15 @@
 - [x] 验证：聚焦回归、architecture guard、diff check 和完整单测均通过。
 - **状态：** complete
 
+### 阶段 187：Task 32 CLI tool-equivalent dispatcher 第二切片
+- [x] TDD：新增 `tests/test_coding_cli.py` 覆盖 CLI `lark-preflight` 和 `source-resolve` 不再绕回 `command_coding_cli()`，而是直接调用 `dispatch_tool_operation()`。
+- [x] RED：确认新增测试先失败在旧 CLI handler 调用 `command_coding_cli()` 的路径上。
+- [x] 实现：`coding_orchestration/cli.py` 对 `lark-preflight`、`source-resolve` 直接执行 `source.lark_preflight` / `source.resolve` operation，并复用现有 formatter 输出。
+- [x] 兼容：`doctor`、`project-mcp-preflight`、`status` 暂不纳入本切片，避免把 preflight 配置检查和状态展示混入 Tool dispatcher 改造。
+- [x] 文档：同步 Task 32 进度、技术方案和发现。
+- [x] 验证：CLI/dispatcher 聚焦回归、architecture guard、diff check 和完整单测均通过。
+- **状态：** complete
+
 ## 关键问题
 1. Coding Mode 是否默认只在当前会话生效，还是可跨会话保持？建议先做当前会话级。
 2. Codex 可见 session 的具体 attach/resume 命令需要以当前 Codex CLI 实际支持为准。
