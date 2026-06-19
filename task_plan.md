@@ -1437,6 +1437,15 @@
 - [x] 验证：文档/架构测试、architecture guard、diff check。
 - **状态：** complete
 
+### 阶段 186：Task 32 Tool operation dispatcher 第一切片
+- [x] 定域：主责为 Tool contract + WorkItem adapter，不纳入 SourcePort、Skill 文案、Gateway controller 或 run orchestration。
+- [x] 实现：新增 `coding_orchestration/tool_operation_dispatcher.py`，`plugin_tools.py` 注册层改为 `ToolSpec.operation_id -> ToolOperationDispatcher`，不再维护 `_OPERATION_METHODS` 或 `operation_id -> CodingOrchestrator.tool_*` 方法映射。
+- [x] 迁移：`CodingOrchestrator` 装配 `tool_operation_dispatcher`，`tool_*` 保留兼容 wrapper，实际分发优先落到 `TaskService`、`WorkItemService` 和 source/run host action；`WorkItemService(create_task=...)` 从 orchestrator wrapper 改为 `TaskService.tool_task_create`。
+- [x] 测试：新增 `tests/test_tool_operation_dispatcher.py`，扩展插件注册和 tool specs 测试，保护 operation_id dispatch、未知 operation 和唯一性。
+- [x] 文档：同步 project map、component contract、conventions、machine-readable context、实施计划和技术方案。
+- [x] 验证：聚焦回归、architecture guard、diff check 和完整单测均通过。
+- **状态：** complete
+
 ## 关键问题
 1. Coding Mode 是否默认只在当前会话生效，还是可跨会话保持？建议先做当前会话级。
 2. Codex 可见 session 的具体 attach/resume 命令需要以当前 Codex CLI 实际支持为准。

@@ -2,50 +2,61 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
+from .tool_operation_dispatcher import ToolOperationDispatcher
 from .tool_specs import ToolSpec, coding_tool_specs
 
 
 TOOLSET = "coding_orchestration"
 
 
-_OPERATION_METHODS = {
-    "task.create": "tool_task_create",
-    "task.status": "tool_task_status",
-    "task.run": "tool_task_run",
-    "source.resolve": "tool_source_resolve",
-    "source.lark_preflight": "tool_lark_preflight",
-    "project.mcp_preflight": "tool_project_mcp_preflight",
-    "project.workitem_search": "tool_project_workitem_search",
-    "project.workitem_create": "tool_project_workitem_create",
-    "project.intake_sync": "tool_project_intake_sync",
-    "project.wbs_update": "tool_project_wbs_update",
-    "project.state_transition": "tool_project_state_transition",
-    "project.bugfix_intake": "tool_project_bugfix_intake",
-}
-
-
-def register_coding_tools(ctx: Any, orchestrator: Any) -> None:
+def register_coding_tools(
+    ctx: Any,
+    orchestrator: Any,
+    *,
+    dispatcher: ToolOperationDispatcher | None = None,
+) -> None:
     """Register Hermes-native tools when the host supports plugin tools."""
     register_tool = getattr(ctx, "register_tool", None)
     if not callable(register_tool):
         return
 
-    for spec in coding_tool_specs():
+    specs = coding_tool_specs()
+    tool_dispatcher = dispatcher or _dispatcher_from_host(orchestrator, specs)
+    for spec in specs:
         _register_tool(
             register_tool,
             name=spec.name,
             schema=spec.schema(),
-            handler=_handler_for(orchestrator, spec),
+            handler=_handler_for(tool_dispatcher, spec),
             description=spec.description,
         )
 
 
-def _handler_for(orchestrator: Any, spec: ToolSpec) -> Callable[..., Any]:
-    method_name = _OPERATION_METHODS[spec.operation_id]
+def _handler_for(dispatcher: ToolOperationDispatcher, spec: ToolSpec) -> Callable[..., Any]:
+    dispatcher.require_operation(spec.operation_id)
 
     def handler(args: Any = None, **kwargs: Any) -> Any:
-        method = getattr(orchestrator, method_name)
-        return method(_coerce_tool_args(args, kwargs))
+        return dispatcher.dispatch(spec.operation_id, _coerce_tool_args(args, kwargs))
+
+    return handler
+
+
+def _dispatcher_from_host(orchestrator: Any, specs: list[ToolSpec]) -> ToolOperationDispatcher:
+    dispatch_tool_operation = getattr(orchestrator, "dispatch_tool_operation")
+    return ToolOperationDispatcher(
+        {
+            spec.operation_id: _host_operation_handler(dispatch_tool_operation, spec.operation_id)
+            for spec in specs
+        }
+    )
+
+
+def _host_operation_handler(
+    dispatch_tool_operation: Callable[..., Any],
+    operation_id: str,
+) -> Callable[[dict[str, Any]], Any]:
+    def handler(args: dict[str, Any]) -> Any:
+        return dispatch_tool_operation(operation_id, args)
 
     return handler
 

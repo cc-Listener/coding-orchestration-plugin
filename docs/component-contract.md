@@ -13,10 +13,11 @@
 | Gateway command executor | `from coding_orchestration.gateway_command_executor import handle_gateway_custom_route` | `coding_orchestration/gateway_command_executor.py` | `gateway_command_executor.py`、`orchestrator.py` | `handle_gateway_custom_route`、`HANDLED_BY_CODING_ORCHESTRATION` |
 | Gateway pending action executor | `from coding_orchestration.gateway_pending_action_executor import handle_pending_action_gateway_message` | `coding_orchestration/gateway_pending_action_executor.py` | `gateway_pending_action_executor.py`、`orchestrator.py` | `handle_pending_action_gateway_message`、`pending_action_from_latest_human_required_run` |
 | Gateway active context helper | `from coding_orchestration.gateway_active_context import apply_active_project_to_task_if_missing` | `coding_orchestration/gateway_active_context.py` | `gateway_active_context.py`、`orchestrator.py` | `apply_active_project_to_task_if_missing` |
-| Hermes native tools | `from coding_orchestration.plugin_tools import register_coding_tools` | `coding_orchestration/plugin_tools.py` | `coding_orchestration/plugin_tools.py` | `register_coding_tools` |
+| Hermes native tools | `from coding_orchestration.plugin_tools import register_coding_tools` | `coding_orchestration/plugin_tools.py` | `coding_orchestration/plugin_tools.py`、`tool_operation_dispatcher.py` | `register_coding_tools` |
 | Hermes CLI 子命令 | `from coding_orchestration.cli import register_cli` | `coding_orchestration/cli.py` | `coding_orchestration/cli.py` | `register_cli` |
 | 运行配置边界 | `from coding_orchestration.config import RuntimeConfig, ToolConfig` | `coding_orchestration/config.py` | `coding_orchestration/config.py` | `RuntimeConfig`、`ToolConfig` |
 | 工具规格合同 | `from coding_orchestration.tool_specs import coding_tool_specs` | `coding_orchestration/tool_specs.py` | `coding_orchestration/tool_specs.py`、`plugin_tools.py` | `ToolSpec`、`coding_tool_specs` |
+| 工具 operation dispatcher | `from coding_orchestration.tool_operation_dispatcher import ToolOperationDispatcher` | `coding_orchestration/tool_operation_dispatcher.py` | `tool_operation_dispatcher.py`、`plugin_tools.py`、`orchestrator.py` | `ToolOperationDispatcher` |
 | 端口合同 | `from coding_orchestration.ports import RunnerPort, WorkItemPort, SourceResult` | `coding_orchestration/ports.py` | `coding_orchestration/ports.py` | `HostPort`、`RunnerPort`、`SourcePort`、`SourceResult`、`WorkItemPort`、`LedgerPort` |
 | 任务状态模型 | `from coding_orchestration.models import TaskStatus, TaskPhase, RunMode` | `coding_orchestration/models.py` | `coding_orchestration/models.py` | `TaskStatus`、`TaskPhase`、`RunMode` |
 | 状态转换 | `from coding_orchestration.state_machine import TaskStateMachine` | `coding_orchestration/state_machine.py` | `coding_orchestration/state_machine.py` | `TaskStateMachine` |
@@ -106,7 +107,7 @@
 | `hermes-coding-operator`、`hermes-coding-health-check` | `coding_orchestration/skills/`、`coding_orchestration/__init__.py` |
 | `pre_gateway_dispatch`、`pre_llm_call` | `coding_orchestration/__init__.py`、`coding_orchestration/orchestrator.py` |
 | `RuntimeConfig`、`ToolConfig` | `coding_orchestration/config.py` |
-| `ToolSpec`、`coding_tool_specs` | `coding_orchestration/tool_specs.py`、`coding_orchestration/plugin_tools.py` |
+| `ToolSpec`、`coding_tool_specs`、`ToolOperationDispatcher` | `coding_orchestration/tool_specs.py`、`coding_orchestration/tool_operation_dispatcher.py`、`coding_orchestration/plugin_tools.py` |
 | `HostPort`、`RunnerPort`、`SourcePort`、`SourceResult`、`WorkItemPort` | `coding_orchestration/ports.py` |
 | `command_coding_*`、`tool_task_*` | `coding_orchestration/orchestrator.py` |
 | `_handle_gateway_immediate_route`、`handle_gateway_custom_route`、`handle_pending_action_gateway_message`、`apply_active_project_to_task_if_missing`、`_gateway_command_task_id`、`_normalize_coding_gateway_command`、`_canonical_rewrite_command`、`_rewrite_requires_confirmation`、`_is_human_confirmation_reply`、`_looks_like_task`、`_dedupe_gateway_event`、`_gateway_user_is_authorized` | `coding_orchestration/gateway_command_controller.py`、`coding_orchestration/gateway_command_executor.py`、`coding_orchestration/gateway_pending_action_executor.py`、`coding_orchestration/gateway_active_context.py`、`coding_orchestration/orchestrator.py` |
@@ -214,7 +215,7 @@
 - 不要在 runner 主流程里散落 Codex artifact 路径；通过 `coding_orchestration/runners/codex_artifacts.py` 维护 artifact contract，再由 `CodexCliRunner.collect_artifacts()` 暴露兼容入口。
 - 不要把通用意图分流、项目优先、任务状态下一步或 readiness 输出格式写回 Hermes binding skill；先维护 `coding-operator-core` / `coding-health-core`，再在 Hermes binding skill 中映射 `/coding`、Hermes CLI、`lark-cli` 和本地插件配置。
 - 不要把 Hermes 命令、运行根、内部账本路径或本机凭据写进 core skill；core skill 必须保持 host-agnostic。
-- 不要在 Hermes tool 注册层手写工具 schema；通过 `ToolSpec` / `coding_tool_specs()` 维护工具定义，再由 `plugin_tools.py` 做 host 注册。
+- 不要在 Hermes tool 注册层手写工具 schema 或 `operation_id -> CodingOrchestrator.tool_*` 方法映射；通过 `ToolSpec` / `coding_tool_specs()` 维护工具定义，通过 `ToolOperationDispatcher` 做 operation 分发，再由 `plugin_tools.py` 做 host 注册。
 - 不要在核心流程里散落默认运行路径、外部命令、飞书域名或 token env key；通过 `RuntimeConfig`、`ToolConfig` 或后续 adapter config 注入。
 - 不要让 core/application service import Hermes host、MCP transport 或 subprocess 细节；先定义 `ports.py` 中的端口，再由 adapter 实现。
 - 不要把 Feishu Project、Feishu Docx/Wiki 或 Meegle URL 解析写进 reader/CLI/MCP 代码；通过 `coding_orchestration/source_links.py` 的纯解析函数维护。

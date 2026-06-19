@@ -2,6 +2,38 @@
 
 ## 会话：2026-06-19
 
+### 阶段 186：Task 32 Tool operation dispatcher 第一切片
+- **状态：** complete
+- 背景：
+  - Task 30 已关闭；后续不能继续把大文件治理、hard code、SourcePort、Skill 解耦都塞回 Task 30。
+  - 只读审查确认 Task 32 的最小缺口是 `plugin_tools.py` 仍维护 `operation_id -> CodingOrchestrator.tool_*` 映射，注册层知道 orchestrator 具体 wrapper 方法名。
+  - Task 31 的 SourcePort 消费闭环涉及 orchestrator、TaskService、prompt/context 多个消费层，适合后续单独切片，不混入本轮。
+- 执行的操作：
+  - 新增 `coding_orchestration/tool_operation_dispatcher.py`，提供 `ToolOperationDispatcher.require_operation()` / `dispatch()`。
+  - 修改 `coding_orchestration/plugin_tools.py`：注册层只做 host payload 归一、`ToolSpec.operation_id` 校验和 dispatcher handler 包装；删除 `_OPERATION_METHODS`。
+  - 修改 `coding_orchestration/orchestrator.py`：新增 `tool_operation_dispatcher` 装配，`tool_*` 变为兼容 wrapper，实际 dispatcher 优先调用 `TaskService`、`WorkItemService` 和 source/run host action。
+  - 修改 `WorkItemService(create_task=...)` 装配，从 `self.tool_task_create` 改为 `self.task_service.tool_task_create`，减少 MCP/WorkItem intake 对 orchestrator tool wrapper 的回调耦合。
+  - 修改 `coding_orchestration/__init__.py`：注册 native tools 时显式传入 orchestrator 已装配的 dispatcher。
+  - 新增 `tests/test_tool_operation_dispatcher.py`，扩展 `tests/test_plugin_registration.py` 和 `tests/test_tool_specs.py`。
+  - 同步 `task_plan.md`、project map、component contract、conventions、machine-readable context、实施计划和技术方案。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4692 行。
+  - `coding_orchestration/plugin_tools.py`：88 行。
+  - `coding_orchestration/tool_operation_dispatcher.py`：20 行。
+  - `tests/test_tool_operation_dispatcher.py`：69 行。
+- 已验证：
+  - `rtk proxy python3 -m unittest tests.test_tool_operation_dispatcher tests.test_plugin_registration tests.test_tool_specs -v`：16 tests passed。
+  - `rtk proxy python3 -m unittest tests.test_orchestrator_tools tests.test_workitem_service tests.test_project_intake -v`：23 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/plugin_tools.py coding_orchestration/tool_operation_dispatcher.py tests/test_tool_operation_dispatcher.py tests/test_plugin_registration.py tests/test_tool_specs.py`：passed。
+  - 静态检索：`coding_orchestration/plugin_tools.py` 和 `coding_orchestration/tool_operation_dispatcher.py` 不再命中 `_OPERATION_METHODS`、`tool_task_`、`tool_source_`、`tool_project_` 或 `tool_lark_`。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4692 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：827 tests passed。
+- 剩余风险：
+  - Task 32 仍是 In Progress：CLI tool-equivalent 子命令仍通过 `command_coding_cli()` 间接调用 tool wrapper，future MCP tool 入口尚未接入 dispatcher。
+  - Task 31 SourcePort 消费闭环仍未开始：业务层和 prompt/context 仍有 reader-specific dict 消费点。
+  - Task 33 Skill 零耦合、Task 34 orchestrator 降载和 hard code 长期治理仍是后续独立 task。
+
 ### 阶段 185：Task 30 closure cleanup
 - **状态：** complete
 - 背景：

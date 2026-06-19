@@ -21,6 +21,7 @@
 | `coding_orchestration/gateway_active_context.py` | Gateway active context host helper：把会话级 active project 应用到缺少项目上下文的 task，并记录 human decision；不负责 active project binding 存取、项目初始化或项目画像生成。 |
 | `coding_orchestration/config.py` | 运行配置和工具默认值边界；用于逐步收口路径、命令、域名和 env key hard code。 |
 | `coding_orchestration/tool_specs.py` | Hermes native tools / future MCP tools 的 host-agnostic 工具规格合同。 |
+| `coding_orchestration/tool_operation_dispatcher.py` | Tool operation dispatcher：按 `ToolSpec.operation_id` 分发到当前 service/façade handler；Hermes native tool 注册层只做 host payload 归一和 handler 包装，不持有 orchestrator 方法名映射。 |
 | `coding_orchestration/ports.py` | 逐步拆分核心域和 adapter 的端口合同，覆盖 host、runner、source、work item、ledger、knowledge 和 runtime；`SourceResult` 是 source 读取的稳定结果合同。 |
 | `coding_orchestration/models.py` | 公共枚举和数据结构：任务状态、phase、run mode、runner capability、artifact contract。 |
 | `coding_orchestration/state_machine.py` | 任务状态转换规则，以及 runner/source 状态到 task 状态的映射。 |

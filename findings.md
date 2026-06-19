@@ -337,6 +337,8 @@
 - Task 30 第六十五切片已把 `CodingOrchestrator.start_run()` 中已解析 runner session id 后的 manifest session 字段设置和 `_update_manifest_session_metadata()` callback 接线迁到 `run_manifest_session_writeback_service.py`；service 只消费已解析 `session_id`，复用 `run_manifest_service.build_manifest_session_fields()` 更新 manifest object/dict 并调用注入 writer，不解析 stdout、不写 ledger/report/summary、不启动 runner、不推进状态。session id 来源、task session ledger update 和 Codex attach/resume command 规则保持原边界。
 - 全线阶段表解决“按什么顺序做”，但还需要横向矩阵解决“每类能力归谁管”。阶段 151 将工具端、MCP / WorkItem、Skill core、Hermes binding、Gateway、run orchestration、source、storage/knowledge、presentation、大文件/hard code 固化为权威层 + Hermes 集成职责 + 禁止回流 + 验收信号，避免后续只按文件大小拆分或让 Hermes host shell 重新承载业务规则。
 - Hermes 的目标职责应收敛为 host integration：注册 hook/command/tool/skill、转换 host event、调用 service/adapter、渲染 host response。它不应成为业务规则、状态机、MCP token、Codex subprocess、source reader dict 或 LLM Wiki layout 的 owner。
+- Task 32 第一切片确认：把 `operation_id -> CodingOrchestrator.tool_*` 表从 `plugin_tools.py` 移走还不够，必须删除该表而不是搬到新模块。当前实现已改为 `ToolOperationDispatcher` + `CodingOrchestrator.dispatch_tool_operation()`，注册层和 dispatcher 模块均不再保存 `tool_*` 方法名映射；`WorkItemService.create_task` 也改为直接调用 `TaskService.tool_task_create`，减少 MCP/WorkItem intake 对 orchestrator tool wrapper 的回调耦合。
+- Task 31 只读审查确认：source dict 消费面横跨 `_resolve_source_context()`、`_enrich_deferred_source_context_before_run()`、TaskService、prompt source block、context assembler 和 run context artifact；它应作为独立 task 推进，不应混入 Task 32。
 
 ## 视觉/浏览器发现
 - 本轮没有新增浏览器或图片验证。

@@ -55,7 +55,11 @@ def _register_once(ctx: Any) -> None:
         description="Coding orchestration command group",
         args_hint="<task|project|status|list|use|exit|continue|change|bugfix|run|implement|qa|complete|cancel|delete|prepare-merge-test|merge-test|help>",
     )
-    register_coding_tools(ctx, orchestrator)
+    register_coding_tools(
+        ctx,
+        orchestrator,
+        dispatcher=getattr(orchestrator, "tool_operation_dispatcher", None),
+    )
     register_cli(ctx, orchestrator)
     if hasattr(ctx, "register_skill"):
         _register_hermes_skills(ctx)

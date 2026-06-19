@@ -123,6 +123,7 @@ from .run_manifest_service import RunManifestService
 from .services import CreatedTask, DeliveryService, RunService, TaskService, WorkItemService
 from .source_resolver import SourceResolver
 from . import status_policy
+from .tool_operation_dispatcher import ToolOperationDispatcher
 from .runners.base import RunResult
 from .runners.codex_report_schema import write_report_schema
 from .symphony_compat.workflow_loader import WorkflowLoader, WorkflowSpec
@@ -153,6 +154,7 @@ class CodingOrchestrator:
     run_service: Any | None = None
     run_manifest_service: Any | None = None
     workitem_service: Any | None = None
+    tool_operation_dispatcher: ToolOperationDispatcher | None = None
     source_resolver: Any | None = None
     gateway_binding_service: Any | None = None
     workspace_checkpoint_service: Any | None = None
@@ -229,8 +231,10 @@ class CodingOrchestrator:
             self.workitem_service = WorkItemService(
                 project_mcp_adapter=self.project_mcp_adapter,
                 ledger=self.ledger,
-                create_task=self.tool_task_create,
+                create_task=self.task_service.tool_task_create,
             )
+        if self.tool_operation_dispatcher is None:
+            self.tool_operation_dispatcher = self._build_tool_operation_dispatcher()
         self.workspace_manager = WorkspaceManager(self.workspace_root)
         if self.workspace_checkpoint_service is None:
             self.workspace_checkpoint_service = WorkspaceCheckpointService(self.workspace_manager)
@@ -310,13 +314,37 @@ class CodingOrchestrator:
             return validation_error
         return self.create_task_from_text(raw_args)
 
+    def _build_tool_operation_dispatcher(self) -> ToolOperationDispatcher:
+        return ToolOperationDispatcher(
+            {
+                "task.create": self.task_service.tool_task_create,
+                "task.status": self.task_service.tool_task_status,
+                "task.run": self._dispatch_tool_task_run,
+                "source.resolve": self._dispatch_tool_source_resolve,
+                "source.lark_preflight": self._dispatch_tool_lark_preflight,
+                "project.mcp_preflight": self.workitem_service.mcp_preflight,
+                "project.workitem_search": self.workitem_service.search_workitems,
+                "project.workitem_create": self.workitem_service.create_workitem,
+                "project.intake_sync": self.workitem_service.intake_sync,
+                "project.wbs_update": self.workitem_service.update_wbs,
+                "project.state_transition": self.workitem_service.transition_state,
+                "project.bugfix_intake": self.workitem_service.bugfix_intake,
+            }
+        )
+
+    def dispatch_tool_operation(self, operation_id: str, args: dict[str, Any] | None = None) -> Any:
+        return self.tool_operation_dispatcher.dispatch(operation_id, args)
+
     def tool_task_create(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self.task_service.tool_task_create(args)
+        return self.dispatch_tool_operation("task.create", args)
 
     def tool_task_status(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self.task_service.tool_task_status(args)
+        return self.dispatch_tool_operation("task.status", args)
 
     def tool_task_run(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.dispatch_tool_operation("task.run", args)
+
+    def _dispatch_tool_task_run(self, args: dict[str, Any]) -> dict[str, Any]:
         task_id = str(args.get("task_id") or "").strip()
         if not task_id:
             return {"ok": False, "error": "task_id is required"}
@@ -339,6 +367,9 @@ class CodingOrchestrator:
         }
 
     def tool_source_resolve(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.dispatch_tool_operation("source.resolve", args)
+
+    def _dispatch_tool_source_resolve(self, args: dict[str, Any]) -> dict[str, Any]:
         text = str(args.get("url") or args.get("text") or "").strip()
         if not text:
             return {"ok": False, "error": "url or text is required", "source_status": "failed"}
@@ -346,6 +377,9 @@ class CodingOrchestrator:
         return self._source_context_payload(context)
 
     def tool_lark_preflight(self, args: dict[str, Any]) -> dict[str, Any]:
+        return self.dispatch_tool_operation("source.lark_preflight", args)
+
+    def _dispatch_tool_lark_preflight(self, args: dict[str, Any]) -> dict[str, Any]:
         resolver = getattr(self, "source_resolver", None)
         if resolver is None or not hasattr(resolver, "preflight_lark"):
             return {
@@ -357,16 +391,16 @@ class CodingOrchestrator:
         return resolver.preflight_lark(args)
 
     def tool_project_mcp_preflight(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self.workitem_service.mcp_preflight(args)
+        return self.dispatch_tool_operation("project.mcp_preflight", args)
 
     def tool_project_workitem_search(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self.workitem_service.search_workitems(args)
+        return self.dispatch_tool_operation("project.workitem_search", args)
 
     def tool_project_workitem_create(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self.workitem_service.create_workitem(args)
+        return self.dispatch_tool_operation("project.workitem_create", args)
 
     def tool_project_intake_sync(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self.workitem_service.intake_sync(args)
+        return self.dispatch_tool_operation("project.intake_sync", args)
 
     def _create_project_bugfix_task(
         self,
@@ -380,7 +414,7 @@ class CodingOrchestrator:
         )
 
     def tool_project_bugfix_intake(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self.workitem_service.bugfix_intake(args)
+        return self.dispatch_tool_operation("project.bugfix_intake", args)
 
     def _writeback_project_bugfix_completion(
         self,
@@ -392,10 +426,10 @@ class CodingOrchestrator:
         return self.workitem_service.writeback_project_bugfix_completion(task_id, result, mode=mode)
 
     def tool_project_wbs_update(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self.workitem_service.update_wbs(args)
+        return self.dispatch_tool_operation("project.wbs_update", args)
 
     def tool_project_state_transition(self, args: dict[str, Any]) -> dict[str, Any]:
-        return self.workitem_service.transition_state(args)
+        return self.dispatch_tool_operation("project.state_transition", args)
 
     def _project_mcp_adapter(self) -> Any:
         return self.project_mcp_adapter

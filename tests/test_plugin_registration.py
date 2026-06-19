@@ -17,6 +17,10 @@ class FakeOrchestrator:
     def set_dispatch_tool(self, dispatch_tool):
         self.dispatch_tool = dispatch_tool
 
+    def dispatch_tool_operation(self, operation_id, args=None):
+        self.tool_calls.append((operation_id, args or {}))
+        return {"ok": True}
+
     def handle_gateway_event(self, **kwargs):
         return None
 
@@ -215,7 +219,7 @@ class PluginRegistrationTest(unittest.TestCase):
         result = ctx.tools["coding_task_status"]["handler"](task_id="task_1")
 
         self.assertEqual(result, {"ok": True})
-        self.assertEqual(orchestrator.tool_calls[-1], ("coding_task_status", {"task_id": "task_1"}))
+        self.assertEqual(orchestrator.tool_calls[-1], ("task.status", {"task_id": "task_1"}))
 
     def test_register_is_process_wide_idempotent(self):
         first_ctx = FakeContext()

@@ -19,6 +19,11 @@ class ToolSpecTest(unittest.TestCase):
             self.assertIsInstance(spec.description, str)
             self.assertEqual(spec.schema()["parameters"].get("type"), "object")
 
+    def test_operation_ids_are_unique(self):
+        operation_ids = [spec.operation_id for spec in coding_tool_specs()]
+
+        self.assertEqual(len(operation_ids), len(set(operation_ids)))
+
     def test_specs_are_host_agnostic_except_public_tool_names(self):
         joined = "\n".join(spec.description for spec in coding_tool_specs())
 

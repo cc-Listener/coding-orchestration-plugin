@@ -62,6 +62,7 @@ project_map:
     orchestrator: coding_orchestration/orchestrator.py
     cli_registration: coding_orchestration/cli.py
     tool_registration: coding_orchestration/plugin_tools.py
+    tool_operation_dispatcher: coding_orchestration/tool_operation_dispatcher.py
     plugin_manifest: coding_orchestration/plugin.yaml
     install_script: scripts/install_symlink.py
     uninstall_script: scripts/uninstall_legacy.py
@@ -258,6 +259,9 @@ component_contract:
       preferred: true
     - name: runner_router
       path: coding_orchestration/runner_router.py
+      preferred: true
+    - name: tool_operation_dispatcher
+      path: coding_orchestration/tool_operation_dispatcher.py
       preferred: true
     - name: source_resolution
       path: coding_orchestration/source_resolver.py
