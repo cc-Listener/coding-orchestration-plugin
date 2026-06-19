@@ -91,6 +91,8 @@ project_map:
       reason: "Project profile catalog，只读取 LLM Wiki project profile、registry project facts 和初始化质量评估，返回 profile/list/status 数据或文案；不写 profile、不绑定 active project、不发送 Gateway 回复。"
     - path: coding_orchestration/gateway_rewrite_context.py
       reason: "Gateway rewrite context 纯投影 helper，只消费已采集的 task/project/media/catalog 事实并返回 LLM rewrite context 与 next-step hint；不读 ledger、不持有 Gateway event、不调用 command_rewriter、不发送回复。"
+    - path: coding_orchestration/source_projection.py
+      reason: "SourceProjection 纯投影层，把 SourceResult / legacy source_context 映射为 prompt/context 稳定字段；不读外部来源、不写 ledger、不推进状态、不改变 source_context 持久化。"
     - path: coding_orchestration/run_diff_guard_service.py
       reason: "Run diff guard observation host service，维护 before snapshot、changed files 观测、QA report artifact 过滤、policy violations 组合、plan-only 写入 violations 补充和 diff summary 写回；不写 ledger/report/manifest/summary、不启动 runner、不推进状态。"
     - path: coding_orchestration/run_dispatch_service.py
@@ -281,6 +283,9 @@ component_contract:
     - name: source_resolution
       path: coding_orchestration/source_resolver.py
       preferred: true
+    - name: source_projection
+      path: coding_orchestration/source_projection.py
+      preferred: true
     - name: task_ledger
       path: coding_orchestration/ledger.py
       preferred: true
@@ -425,6 +430,10 @@ component_contract:
       path: coding_orchestration/source_resolver.py
       use_instead_of:
         - "直接猜测飞书/Meegle 来源正文。"
+    - name: source_projection
+      path: coding_orchestration/source_projection.py
+      use_instead_of:
+        - "在 prompt/context 消费层继续新增 reader-specific source_context 字段判断；先投影为 SourceProjection，再渲染或写入 context artifact。"
     - name: validate_codex_semantic_report
       path: coding_orchestration/report_contract.py
       use_instead_of:

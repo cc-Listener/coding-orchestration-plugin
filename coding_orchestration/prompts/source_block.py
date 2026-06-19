@@ -2,13 +2,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..source_projection import SourceProjection, source_projection_from_source
+
 
 def source_block(source: dict[str, Any]) -> str:
     allowed_keys = ("type", "title", "url", "project_name", "message_summary", "related_task_id")
     lines = [f"- {key}: {source[key]}" for key in allowed_keys if source.get(key)]
-    source_context = source.get("source_context")
-    if isinstance(source_context, dict) and source_context:
-        context_lines = _source_context_lines(source_context)
+    projection = source_projection_from_source(source)
+    if projection.status != "missing" or projection.legacy_context:
+        context_lines = _source_context_lines(projection)
         if context_lines:
             lines.append("- 外部来源上下文：")
             lines.extend(context_lines)
@@ -22,34 +24,31 @@ def truncate_source_context_value(value: str, limit: int = 2000) -> str:
     return text[:limit].rstrip() + "\n      ...（已截断）"
 
 
-def _source_context_lines(source_context: dict[str, Any]) -> list[str]:
-    context_keys = (
-        "read_status",
-        "source_type",
-        "url",
-        "document_kind",
-        "document_token",
-        "project_key",
-        "work_item_type_key",
-        "work_item_id",
-        "resolution_owner",
-        "deferred_source_resolution",
-        "error",
-    )
-    context_lines = [
-        f"  - {key}: {source_context[key]}"
-        for key in context_keys
-        if source_context.get(key)
-    ]
-    command = str(source_context.get("lark_cli_command") or "").strip()
+def _source_context_lines(projection: SourceProjection) -> list[str]:
+    context_values = {
+        "source_status": projection.status,
+        "read_status": projection.legacy_context.get("read_status"),
+        "source_type": projection.source_type,
+        "url": projection.url,
+        "document_kind": projection.document_kind,
+        "document_token": projection.document_token,
+        "project_key": projection.project_key,
+        "work_item_type_key": projection.work_item_type_key,
+        "work_item_id": projection.work_item_id,
+        "resolution_owner": projection.resolution_owner,
+        "deferred_source_resolution": projection.deferred_source_resolution,
+        "error": projection.error,
+        "recovery_action": projection.recovery_action,
+    }
+    context_lines = [f"  - {key}: {value}" for key, value in context_values.items() if value]
+    command = projection.lark_cli_command.strip()
     if command:
         context_lines.append(f"  - lark_cli_command: `{command}`")
-    raw_fields = source_context.get("raw_fields")
-    if isinstance(raw_fields, list):
-        context_lines.extend(_raw_field_lines(raw_fields))
-    if source_context.get("codex_resolvable"):
+    if projection.raw_fields:
+        context_lines.extend(_raw_field_lines(projection.raw_fields))
+    if projection.codex_resolvable:
         context_lines.append("  - note: 来源正文未注入；请优先在本 Codex session 中使用 lark_cli_command 读取。读取失败时按 recovery_action 报告恢复方案。")
-    elif source_context.get("deferred_source_resolution"):
+    elif projection.deferred_source_resolution:
         context_lines.append("  - note: 来源正文未注入；不要猜测文档内容。若无法在当前环境读取，按 recovery_action 要求补充。")
     return context_lines
 
@@ -69,4 +68,3 @@ def _raw_field_lines(raw_fields: list[Any]) -> list[str]:
     if not rendered_fields:
         lines.append("    - 未返回可用字段。")
     return lines
-

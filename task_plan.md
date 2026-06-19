@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 195：Task 34 rewrite context projection 第四切片（complete）
+阶段 196：Task 31 SourceProjection prompt source block 第一切片（complete）
 
 ## 各阶段
 
@@ -1529,6 +1529,15 @@
 - [x] 实现：新增 `coding_orchestration/gateway_rewrite_context.py`；`CodingOrchestrator._coding_rewrite_context()` 只采集 event/ledger/project/catalog 事实后委托 helper，`_task_next_step_hint()` 改为兼容 wrapper。
 - [x] 文档：同步 Task 34 第四切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 rewrite context contract、Gateway rewrite/natural language/presenter 相邻回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 196：Task 31 SourceProjection prompt source block 第一切片
+- [x] 定域：只新增 SourceProjection 纯投影层，并让 prompt source block 消费投影；不改 ledger schema、不改 legacy `source_context` 持久化、不改 reader、不改 TaskService 创建逻辑、不改 run manifest 权限判断或 orchestrator enrichment。
+- [x] TDD：新增 `tests/test_source_projection.py`，覆盖 `SourceResult` / legacy `source_context` 到稳定字段、legacy 兼容白名单和空来源 missing 状态。
+- [x] RED：确认新模块缺失时测试失败。
+- [x] 实现：新增 `coding_orchestration/source_projection.py`；`coding_orchestration/prompts/source_block.py` 改为通过 projection 渲染 `source_status`、`lark_cli_command`、`recovery_action`、raw_fields 和 deferred/Codex note。
+- [x] 文档：同步 Task 31 第一切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 source projection / prompt templates、source/source-plan/task-service/context artifact 相邻回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ## 关键问题

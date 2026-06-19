@@ -349,6 +349,7 @@
 - Task 34 第四切片确认：Coding Mode rewrite context 投影和 task next-step hint 可以迁入 `gateway_rewrite_context.py`。orchestrator 只采集 event media、active task/project、recent tasks、known projects、command catalog 和 allowed commands；helper 只做白名单投影，不读取 ledger、不持有 Gateway event、不调用 command_rewriter、不渲染 handoff 文案。`orchestrator.py` 从 4423 行降到 4370 行。
 - Task 31 只读审查确认：source dict 消费面横跨 `_resolve_source_context()`、`_enrich_deferred_source_context_before_run()`、TaskService、prompt source block、context assembler 和 run context artifact；它应作为独立 task 推进，不应混入 Task 32。
 - Task 31 只读探索确认：最小可执行切片应建立 `SourceResult -> source projection`，让 TaskService、prompt/context 和 context artifact 消费稳定投影；保留 ledger `source_context` 兼容字段，不重构 Feishu/Meegle reader、runner、manifest 提权或 Gateway command。
+- Task 31 第一切片确认：`source_projection.py` 可以作为纯投影层承接 `SourceResult` / legacy `source_context -> SourceProjection`，prompt source block 先消费投影并输出稳定 `source_status`；这不改变 ledger `source_context`、reader、TaskService 创建逻辑、run manifest 权限判断或 orchestrator enrichment。
 - Task 33 确认并修复：core skill 基本保持 host-agnostic；`hermes-coding-operator` 原先复制硬规则、意图分流、项目优先、需求拆解、任务下一步、反馈路由、长期记忆等通用 playbook，`hermes-coding-health-check` 原先复制 readiness 输出格式、硬规则和示例。当前两者已收敛为 core 引用 + Hermes `/coding` / native tool / doctor / preflight / 配置引用映射，通用规则归 `coding-operator-core` / `coding-health-core`。
 
 ## 视觉/浏览器发现

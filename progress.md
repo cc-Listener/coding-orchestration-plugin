@@ -2,6 +2,25 @@
 
 ## 会话：2026-06-19
 
+### 阶段 196：Task 31 SourceProjection prompt source block 第一切片
+- **状态：** complete
+- 背景：
+  - Task 31 目标是让业务层和 prompt/context 逐步消费稳定 `SourceResult` / `SourceProjection`，reader-specific dict 只留在 adapter/ledger 兼容层。
+  - 只读 explorer 建议首切片只接 `prompts/source_block.py`，不触碰 TaskService、ledger、orchestrator enrichment 或 manifest 权限判断。
+- 执行的操作：
+  - 新增 `tests/test_source_projection.py`，覆盖 `SourceResult` / legacy `source_context` 到稳定 `SourceProjection` 字段、legacy context 白名单和空来源 missing 状态。
+  - RED 已确认：`coding_orchestration.source_projection` 模块缺失导致测试失败。
+  - 新增 `coding_orchestration/source_projection.py`，提供 `SourceProjection`、`source_projection_from_result()`、`source_projection_from_context()` 和 `source_projection_from_source()`。
+  - 修改 `coding_orchestration/prompts/source_block.py`：来源 prompt 块通过 projection 渲染 `source_status`、legacy read_status、lark_cli_command、recovery_action、raw_fields 和 deferred/Codex note。
+  - 同步 `task_plan.md`、`findings.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、实施计划、project map、component contract、conventions 和 machine-readable context。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_source_projection -v` 先失败于 `ModuleNotFoundError`。
+  - GREEN：`rtk proxy python3 -m unittest tests.test_source_projection -v`：3 tests passed。
+  - Prompt 回归：`rtk proxy python3 -m unittest tests.test_source_projection tests.test_prompt_templates -v`：9 tests passed。
+  - Source 相邻回归：`rtk proxy python3 -m unittest tests.test_source_flow tests.test_source_plan_flow tests.test_task_service tests.test_context_assembler tests.test_run_context_artifact_service -v`：26 tests passed。
+- 剩余风险：
+  - TaskService、context-index、run manifest source permission 和 orchestrator deferred enrichment 仍有 legacy `source_context` 消费点；后续 Task 31 切片继续迁移，不混入本轮。
+
 ### 阶段 195：Task 34 rewrite context projection 第四切片
 - **状态：** complete
 - 背景：

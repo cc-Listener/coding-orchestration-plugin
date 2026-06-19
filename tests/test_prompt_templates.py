@@ -43,15 +43,35 @@ class PromptTemplatesTest(unittest.TestCase):
                     "source_type": "feishu_wiki",
                     "resolution_owner": "codex",
                     "codex_resolvable": True,
+                    "deferred_source_resolution": True,
                     "lark_cli_command": "lark-cli docs +fetch --doc https://example.test/wiki",
                 },
             }
         )
 
         self.assertIn("外部来源上下文", rendered)
+        self.assertIn("source_status: deferred", rendered)
         self.assertIn("resolution_owner: codex", rendered)
         self.assertIn("lark_cli_command", rendered)
         self.assertIn("请优先在本 Codex session 中使用 lark_cli_command", rendered)
+
+    def test_source_block_renders_projected_permission_status(self):
+        rendered = source_block(
+            {
+                "type": "feishu_docx",
+                "source_context": {
+                    "read_status": "failed",
+                    "source_type": "feishu_docx",
+                    "url": "https://example.feishu.cn/docx/DocToken",
+                    "error": "missing scope: docx:document:readonly",
+                    "recovery_action": "重新授权后重试",
+                },
+            }
+        )
+
+        self.assertIn("source_status: permission_missing", rendered)
+        self.assertIn("read_status: failed", rendered)
+        self.assertIn("recovery_action: 重新授权后重试", rendered)
 
     def test_source_block_renders_empty_raw_fields_explicitly(self):
         rendered = source_block(
