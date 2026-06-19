@@ -125,11 +125,17 @@ class GatewayCommandControllerTest(unittest.TestCase):
 
     def test_route_coding_gateway_command_marks_diagnostics_as_immediate_reply(self):
         lark_route = controller.route_coding_gateway_command("/coding lark-preflight")
+        project_mcp_route = controller.route_coding_gateway_command("/coding project-mcp-preflight")
         source_route = controller.route_coding_gateway_command("/coding source-resolve https://example.test/docx/token")
 
         self.assertEqual(lark_route.family, "diagnostic")
         self.assertEqual(lark_route.handler_key, "lark_preflight")
         self.assertEqual(lark_route.reply_mode, controller.GATEWAY_REPLY_IMMEDIATE)
+
+        self.assertEqual(project_mcp_route.family, "diagnostic")
+        self.assertEqual(project_mcp_route.task_id_source, controller.TASK_ID_SOURCE_NONE)
+        self.assertEqual(project_mcp_route.handler_key, "project_mcp_preflight")
+        self.assertEqual(project_mcp_route.reply_mode, controller.GATEWAY_REPLY_IMMEDIATE)
 
         self.assertEqual(source_route.family, "diagnostic")
         self.assertEqual(source_route.task_id_source, controller.TASK_ID_SOURCE_RAW)

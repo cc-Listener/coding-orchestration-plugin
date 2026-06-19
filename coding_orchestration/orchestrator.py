@@ -642,6 +642,8 @@ class CodingOrchestrator:
             return self.command_coding_doctor()
         if command == "coding-lark-preflight":
             return self._format_lark_preflight(self.tool_lark_preflight({}))
+        if command == "coding-project-mcp-preflight":
+            return self._format_project_mcp_preflight()
         if command == "coding-source-resolve":
             return self._format_source_resolve(rest)
         if command == "coding-task":
@@ -1642,6 +1644,7 @@ class CodingOrchestrator:
             "help": lambda: self.command_coding_help(raw_args),
             "doctor": lambda: self.command_coding_doctor(),
             "lark_preflight": lambda: self._format_lark_preflight(self.tool_lark_preflight({})),
+            "project_mcp_preflight": self._format_project_mcp_preflight,
             "source_resolve": lambda: self._format_source_resolve(raw_args),
             "list": lambda: self._format_task_list_for_event(event),
             "project_list": lambda: self._format_project_list_for_event(event),

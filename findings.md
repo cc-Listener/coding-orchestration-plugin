@@ -340,7 +340,10 @@
 - Task 32 第一切片确认：把 `operation_id -> CodingOrchestrator.tool_*` 表从 `plugin_tools.py` 移走还不够，必须删除该表而不是搬到新模块。当前实现已改为 `ToolOperationDispatcher` + `CodingOrchestrator.dispatch_tool_operation()`，注册层和 dispatcher 模块均不再保存 `tool_*` 方法名映射；`WorkItemService.create_task` 也改为直接调用 `TaskService.tool_task_create`，减少 MCP/WorkItem intake 对 orchestrator tool wrapper 的回调耦合。
 - Task 32 第二切片确认：CLI 中 `lark-preflight` 和 `source-resolve` 是纯 tool-equivalent 命令，适合直接走 `dispatch_tool_operation()`；`doctor` 聚合多项 runtime 状态、`project-mcp-preflight` 需要本地 MCP 配置和命令可用性检查、`status` 是 task presentation 命令，不应在同一切片强行迁入 dispatcher。
 - Task 32 第三切片确认：`project-mcp-preflight` 可以接入 dispatcher，但必须保留 host config 与 stdio command availability gate；CLI 只在 MCP enabled、token configured 且 command ready 时 dispatch `project.mcp_preflight`，否则仅渲染本地配置/恢复提示。`doctor`、`status` 和 Gateway diagnostic 仍不是本切片范围。
+- Task 32 第四切片确认：Gateway `/coding project-mcp-preflight` 适合补成 diagnostic immediate reply，复用 `_format_project_mcp_preflight()` 和 leaf dispatcher 路径；这只是 Gateway route/reply 补齐，不代表把 `doctor` 聚合或 `status` presentation 下沉到 dispatcher。
+- Task 32 只读探索确认：CLI `status <task_id>` 是后续最小 dispatcher 候选，但必须只读取 `task.status` payload，不迁 `command_coding_status()` 的 active run reconcile、delivery/tree 或 presentation 分支。
 - Task 31 只读审查确认：source dict 消费面横跨 `_resolve_source_context()`、`_enrich_deferred_source_context_before_run()`、TaskService、prompt source block、context assembler 和 run context artifact；它应作为独立 task 推进，不应混入 Task 32。
+- Task 31 只读探索确认：最小可执行切片应建立 `SourceResult -> source projection`，让 TaskService、prompt/context 和 context artifact 消费稳定投影；保留 ledger `source_context` 兼容字段，不重构 Feishu/Meegle reader、runner、manifest 提权或 Gateway command。
 - Task 33 确认并修复：core skill 基本保持 host-agnostic；`hermes-coding-operator` 原先复制硬规则、意图分流、项目优先、需求拆解、任务下一步、反馈路由、长期记忆等通用 playbook，`hermes-coding-health-check` 原先复制 readiness 输出格式、硬规则和示例。当前两者已收敛为 core 引用 + Hermes `/coding` / native tool / doctor / preflight / 配置引用映射，通用规则归 `coding-operator-core` / `coding-health-core`。
 
 ## 视觉/浏览器发现

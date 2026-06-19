@@ -87,6 +87,16 @@ COMMAND_CATALOG: tuple[CodingCommand, ...] = (
         ("检查飞书权限", "lark 权限"),
     ),
     CodingCommand(
+        "project-mcp-preflight",
+        "/coding project-mcp-preflight",
+        "diagnose_project_mcp",
+        "diagnostics",
+        "read",
+        (),
+        "检查飞书项目 MCP 配置、命令可用性和工具白名单。",
+        ("检查项目 MCP", "project mcp preflight"),
+    ),
+    CodingCommand(
         "source-resolve",
         "/coding source-resolve <feishu_or_meegle_url>",
         "resolve_source",

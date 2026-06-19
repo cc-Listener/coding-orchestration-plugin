@@ -2,6 +2,32 @@
 
 ## 会话：2026-06-19
 
+### 阶段 190：Task 32 Gateway `project-mcp-preflight` diagnostic 第四切片
+- **状态：** complete
+- 背景：
+  - Task 32 第三切片已让 CLI `project-mcp-preflight` 直接走 dispatcher，但 Gateway `/coding project-mcp-preflight` 仍未被 diagnostic route 捕获，会落回 help / 主 agent 路径。
+  - 本切片只补 Gateway diagnostic leaf command，不迁 `doctor` 聚合、不迁 `status` presentation，也不触碰 future MCP host adapter。
+  - 只读 explorer 建议后续 Task 32 更适合做 CLI `status <task_id>` dispatcher；另一个 explorer 确认 Task 31 SourcePort 需要单独做 `SourceResult -> source projection` 闭环，不混入本切片。
+- 执行的操作：
+  - 扩展 `tests/test_gateway_command_controller.py`，要求 `/coding project-mcp-preflight` 标记为 diagnostic / immediate reply / `project_mcp_preflight` handler。
+  - 扩展 `tests/test_gateway_command_group_flow.py`，用 fake project MCP config 与 fake preflight result 验证 Gateway 事件被 coding plugin 拦截并输出 `飞书项目 MCP 检查`。
+  - RED 已确认：旧 route table 将 `project-mcp-preflight` 归为 help，Gateway flow 未调用 project MCP preflight。
+  - 修改 `coding_orchestration/gateway_command_controller.py`：新增 `coding-project-mcp-preflight` route spec 和 normalize map。
+  - 修改 `coding_orchestration/orchestrator.py`：immediate route handler 和直接 `command_coding("project-mcp-preflight")` 入口复用 `_format_project_mcp_preflight()`。
+  - 修改 `coding_orchestration/command_catalog.py`：补齐 `/coding project-mcp-preflight`，避免 Gateway 已支持但 help / `/commands` / rewriter context 漏列。
+- 已验证：
+  - RED：Gateway controller + Gateway diagnostic flow 聚焦测试先失败，分别暴露 route family 为 `help`、diagnostic calls 缺少 project MCP。
+  - GREEN：同三条聚焦测试通过。
+  - `rtk proxy python3 -m unittest tests.test_command_catalog tests.test_gateway_command_controller tests.test_gateway_command_group_flow -v`：35 tests passed。
+  - `rtk proxy python3 -m unittest discover -s tests -v`：834 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4701 lines`。
+  - `rtk proxy git diff --check`：passed。
+  - `rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+- 剩余风险：
+  - Task 32 仍剩 CLI `status <task_id>` 是否走 `task.status` dispatcher 的窄切片，以及 future MCP host adapter 有真实消费方后再接入。
+  - `doctor` 仍应保持 host diagnostic + presentation 聚合，不作为单个 dispatcher operation 下沉。
+  - Task 31 SourcePort 消费闭环已确认需要独立投影层，不能混入 Gateway diagnostic。
+
 ### 阶段 189：Task 32 CLI `project-mcp-preflight` dispatcher 第三切片
 - **状态：** complete
 - 背景：

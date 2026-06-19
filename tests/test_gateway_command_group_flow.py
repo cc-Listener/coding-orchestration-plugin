@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
@@ -111,6 +112,43 @@ class GatewayCommandGroupFlowTest(unittest.TestCase):
             self.assertNotIn("定时检查建议", gateway.messages[0])
             self.assertNotIn("ledger.db", gateway.messages[0])
 
+    def test_command_coding_project_mcp_preflight_uses_project_mcp_formatter(self):
+        class ProjectMcpDiagnosticOrchestrator(CodingOrchestrator):
+            def project_mcp_preflight_config(self):
+                return SimpleNamespace(
+                    enabled=True,
+                    transport="stdio",
+                    domain="https://project.feishu.cn",
+                    command=["npx"],
+                    token="configured-token",
+                    config_file_hint="~/.hermes/coding-orchestration/mcp.json",
+                    token_config_ref="mcpServers.feishu-project.env.MCP_USER_TOKEN",
+                    server_config_ref="mcpServers.feishu-project",
+                )
+
+            def project_mcp_preflight_command_available(self, config):
+                return True
+
+            def tool_project_mcp_preflight(self, payload):
+                return {"ok": True, "allowed_tools": ["story.search"]}
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            orchestrator = ProjectMcpDiagnosticOrchestrator(
+                ledger=TaskLedger(root / "ledger.db"),
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+
+            output = orchestrator.command_coding("project-mcp-preflight")
+
+            self.assertIn("飞书项目 MCP 检查", output)
+            self.assertIn("状态：✅ 可用", output)
+            self.assertIn("工具白名单：story.search", output)
+
     def test_gateway_diagnostic_commands_are_intercepted_before_main_agent(self):
         class DiagnosticOrchestrator(CodingOrchestrator):
             def tool_lark_preflight(self, payload):
@@ -125,6 +163,26 @@ class GatewayCommandGroupFlowTest(unittest.TestCase):
                     "source_type": "feishu_docx",
                     "url": payload["text"],
                 }
+
+            def project_mcp_preflight_config(self):
+                return SimpleNamespace(
+                    enabled=True,
+                    transport="stdio",
+                    domain="https://project.feishu.cn",
+                    command=["npx"],
+                    token="configured-token",
+                    config_file_hint="~/.hermes/coding-orchestration/mcp.json",
+                    token_config_ref="mcpServers.feishu-project.env.MCP_USER_TOKEN",
+                    server_config_ref="mcpServers.feishu-project",
+                )
+
+            def project_mcp_preflight_command_available(self, config):
+                self.diagnostic_calls.append(("project_mcp_command", config))
+                return True
+
+            def tool_project_mcp_preflight(self, payload):
+                self.diagnostic_calls.append(("project_mcp", payload))
+                return {"ok": True, "allowed_tools": ["story.search"]}
 
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -142,18 +200,29 @@ class GatewayCommandGroupFlowTest(unittest.TestCase):
             gateway = FakeGateway()
 
             lark_result = orchestrator.handle_gateway_event(FakeGatewayEvent("/coding lark-preflight"), gateway=gateway)
+            project_mcp_result = orchestrator.handle_gateway_event(
+                FakeGatewayEvent("/coding project-mcp-preflight"),
+                gateway=gateway,
+            )
             source_result = orchestrator.handle_gateway_event(
                 FakeGatewayEvent("/coding source-resolve https://example.test/docx/Token123"),
                 gateway=gateway,
             )
 
             self.assertEqual(lark_result["action"], "skip")
+            self.assertEqual(project_mcp_result["action"], "skip")
             self.assertEqual(source_result["action"], "skip")
-            self.assertEqual([call[0] for call in orchestrator.diagnostic_calls], ["lark", "source"])
+            self.assertEqual(
+                [call[0] for call in orchestrator.diagnostic_calls],
+                ["lark", "project_mcp_command", "project_mcp", "source"],
+            )
             self.assertIn("飞书权限检查", gateway.messages[0])
             self.assertIn("状态：✅ 可用", gateway.messages[0])
-            self.assertIn("来源解析", gateway.messages[1])
-            self.assertIn("链接：https://example.test/docx/Token123", gateway.messages[1])
+            self.assertIn("飞书项目 MCP 检查", gateway.messages[1])
+            self.assertIn("状态：✅ 可用", gateway.messages[1])
+            self.assertIn("工具白名单：story.search", gateway.messages[1])
+            self.assertIn("来源解析", gateway.messages[2])
+            self.assertIn("链接：https://example.test/docx/Token123", gateway.messages[2])
 
     def test_gateway_coding_group_task_command_creates_task(self):
         class RecordingOrchestrator(CodingOrchestrator):
