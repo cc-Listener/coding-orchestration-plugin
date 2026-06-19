@@ -1,6 +1,8 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from coding_orchestration.context_assembler import ContextAssembler
 from coding_orchestration.models import RunMode, TaskKind
@@ -75,3 +77,32 @@ class ContextAssemblerTest(unittest.TestCase):
             self.assertIn("backend-api, web-admin, mobile", package.prompt_context)
             self.assertNotIn("源码全文", package.prompt_context)
             self.assertTrue((run_dir / "context-manifest.json").exists())
+
+    def test_current_task_block_reads_source_summary_from_projection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run_dir = Path(tmp)
+            task = {
+                "task_id": "req_projection",
+                "task_kind": TaskKind.REQUIREMENT.value,
+                "requirement_summary": "订单筛选能力升级",
+                "source": {
+                    "source_context": {
+                        "raw_fields_summary": "legacy summary should not be read directly",
+                    }
+                },
+                "task_session": {"delivery": {"acceptance_criteria": ["多端筛选一致"]}},
+            }
+
+            with patch(
+                "coding_orchestration.context_assembler.source_projection_from_source",
+                return_value=SimpleNamespace(raw_fields_summary="projection summary"),
+                create=True,
+            ):
+                package = ContextAssembler().assemble(
+                    run_mode=RunMode.DECOMPOSITION,
+                    task=task,
+                    run_dir=run_dir,
+                )
+
+            self.assertIn("source_summary: projection summary", package.prompt_context)
+            self.assertNotIn("legacy summary should not be read directly", package.prompt_context)

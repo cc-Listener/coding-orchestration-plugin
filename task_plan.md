@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 197：Task 31 SourceProjection context-index 第二切片（complete）
+阶段 198：Task 31 ContextAssembler source summary 第三切片（complete）
 
 ## 各阶段
 
@@ -1547,6 +1547,15 @@
 - [x] 实现：`source_projection.py` 新增 `source_projection_to_dict()`；`write_run_context_artifacts()` 复用 `source_projection_from_source()` 写入稳定投影字段。
 - [x] 文档：同步 Task 31 第二切片进度、技术方案、实施计划、组件合同和发现。
 - [x] 验证：运行 context artifact 聚焦回归、source projection 回归、source/source-plan/task-service/context assembler 相邻回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 198：Task 31 ContextAssembler source summary 第三切片
+- [x] 定域：只让 `ContextAssembler._current_task_block()` 通过 `SourceProjection.raw_fields_summary` 输出 `source_summary`；不输出完整 raw_fields、不改 TaskService status payload、不改 run manifest 权限判断、不改 orchestrator enrichment。
+- [x] TDD：扩展 `tests/test_context_assembler.py`，patch `source_projection_from_source()` 并确认 assembled context 使用 projection summary，不直接读 legacy `source_context.raw_fields_summary`。
+- [x] RED：确认旧实现仍读 legacy summary 时测试失败。
+- [x] 实现：`context_assembler.py` 引入 `source_projection_from_source()`，当前任务块只消费 projection 的 `raw_fields_summary`。
+- [x] 文档：同步 Task 31 第三切片进度、技术方案、实施计划、组件合同和发现。
+- [x] 验证：运行 context assembler/source projection 聚焦回归、source/source-plan/task-service/run context artifact 相邻回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ## 关键问题

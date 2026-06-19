@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import RunMode
+from .source_projection import source_projection_from_source
 
 
 @dataclass(frozen=True)
@@ -138,7 +139,7 @@ class ContextAssembler:
         session = task.get("task_session") or {}
         delivery = session.get("delivery") or {}
         criteria = "\n".join(f"- {item}" for item in delivery.get("acceptance_criteria") or [])
-        source_context = (task.get("source") or {}).get("source_context") or {}
+        source_projection = source_projection_from_source(task.get("source") or {})
         return "\n".join(
             [
                 f"task_id: {task.get('task_id')}",
@@ -147,7 +148,7 @@ class ContextAssembler:
                 f"project_path: {task.get('project_path') or ''}",
                 "acceptance_criteria:",
                 criteria or "- none",
-                f"source_summary: {source_context.get('raw_fields_summary') or ''}",
+                f"source_summary: {source_projection.raw_fields_summary}",
             ]
         )
 

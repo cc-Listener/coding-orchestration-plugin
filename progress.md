@@ -2,6 +2,23 @@
 
 ## 会话：2026-06-19
 
+### 阶段 198：Task 31 ContextAssembler source summary 第三切片
+- **状态：** complete
+- 背景：
+  - `ContextAssembler._current_task_block()` 仍直接读取 `source_context.raw_fields_summary` 输出 `source_summary`。
+  - SourceProjection 已接入 prompt source block 和 context-index，本切片继续迁一个 context 消费点，但不触碰权限判断或 ledger。
+- 执行的操作：
+  - 扩展 `tests/test_context_assembler.py`，patch `coding_orchestration.context_assembler.source_projection_from_source()` 返回 fake summary，确认 assembled context 不再直接读 legacy summary。
+  - RED 已确认：旧实现输出 legacy `raw_fields_summary` 导致测试失败。
+  - 修改 `coding_orchestration/context_assembler.py`，`_current_task_block()` 通过 `SourceProjection.raw_fields_summary` 输出 `source_summary`。
+  - 同步 `task_plan.md`、`findings.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、实施计划和 component contract。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_context_assembler.ContextAssemblerTest.test_current_task_block_reads_source_summary_from_projection -v` 失败于输出 legacy summary。
+  - GREEN：同一测试通过。
+  - 聚焦回归：`rtk proxy python3 -m unittest tests.test_context_assembler tests.test_source_projection -v`：7 tests passed。
+- 剩余风险：
+  - TaskService status payload / next actions、run manifest source permission 和 orchestrator deferred enrichment 仍有 legacy `source_context` 消费点；manifest 权限判断影响 runner 权限，后续应单独切片。
+
 ### 阶段 197：Task 31 SourceProjection context-index 第二切片
 - **状态：** complete
 - 背景：
