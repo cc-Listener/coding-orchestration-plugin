@@ -5035,5 +5035,31 @@
 - 剩余风险：
   - Task 30 仍是 In Progress：`start_run()` 仍有 workspace 选择、manifest checkpoint 准备、prompt 构造、runner 启动、report 写回和 ledger 收尾副作用闭环；后续应继续只按单一职责域小步迁移。
 
+### 阶段 193：Task 34 blocked merge-test readiness service 第二切片
+- **状态：** complete
+- 背景：
+  - Task 30 已关闭；后续大文件治理不再继续扩 Task 30。
+  - `CodingOrchestrator._blocked_task_merge_test_assessment()` 仍在 façade 内维护 blocked task 是否可风险放行 merge-test 的纯评估规则，混合检查 implementation run、workspace、source branch、Codex session、report、diff guard、implementation landed 和 `merge_readiness` 字段。
+  - 这些判断本身不需要推进状态、不写 ledger、不启动 runner、不发送 Gateway 消息；orchestrator 只应负责采集当前 task/run/workspace/report/session 事实。
+- 执行的操作：
+  - 新增 `tests/test_merge_test_readiness_service.py`，覆盖缺 implementation run、Codex ready report、diff guard 优先级和 implementation not landed。
+  - 确认 RED：`rtk proxy python3 -m unittest tests.test_merge_test_readiness_service -v` 因 `merge_test_readiness_service` 缺失出现预期 ImportError。
+  - 新增 `coding_orchestration/merge_test_readiness_service.py`，承接 `latest_implementation_run()`、`source_branch_for_blocked_merge_test()`、`disallowed_blocked_merge_test_reason()` 和 `assess_blocked_merge_test()`。
+  - `CodingOrchestrator._blocked_task_merge_test_assessment()` 改为只收集 implementation run、merge-test workspace、source branch、resume session 和 report，再委托 service；状态 transition、merge record、人为决策、pending action 和 runner 启动仍留在原 host 边界。
+  - 同步 `task_plan.md`、项目地图、组件合同、约定、machine-readable project context、实施计划、技术方案和发现。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：4523 行。
+  - `coding_orchestration/merge_test_readiness_service.py`：188 行。
+  - `tests/test_merge_test_readiness_service.py`：115 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_merge_test_readiness_service -v`：预期 ImportError。
+  - `rtk proxy python3 -m unittest tests.test_merge_test_readiness_service -v`：4 tests passed。
+  - `rtk proxy python3 -m py_compile coding_orchestration/merge_test_readiness_service.py coding_orchestration/orchestrator.py tests/test_merge_test_readiness_service.py`：passed。
+  - `rtk proxy python3 -m unittest tests.test_merge_test_readiness_service tests.test_merge_test_readiness_flow tests.test_merge_test_blocked_flow tests.test_merge_test_qa_gate_flow tests.test_merge_test_basic_flow -v`：30 tests passed。
+  - `rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4523 lines`。
+  - `rtk proxy git diff --check`：passed，无输出。
+- 剩余风险：
+  - `orchestrator.py` 仍是 4523 行 legacy façade；下一步 Task 34 优先 project profile 读取/格式化 catalog，Task 31 单独推进 `SourceResult -> source projection`，不要混入本切片。
+
 ---
 *每个阶段完成后或遇到错误时更新此文件*

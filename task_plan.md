@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 192：Task 34 本地项目解析 helper 第一切片（complete）
+阶段 193：Task 34 blocked merge-test readiness service 第二切片（complete）
 
 ## 各阶段
 
@@ -1502,6 +1502,15 @@
 - [x] 实现：新增 `coding_orchestration/gateway_project_context.py`；`CodingOrchestrator` 对应函数改为薄 wrapper，并新增可注入 `local_project_search_roots`。
 - [x] 文档：同步 Task 34 第一切片进度、技术方案和发现。
 - [x] 验证：运行项目上下文聚焦回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 193：Task 34 blocked merge-test readiness service 第二切片
+- [x] 定域：只迁出 blocked task 是否允许继续 merge-test 的纯评估规则；不迁状态 transition、merge record/human decision 写入、Gateway pending action、runner 启动或 presenter 文案。
+- [x] TDD：新增 `tests/test_merge_test_readiness_service.py`，覆盖缺 implementation run、Codex ready report、diff guard 优先级和 implementation not landed。
+- [x] RED：确认新模块缺失时测试失败。
+- [x] 实现：新增 `coding_orchestration/merge_test_readiness_service.py`；`CodingOrchestrator._blocked_task_merge_test_assessment()` 改为只收集 implementation run、workspace、source branch、resume session 和 report，再委托 service。
+- [x] 文档：同步 Task 34 第二切片进度、技术方案、项目地图、组件合同、约定和发现。
+- [x] 验证：运行 merge-test readiness/blocked/QA gate/basic 聚焦回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ## 关键问题

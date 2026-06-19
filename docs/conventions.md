@@ -27,6 +27,7 @@
 - Hermes native tools 注册在 `coding_orchestration/plugin_tools.py`，工具 operation 分发在 `coding_orchestration/tool_operation_dispatcher.py`，CLI 子命令注册在 `coding_orchestration/cli.py`。`plugin_tools.py` 只做 host payload 归一和 `ToolSpec.operation_id` handler 包装，不维护 `operation_id -> CodingOrchestrator.tool_*` 方法映射；CLI 中 `lark-preflight`、`source-resolve`、普通 `status <task_id>` 和带 host config gate 的 `project-mcp-preflight` 直接走 `dispatch_tool_operation()`。
 - Gateway diagnostic route 保持在 `coding_orchestration/gateway_command_controller.py` / `orchestrator.py` 的 host reply 边界；`/coding project-mcp-preflight` 只作为 immediate reply 复用 project MCP preflight façade，不把 `doctor` 聚合或 `status` presentation 下沉为单个 tool operation。
 - 本地项目文件夹识别、搜索根去重、路径解析和人工别名抽取优先维护在 `coding_orchestration/gateway_project_context.py`；orchestrator 只保留兼容 wrapper 和默认 fallback，不把 Gateway 回复、profile 写入或 active project binding 塞入该 helper。
+- blocked task 是否可继续 merge-test 的 readiness 评估优先维护在 `coding_orchestration/merge_test_readiness_service.py`；该模块只消费 task/run/workspace/session/report 事实并返回评估 dict，不写 ledger、不推进状态、不触发 runner、不发送 Gateway 回复。
 - 通用 skill 规则维护在 `coding_orchestration/skills/coding-operator-core/` 和 `coding-health-core/`；Hermes 绑定映射维护在 `hermes-coding-operator/` 和 `hermes-coding-health-check/`。
 - Codex CLI 命令构造、resume、sandbox、结构化 report 读取在 `coding_orchestration/runners/codex_cli.py`。
 - 安装和卸载逻辑优先改 `coding_orchestration/install.py`，脚本只保留入口和用户输出。
@@ -84,7 +85,7 @@
 - 变更 bugfix 完成后的飞书 Project comment/writeback 时，优先扩展 `tests/test_bugfix_writeback_flow.py` 和 `tests/test_workitem_service.py`。
 - 变更手动 QA、QA artifact 收集、QA clean-tree gate 或实现完成后的 QA 提示时，优先扩展 `tests/test_qa_flow.py` 和相邻 `RunService` / prompt contract tests。
 - 变更 prepare/merge-test 状态提示、blocked/QA 风险确认、风险放行说明或 merge-test 启动 ACK 文案时，优先扩展 `tests/test_merge_test_presenter.py`，再按影响范围扩展 `tests/test_merge_test_basic_flow.py`、`tests/test_merge_test_blocked_flow.py`、`tests/test_merge_test_qa_gate_flow.py` 或 `tests/test_gateway_natural_language_command_flow.py`。
-- 变更 merge-test 手动触发、blocked readiness、QA 风险 gate 或 merge-test 前 clean-tree gate 的状态/策略逻辑时，优先扩展 `tests/test_merge_test_basic_flow.py`、`tests/test_merge_test_readiness_flow.py`、`tests/test_merge_test_blocked_flow.py`、`tests/test_merge_test_qa_gate_flow.py` 和相邻状态策略测试。
+- 变更 blocked merge-test readiness 纯评估时，优先扩展 `tests/test_merge_test_readiness_service.py`；变更 merge-test 手动触发、blocked readiness host flow、QA 风险 gate 或 merge-test 前 clean-tree gate 的状态/策略逻辑时，优先扩展 `tests/test_merge_test_basic_flow.py`、`tests/test_merge_test_readiness_flow.py`、`tests/test_merge_test_blocked_flow.py`、`tests/test_merge_test_qa_gate_flow.py` 和相邻状态策略测试。
 - 变更 merged-test 后人工完成、`/coding list` 展示或 complete/list 文案时，优先扩展 `tests/test_completion_flow.py` 和相邻状态策略测试。
 - 变更 plan-only/implementation/QA 启动 ACK、active run 重复启动提示或 cannot-start 恢复提示时，优先扩展 `tests/test_run_start_presenter.py`，再按影响范围扩展 `tests/test_command_run_flow.py`、`tests/test_plan_run_flow.py`、`tests/test_qa_flow.py` 或 `tests/test_run_service.py`。
 - 变更 `/coding continue/change/bugfix` 反馈、需求变更、图片未捕获或人工澄清用户可见文案时，优先扩展 `tests/test_feedback_presenter.py`，再按影响范围扩展 `tests/test_gateway_feedback_flow.py`、`tests/test_gateway_change_continue_flow.py`、`tests/test_gateway_task_control_flow.py` 或 `tests/test_gateway_natural_language_command_flow.py`。
