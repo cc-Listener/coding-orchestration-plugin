@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 200：Task 31 manifest source permission 第五切片（complete）
+阶段 201：Task 31 deferred source enrichment 第六切片（complete）
 
 ## 各阶段
 
@@ -1574,6 +1574,15 @@
 - [x] 实现：`run_manifest_service.py` 通过 `source_projection_from_source()` 判断 missing/ok/Codex 可读性/飞书来源类型。
 - [x] 文档：同步 Task 31 第五切片进度、技术方案、实施计划、组件合同和发现。
 - [x] 验证：运行 run manifest/source plan/Codex command/status reconcile 聚焦回归、source/task/context 相邻回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 201：Task 31 deferred source enrichment 第六切片
+- [x] 定域：只让 `CodingOrchestrator._enrich_deferred_source_context_before_run()` 和 `_is_deferred_feishu_source_context()` 的 run 前判定消费 `SourceProjection`；不改 reader、ledger schema、TaskService 创建逻辑、run manifest 权限或 context artifact。
+- [x] TDD：扩展 `tests/test_source_plan_flow.py`，patch `source_projection_from_context()`，确认 legacy `source_context` 字段与 projection 不一致时，以 projection 决定是否刷新 deferred Feishu source。
+- [x] RED：确认旧实现直接读取 legacy `read_status=success` 时不会调用 resolver。
+- [x] 实现：orchestrator enrichment 使用 `projection.ok`、`codex_resolvable`、`resolution_owner`、`source_type`、`url` 和 `status` 判定；ledger 写回仍保持 legacy `source_context` dict 兼容。
+- [x] 文档：同步 Task 31 第六切片进度、技术方案、实施计划、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 source plan/source flow/source projection/run manifest/task service 聚焦回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ## 关键问题

@@ -111,6 +111,7 @@ from . import (
     run_start_artifact_service,
     run_completion_presenter,
     run_start_presenter,
+    source_projection,
     task_list_presenter,
 )
 from . import task_status_presenter
@@ -2717,15 +2718,15 @@ class CodingOrchestrator:
     ) -> dict[str, Any] | None:
         if not isinstance(source_context, dict) or not source_context:
             return source_context
-        status = str(source_context.get("read_status") or "").strip().lower()
-        if status == "success":
+        projection = source_projection.source_projection_from_context(source_context)
+        if projection.ok:
             return source_context
-        if source_context.get("codex_resolvable") or source_context.get("resolution_owner") == "codex":
+        if projection.codex_resolvable or projection.resolution_owner == "codex":
             return source_context
-        if not self._is_deferred_feishu_source_context(source_context):
+        if not self._is_deferred_feishu_source_context(source_context, projection=projection):
             return source_context
         reader_text = text
-        source_url = str(source_context.get("url") or "").strip()
+        source_url = projection.url.strip()
         if source_url.startswith("http") and source_url not in reader_text:
             reader_text = f"{reader_text}\n{source_url}".strip()
         try:
@@ -2769,9 +2770,14 @@ class CodingOrchestrator:
         return context if isinstance(context, dict) and context else None
 
     @staticmethod
-    def _is_deferred_feishu_source_context(source_context: dict[str, Any]) -> bool:
-        source_type = str(source_context.get("source_type") or "").strip().lower()
-        url = str(source_context.get("url") or "").strip().lower()
+    def _is_deferred_feishu_source_context(
+        source_context: dict[str, Any],
+        *,
+        projection: source_projection.SourceProjection | None = None,
+    ) -> bool:
+        projection = projection or source_projection.source_projection_from_context(source_context)
+        source_type = projection.source_type.strip().lower()
+        url = projection.url.strip().lower()
         if not (
             source_type.startswith("feishu_doc")
             or source_type.startswith("feishu_wiki")
@@ -2779,8 +2785,9 @@ class CodingOrchestrator:
             or "feishu.cn" in url
         ):
             return False
-        status = str(source_context.get("read_status") or "").strip().lower()
-        return status in {"", "failed", "indexed"} or bool(source_context.get("deferred_source_resolution"))
+        return projection.status in {"missing", "failed", "auth_needed", "permission_missing", "deferred"} or bool(
+            projection.deferred_source_resolution
+        )
 
     def _resolve_local_project_from_human_text(
         self,

@@ -2,6 +2,25 @@
 
 ## 会话：2026-06-19
 
+### 阶段 201：Task 31 deferred source enrichment 第六切片
+- **状态：** complete
+- 背景：
+  - prompt、context-index、ContextAssembler、TaskService 和 run manifest permission gate 已消费 `SourceProjection`。
+  - `CodingOrchestrator._enrich_deferred_source_context_before_run()` 仍直接读取 legacy `source_context.read_status/source_type/url/codex_resolvable/resolution_owner`，影响旧 task run 前 deferred source 刷新路径。
+  - 本切片只迁 run 前 enrichment 判定，不改 reader、ledger schema、TaskService 创建/索引逻辑、run manifest 权限或 context artifact。
+- 执行的操作：
+  - 扩展 `tests/test_source_plan_flow.py`，patch `source_projection_from_context()` 让 legacy `source_context` 与 projection 故意不一致，确认 enrichment 以 projection 为准。
+  - RED 已确认：旧实现因 legacy `read_status=success` 直接返回，未调用 `_resolve_source_context()`。
+  - 修改 `coding_orchestration/orchestrator.py`：`_enrich_deferred_source_context_before_run()` 使用 `SourceProjection` 判定 ok、Codex 可解析、resolution owner 和 source URL；`_is_deferred_feishu_source_context()` 接受可选 projection 并用稳定字段判定 Feishu deferred source。
+  - 保留 legacy `source_context` 写回兼容；成功 refresh 后仍清理 Codex deferred 标记并继续复用 document source normalize。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_source_plan_flow.SourcePlanFlowTest.test_deferred_source_enrichment_uses_source_projection -v` 先失败于 resolver 未被调用。
+  - GREEN：同一测试通过。
+  - 聚焦回归：`rtk proxy python3 -m unittest tests.test_source_plan_flow tests.test_source_flow tests.test_source_projection tests.test_run_manifest_service tests.test_task_service -v`：41 tests passed。
+- 剩余风险：
+  - dashboard source health / generic diagnostic helper 仍通过 `SourceResult.from_context()` 读取 legacy context；这是低风险展示/诊断残留，可后续单独小切片处理。
+  - `orchestrator.py` 仍是 4377 行 legacy façade；下一步优先转 Task 34 delivery command façade 降载。
+
 ### 阶段 200：Task 31 manifest source permission 第五切片
 - **状态：** complete
 - 背景：

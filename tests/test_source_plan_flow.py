@@ -4,12 +4,14 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import AgentRunStatus, RunMode
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
+from coding_orchestration.source_projection import SourceProjection
 from tests.orchestrator_flow_fixtures import (
     FakeFeishuProjectReader,
     FakeGatewayEvent,
@@ -20,6 +22,62 @@ from tests.orchestrator_flow_fixtures import (
 
 
 class SourcePlanFlowTest(unittest.TestCase):
+    def test_deferred_source_enrichment_uses_source_projection(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = TaskLedger(root / "ledger.db")
+            wiki = LocalLlmWikiAdapter(root / "wiki")
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=wiki,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+                runner_router=FakeRouter(FakeRunner()),
+            )
+            calls: list[str] = []
+
+            def resolve_source_context(text: str, gateway=None):
+                calls.append(text)
+                return {
+                    "read_status": "success",
+                    "source_type": "feishu_docx",
+                    "url": "https://bestfulfill.feishu.cn/docx/MarketplaceDocxToken123",
+                    "summary_markdown": "## 需求\n\n新增 MarketPlace 后台模块",
+                }
+
+            orchestrator._resolve_source_context = resolve_source_context  # type: ignore[method-assign]
+            legacy_context = {
+                "read_status": "success",
+                "source_type": "manual",
+                "url": "https://bestfulfill.feishu.cn/docx/MarketplaceDocxToken123",
+            }
+
+            with patch(
+                "coding_orchestration.source_projection.source_projection_from_context",
+                return_value=SourceProjection(
+                    ok=False,
+                    status="failed",
+                    source_type="feishu_docx",
+                    url="https://bestfulfill.feishu.cn/docx/MarketplaceDocxToken123",
+                ),
+            ):
+                enriched = orchestrator._enrich_deferred_source_context_before_run(
+                    "需求：新增 MarketPlace 后台模块",
+                    legacy_context,
+                )
+
+            self.assertEqual(
+                calls,
+                [
+                    "需求：新增 MarketPlace 后台模块\n"
+                    "https://bestfulfill.feishu.cn/docx/MarketplaceDocxToken123"
+                ],
+            )
+            self.assertEqual(enriched["read_status"], "success")
+            self.assertEqual(enriched["source_type"], "feishu_docx")
+            self.assertEqual(enriched["summary_markdown"], "## 需求\n\n新增 MarketPlace 后台模块")
+
     def test_existing_needs_human_docx_task_repairs_context_before_plan_run(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
