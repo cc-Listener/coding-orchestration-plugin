@@ -2,6 +2,24 @@
 
 ## 会话：2026-06-19
 
+### 阶段 202：Task 34 delivery materialize executor 第五切片
+- **状态：** complete
+- 背景：
+  - `orchestrator.py` 仍是 legacy façade 大文件；Task 34 下一步已确认优先 delivery command façade。
+  - 第一片只迁 `/coding materialize` host shell，避免同时触碰 breakdown/analyze、approve-breakdown、`run --next`、delivery/tree status、rollup 或 runner/workspace 副作用。
+- 执行的操作：
+  - 新增 `tests/test_delivery_command_executor.py`，直接覆盖 materialize 成功路径、空参数、未找到、未确认、materialization disallowed、plan error、空 children 和 existing children 幂等分支，并断言不会启动 runner 或 implementation。
+  - RED 已确认：`coding_orchestration.delivery_command_executor` 模块缺失导致测试失败。
+  - 新增 `coding_orchestration/delivery_command_executor.py`，承接 `command_coding_materialize()` 和 `materialize_execution_tasks()` 的 host shell / ledger callback 绑定。
+  - `CodingOrchestrator.command_coding_materialize()` 和 `_materialize_execution_tasks()` 改为薄 wrapper；`DeliveryService` 纯规则不变。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_delivery_command_executor -v` 先失败于无法 import 新模块。
+  - GREEN：`rtk proxy python3 -m unittest tests.test_delivery_command_executor -v`：5 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_delivery_flow tests.test_delivery_service tests.test_command_run_flow tests.test_gateway_command_executor -v`：33 tests passed。
+- 剩余风险：
+  - Task 34 后续还应继续迁 breakdown/analyze、approve-breakdown、`run --next`、delivery/tree status 的 host shell。
+  - `orchestrator.py` 当前 4350 行，仍是 architecture guard legacy large-file watch。
+
 ### 阶段 201：Task 31 deferred source enrichment 第六切片
 - **状态：** complete
 - 背景：

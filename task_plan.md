@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 201：Task 31 deferred source enrichment 第六切片（complete）
+阶段 202：Task 34 delivery materialize executor 第五切片（complete）
 
 ## 各阶段
 
@@ -1529,6 +1529,15 @@
 - [x] 实现：新增 `coding_orchestration/gateway_rewrite_context.py`；`CodingOrchestrator._coding_rewrite_context()` 只采集 event/ledger/project/catalog 事实后委托 helper，`_task_next_step_hint()` 改为兼容 wrapper。
 - [x] 文档：同步 Task 34 第四切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 rewrite context contract、Gateway rewrite/natural language/presenter 相邻回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 202：Task 34 delivery materialize executor 第五切片
+- [x] 定域：只迁 `/coding materialize` command-level host shell 和 ledger callback 绑定；不迁 breakdown/analyze、approve-breakdown、`run --next`、delivery/tree status、rollup、runner、Gateway route 或 DeliveryService 纯规则。
+- [x] TDD：新增 `tests/test_delivery_command_executor.py`，直接覆盖 materialize 成功、空参数、未找到、未确认、未允许、plan error、空 children 和 existing children 幂等分支。
+- [x] RED：确认 `coding_orchestration.delivery_command_executor` 模块缺失时测试失败。
+- [x] 实现：新增 `delivery_command_executor.py`，承接 `command_coding_materialize()` 和 `materialize_execution_tasks()`；`CodingOrchestrator.command_coding_materialize()` / `_materialize_execution_tasks()` 保留薄 wrapper。
+- [x] 文档：同步 Task 34 第五切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 delivery command executor、delivery flow/service、command run、Gateway command executor 聚焦回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片

@@ -91,6 +91,8 @@ project_map:
       reason: "Project profile catalog，只读取 LLM Wiki project profile、registry project facts 和初始化质量评估，返回 profile/list/status 数据或文案；不写 profile、不绑定 active project、不发送 Gateway 回复。"
     - path: coding_orchestration/gateway_rewrite_context.py
       reason: "Gateway rewrite context 纯投影 helper，只消费已采集的 task/project/media/catalog 事实并返回 LLM rewrite context 与 next-step hint；不读 ledger、不持有 Gateway event、不调用 command_rewriter、不发送回复。"
+    - path: coding_orchestration/delivery_command_executor.py
+      reason: "Delivery command executor host shell，维护 /coding materialize 用户可见分支和 ledger callback 绑定；不承载 DeliveryService 纯规则、不启动 runner、不触碰 Gateway route 或 workspace/git 副作用。"
     - path: coding_orchestration/source_projection.py
       reason: "SourceProjection 纯投影层，把 SourceResult / legacy source_context 映射为 prompt/context/status/manifest/run-preflight 稳定字段，并提供 context-index 序列化 payload；不读外部来源、不写 ledger、不推进状态、不改变 source_context 持久化。"
     - path: coding_orchestration/run_diff_guard_service.py
@@ -283,6 +285,9 @@ component_contract:
     - name: source_resolution
       path: coding_orchestration/source_resolver.py
       preferred: true
+    - name: delivery_command_executor
+      path: coding_orchestration/delivery_command_executor.py
+      preferred: true
     - name: source_projection
       path: coding_orchestration/source_projection.py
       preferred: true
@@ -418,6 +423,10 @@ component_contract:
       path: coding_orchestration/gateway_rewrite_context.py
       use_instead_of:
         - "在 orchestrator 中继续新增 Coding Mode rewrite context 白名单投影、active/known task 轻量投影、media type 投影或 task next-step hint 规则。"
+    - name: delivery_command_executor
+      path: coding_orchestration/delivery_command_executor.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 /coding materialize 用户可见分支、物化错误处理或 ledger callback 绑定。"
     - name: RunnerRouter
       path: coding_orchestration/runner_router.py
       use_instead_of:

@@ -52,7 +52,7 @@
 
 - 测试使用标准库 `unittest`，测试文件位于 `tests/test_*.py`。
 - 新增状态、命令、runner、source resolver、report gate 或用户可见文案时，应补充相邻测试。
-- 变更父级需求拆解、materialize、delivery status 或 run --next 行为时优先扩展 `tests/test_delivery_service.py` 和 `tests/test_delivery_flow.py`。
+- 变更父级需求拆解、materialize、delivery status 或 run --next 行为时优先扩展 `tests/test_delivery_service.py`、`tests/test_delivery_command_executor.py` 和 `tests/test_delivery_flow.py`。
 - 变更飞书 Project/Docx/Wiki 来源索引、deferred source、source context 修复或 plan 阶段来源读取权限时，优先扩展 `tests/test_source_flow.py`、`tests/test_source_plan_flow.py` 和相邻 source contract tests。
 - 变更 `SourcePort`、`SourceResult`、`SourceResolver.resolve_source_result()` 或 source 状态归一化时，优先扩展 `tests/test_ports_contract.py`、`tests/test_source_resolver.py` 和 `tests/test_orchestrator_tools.py`。
 - 变更 `SourceProjection` 字段、legacy `source_context` 到稳定来源投影的映射、prompt source block 来源状态展示或 run 前 deferred source enrichment 时，优先扩展 `tests/test_source_projection.py`、`tests/test_prompt_templates.py` 和 `tests/test_source_plan_flow.py`；再按影响范围扩展 `tests/test_source_flow.py`、`tests/test_task_service.py`、`tests/test_run_manifest_service.py` 或 `tests/test_run_context_artifact_service.py`。不要在首切片改 ledger schema 或 `source_context` 持久化结构。

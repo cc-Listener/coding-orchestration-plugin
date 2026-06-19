@@ -74,6 +74,7 @@ from .ports import KnowledgePort
 from .prompt_builder import PromptBuilder
 from . import (
     background_run_notifier,
+    delivery_command_executor,
     feedback_presenter,
     gateway_active_context,
     gateway_command_controller,
@@ -983,26 +984,7 @@ class CodingOrchestrator:
         return f"[{task_id}] 已确认拆解方案。下一步发送 /coding materialize {task_id} 生成执行任务。"
 
     def command_coding_materialize(self, raw_args: str) -> str:
-        task_id = raw_args.strip()
-        if not task_id:
-            return "请提供要生成执行任务的需求 ID。用法：/coding materialize <task_id>"
-        task = self.ledger.get_task(task_id)
-        if not task:
-            return f"未找到任务：{task_id}"
-        if not self._breakdown_is_approved(task):
-            return f"[{task_id}] 拆解方案还未确认。请先发送 /coding approve-breakdown {task_id}。"
-        decomposition = (task.get("task_session") or {}).get("decomposition") or {}
-        if not bool(decomposition.get("materialization_allowed")):
-            return f"[{task_id}] 拆解方案尚未允许生成执行任务，请先补充缺失信息并重新拆解。"
-        try:
-            children = self._materialize_execution_tasks(task)
-        except ValueError as exc:
-            return f"[{task_id}] 拆解方案不能生成执行任务：{exc}。请重新拆解。"
-        if not children:
-            return f"[{task_id}] 拆解方案里没有可生成的执行任务，请重新拆解。"
-        return f"[{task_id}] 已生成 {len(children)} 个执行任务。\n" + "\n".join(
-            f"- {child['task_id']}：{child['requirement_summary']}" for child in children
-        )
+        return delivery_command_executor.command_coding_materialize(self, raw_args)
 
     @staticmethod
     def _format_decomposition_blocked_message(task_id: str, result: dict[str, Any]) -> str:
@@ -1029,16 +1011,7 @@ class CodingOrchestrator:
         return DeliveryService.breakdown_is_approved(task)
 
     def _materialize_execution_tasks(self, task: dict[str, Any]) -> list[dict[str, Any]]:
-        existing_children = self.ledger.list_child_tasks(str(task["task_id"]))
-        result = self.delivery_service.materialize_execution_tasks(
-            task,
-            existing_children=existing_children,
-            create_child_task=lambda spec: self.ledger.create_task(**spec.as_create_task_kwargs()),
-            get_child_task=self.ledger.get_task,
-        )
-        if result.errors:
-            raise ValueError("; ".join(result.errors))
-        return result.children
+        return delivery_command_executor.materialize_execution_tasks(self, task)
 
     def _next_runnable_child(self, parent_task: dict[str, Any]) -> dict[str, Any] | None:
         children = self.ledger.list_child_tasks(parent_task["task_id"])
