@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 209：Task 34 status command executor 第十二切片（complete）
+阶段 210：Task 34 list command executor 第十三切片（complete）
 
 ## 各阶段
 
@@ -1602,6 +1602,15 @@
 - [x] 实现：新增 `coding_orchestration/coding_status_command_executor.py`；`CodingOrchestrator.command_coding_status()` 和 `_status_for_event()` 改为薄 wrapper。
 - [x] 文档：同步 Task 34 第十二切片进度、技术方案、项目地图、组件合同、machine-readable context 和发现。
 - [x] 验证：运行 status command executor、status/delivery/Gateway 聚焦回归、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 210：Task 34 list command executor 第十三切片
+- [x] 定域：只迁普通 `/coding list` 和 Gateway list immediate host shell 的 active status 查询、active task 标记、空列表文案和切换提示；不迁 task list presenter、Gateway route/controller、CLI direct dispatcher、status reconcile、delivery/project/diagnostics、runner/workspace/git 或 run lifecycle。
+- [x] TDD：新增 `tests/test_coding_task_list_command_executor.py`，直接覆盖命令模式列表、空列表、Gateway active task tip 和无 binding tip。
+- [x] RED：确认新 executor 缺失或未接线时测试失败。
+- [x] 实现：新增 `coding_task_list_command_executor.py`；`CodingOrchestrator.command_coding_list()`、`_format_task_list_for_event()` 和 `_format_task_list()` 改为薄 wrapper。
+- [x] 文档：同步 Task 34 第十三切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 list command executor、task list presenter、completion/list/Gateway 聚焦回归、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片

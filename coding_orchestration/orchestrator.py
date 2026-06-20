@@ -67,6 +67,7 @@ from . import (
     background_run_notifier,
     coding_diagnostics_command_executor,
     coding_status_command_executor,
+    coding_task_list_command_executor,
     delivery_command_executor,
     feedback_presenter,
     gateway_active_context,
@@ -107,7 +108,6 @@ from . import (
     run_completion_presenter,
     run_start_presenter,
     source_projection,
-    task_list_presenter,
 )
 from . import task_status_presenter
 from .project_workitem_binding import ProjectWorkitemIdentity
@@ -702,11 +702,7 @@ class CodingOrchestrator:
             return []
 
     def command_coding_list(self, raw_args: str = "") -> str:
-        statuses = self._active_coding_statuses()
-        tasks = self.ledger.list_recent_tasks(statuses=statuses, limit=20)
-        if not tasks:
-            return "当前没有未结束开发任务。"
-        return self._format_task_list(tasks)
+        return coding_task_list_command_executor.command_coding_list(self, raw_args)
 
     def command_coding_project_list(self, raw_args: str = "") -> str:
         return project_command_executor.command_coding_project_list(self, raw_args)
@@ -1880,28 +1876,18 @@ class CodingOrchestrator:
         return self.gateway_binding_service.active_project_binding_key_for_event(event)
 
     def _format_task_list_for_event(self, event: Any) -> str:
-        binding_key = self._binding_key_for_event(event)
-        active_id = self._active_task_id_for_event(event)
-        tasks = self.ledger.list_recent_tasks(statuses=self._active_coding_statuses(), limit=10)
-        if not tasks:
-            return "当前没有未结束开发任务。"
-        lines = self._format_task_list(tasks, active_id=active_id).splitlines()
-        if binding_key:
-            lines.append(f"提示：当前会话绑定：{active_id or '无'}；使用 /coding use <task_id> 切换当前任务。")
-        else:
-            lines.append("提示：使用 /coding use <task_id> 切换当前任务。")
-        return "\n".join(lines)
+        return coding_task_list_command_executor.task_list_for_event(self, event)
 
     def _format_task_list(self, tasks: list[dict[str, Any]], active_id: str | None = None) -> str:
-        return task_list_presenter.format_task_list(tasks, active_id=active_id)
+        return coding_task_list_command_executor.format_task_list(tasks, active_id=active_id)
 
     @staticmethod
     def _task_project_label(task: dict[str, Any]) -> str:
-        return task_list_presenter.task_project_label(task)
+        return coding_task_list_command_executor.task_project_label(task)
 
     @staticmethod
     def _task_description_label(task: dict[str, Any]) -> str:
-        return task_list_presenter.task_description_label(task)
+        return coding_task_list_command_executor.task_description_label(task)
 
     def _select_active_task_for_event(self, task_id: str, event: Any) -> str:
         task_id = task_id.strip()

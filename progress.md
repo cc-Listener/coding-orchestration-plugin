@@ -4,6 +4,30 @@
 
 ## 会话：2026-06-20
 
+### 阶段 210：Task 34 list command executor 第十三切片
+- **状态：** complete
+- 背景：
+  - 阶段 209 已把普通 status 与 Gateway status host shell 迁入 `coding_status_command_executor.py`。
+  - `orchestrator.py` 仍直接承接普通 `/coding list` 和 Gateway list immediate 的 active status 查询、active task 标记、空列表文案和会话切换提示；这些属于 list command host shell，适合作为更小一片继续降载。
+  - 本轮不迁 task list presenter、Gateway route/controller、CLI direct dispatcher、status reconcile、delivery/project/diagnostics、runner/workspace/git 或 run lifecycle。
+- 执行的操作：
+  - 新增 `tests/test_coding_task_list_command_executor.py`，覆盖命令模式列表、空列表、Gateway active task tip 和无 binding tip。
+  - RED 已确认：`coding_task_list_command_executor` 缺失导致测试失败。
+  - 新增 `coding_orchestration/coding_task_list_command_executor.py`，承接 list command-mode host shell 和 Gateway list immediate host shell。
+  - `CodingOrchestrator.command_coding_list()`、`_format_task_list_for_event()`、`_format_task_list()`、`_task_project_label()` 和 `_task_description_label()` 改为薄 wrapper。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_coding_task_list_command_executor -v` 先失败于 missing import。
+  - GREEN：同一测试通过，4 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_coding_task_list_command_executor tests.test_task_list_presenter tests.test_completion_flow tests.test_gateway_natural_language_command_flow tests.test_coding_diagnostics_command_executor -v`：24 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/coding_task_list_command_executor.py coding_orchestration/orchestrator.py tests/test_coding_task_list_command_executor.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4096 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：900 tests passed。
+- 剩余风险：
+  - `orchestrator.py` 当前 4096 行，仍是 architecture guard legacy large-file watch。
+  - 下一轮 Task 34 可考虑只读 explorer 推荐的普通 run/implement/QA command host shell；不要把 `start_run()`、active run reconcile、workspace/checkpoint/git、merge-test gates 或 delete/cancel/restore 混入同片。
+  - hard code / 大文件治理的近期切入点可单独开 guard 配置化或 secret scan 扩展，不要和本轮 list executor 混提交。
+
 ### 阶段 209：Task 34 status command executor 第十二切片
 - **状态：** complete
 - 背景：
