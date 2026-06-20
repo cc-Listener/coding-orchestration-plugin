@@ -93,6 +93,8 @@ project_map:
       reason: "Project command executor host shell，维护 /coding project list/init/use/status/clear 命令模式提示和 Gateway immediate project context 分支，调用注入的 profile upsert、active project binding、project formatter 与路径解析 callback；不拥有 Gateway route、不创建任务、不启动 runner、不推进状态、不实现 project profile catalog 纯规则。"
     - path: coding_orchestration/coding_diagnostics_command_executor.py
       reason: "Coding diagnostics command executor host shell，维护 doctor / lark-preflight / project-mcp-preflight / source-resolve command-mode dispatch、Project MCP config/stdio readiness gate、Hermes runtime availability probe 和 Gateway immediate diagnostic 分支；不拥有 Gateway route、不实现 CLI direct dispatcher、不迁普通 status/list presentation、不触碰 runner/workspace/git 或 run lifecycle。"
+    - path: coding_orchestration/coding_status_command_executor.py
+      reason: "Coding status command executor host shell，维护普通 /coding status <task_id> 与 Gateway status immediate 的参数解析、active task fallback、active run reconcile callback、delivery/tree status 委托和 status presenter 调用；不拥有 active run reconcile 实现、不实现 delivery status executor 或 TaskStatus presenter、不触碰 Gateway route、CLI direct dispatcher、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/gateway_rewrite_context.py
       reason: "Gateway rewrite context 纯投影 helper，只消费已采集的 task/project/media/catalog 事实并返回 LLM rewrite context 与 next-step hint；不读 ledger、不持有 Gateway event、不调用 command_rewriter、不发送回复。"
     - path: coding_orchestration/delivery_command_executor.py
@@ -295,6 +297,9 @@ component_contract:
     - name: coding_diagnostics_command_executor
       path: coding_orchestration/coding_diagnostics_command_executor.py
       preferred: true
+    - name: coding_status_command_executor
+      path: coding_orchestration/coding_status_command_executor.py
+      preferred: true
     - name: source_projection
       path: coding_orchestration/source_projection.py
       preferred: true
@@ -442,6 +447,10 @@ component_contract:
       path: coding_orchestration/coding_diagnostics_command_executor.py
       use_instead_of:
         - "在 orchestrator 中继续新增 doctor / lark-preflight / project-mcp-preflight / source-resolve command-level diagnostic host shell、Project MCP config/stdio readiness gate、Hermes runtime availability probe 或 Gateway immediate diagnostic 分支。"
+    - name: coding_status_command_executor
+      path: coding_orchestration/coding_status_command_executor.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增普通 /coding status <task_id> 或 Gateway status immediate host shell 的参数解析、active task fallback、delivery/tree flag 分流、active run reconcile callback 接线或 status presenter 调用。"
     - name: RunnerRouter
       path: coding_orchestration/runner_router.py
       use_instead_of:

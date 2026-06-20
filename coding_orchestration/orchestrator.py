@@ -66,6 +66,7 @@ from .prompt_builder import PromptBuilder
 from . import (
     background_run_notifier,
     coding_diagnostics_command_executor,
+    coding_status_command_executor,
     delivery_command_executor,
     feedback_presenter,
     gateway_active_context,
@@ -747,32 +748,7 @@ class CodingOrchestrator:
         return "当前会话没有绑定任务；请在飞书里使用 /coding bugfix <反馈>，或使用 /coding implement <task_id>。"
 
     def command_coding_status(self, raw_args: str) -> str:
-        args = raw_args.split()
-        delivery_view = "--delivery" in args
-        tree_view = "--tree" in args
-        task_id = " ".join(arg for arg in args if not arg.startswith("--")).strip()
-        if not task_id:
-            return "请提供任务 ID。"
-        task = self.ledger.get_task(task_id)
-        if not task:
-            return f"未找到任务：{task_id}"
-        reconciled = self._reconcile_completed_active_run(task_id, task=task)
-        if reconciled:
-            task = self.ledger.get_task(task_id) or task
-            return "\n".join(
-                [
-                    f"[{task_id}] 已自动回收后台执行：{reconciled['run_id']}",
-                    self._format_task_status_details(task, include_branch=False),
-                ]
-            )
-        if delivery_view or tree_view:
-            return delivery_command_executor.command_coding_delivery_status(
-                self,
-                task_id=task_id,
-                task=task,
-                tree_view=tree_view,
-            )
-        return self._format_task_status_details(task, include_branch=False)
+        return coding_status_command_executor.command_coding_status(self, raw_args)
 
     def command_coding_cancel(self, raw_args: str) -> str:
         target = raw_args.strip()
@@ -1956,26 +1932,7 @@ class CodingOrchestrator:
         )
 
     def _status_for_event(self, raw_args: str, event: Any) -> str:
-        args = raw_args.split()
-        flags = [arg for arg in args if arg.startswith("--")]
-        task_id = next((arg for arg in args if not arg.startswith("--")), "") or self._active_task_id_for_event(event) or ""
-        if not task_id:
-            return "请提供任务 ID，或先使用 /coding use <task_id> 切换当前任务。"
-        if flags:
-            return self.command_coding_status(" ".join([task_id, *flags]))
-        task = self.ledger.get_task(task_id)
-        if not task:
-            return f"未找到任务：{task_id}"
-        reconciled = self._reconcile_completed_active_run(task_id, task=task)
-        if reconciled:
-            task = self.ledger.get_task(task_id) or task
-            return "\n".join(
-                [
-                    f"[{task_id}] 已自动回收后台执行：{reconciled['run_id']}",
-                    self._format_task_status_details(task, include_branch=True),
-                ]
-            )
-        return self._format_task_status_details(task, include_branch=True)
+        return coding_status_command_executor.status_for_event(self, raw_args, event)
 
     def _task_status_payload(self, task_id: str) -> dict[str, Any]:
         return self.task_service.task_status_payload(task_id)

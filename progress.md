@@ -4,6 +4,26 @@
 
 ## 会话：2026-06-20
 
+### 阶段 209：Task 34 status command executor 第十二切片
+- **状态：** complete
+- 背景：
+  - 阶段 208 已把 diagnostics façade 迁入 `coding_diagnostics_command_executor.py`。
+  - `orchestrator.py` 仍直接承接普通 `/coding status <task_id>` 和 Gateway status immediate 的命令解析、active task fallback、active run reconcile callback、delivery/tree status 委托和 status presenter 调用；这些属于 status command host shell，适合继续按 callback 方式降载。
+  - 本轮不迁 active run reconcile 实现、delivery status executor、TaskStatus presenter、Gateway route/controller、CLI direct dispatcher、runner/workspace/git 或 run lifecycle。
+- 执行的操作：
+  - 新增 `tests/test_coding_status_command_executor.py`，覆盖缺 task、未找到、active run reconcile 后不展示 branch、delivery/tree flag 复用既有 delivery executor、Gateway active task fallback 和 Gateway status 展示 branch。
+  - RED 已确认：`coding_status_command_executor` 缺失导致测试失败。
+  - 新增 `coding_orchestration/coding_status_command_executor.py`，承接 status command-mode host shell 和 Gateway status host shell。
+  - `CodingOrchestrator.command_coding_status()` 和 `_status_for_event()` 改为薄 wrapper。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_coding_status_command_executor -v` 先失败于 missing import。
+  - GREEN：同一测试通过，5 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_status_reconcile_flow tests.test_delivery_status_reconcile_flow tests.test_task_status_payload tests.test_gateway_command_group_flow -v`：16 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/coding_status_command_executor.py coding_orchestration/orchestrator.py tests/test_coding_status_command_executor.py`：passed。
+- 剩余风险：
+  - `orchestrator.py` 当前 4110 行，仍是 architecture guard legacy large-file watch。
+  - 下一轮 Task 34 可继续选择 ordinary run/implement command host shell、Gateway 执行副作用或其他非 delivery/status façade 降载点；不要把 active run reconcile 或 runner/workspace/git 混入 status executor。
+
 ### 阶段 208：Task 34 diagnostics command executor 第十一切片
 - **状态：** complete
 - 背景：

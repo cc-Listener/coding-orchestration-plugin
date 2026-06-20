@@ -85,6 +85,7 @@
 - 变更计划确认、确认过早、`/coding use`、`/coding delete` 或近期 planned task continue 行为时，优先扩展 `tests/test_gateway_task_control_flow.py`。
 - 变更 bugfix/change/continue feedback、带图反馈或 failed plan-only restart 行为时，优先扩展 `tests/test_gateway_feedback_flow.py` 和 `tests/test_gateway_change_continue_flow.py`。
 - 变更 plugin-generated message 忽略、stale run completion 或无任务强确认拦截时，优先扩展 `tests/test_gateway_safety_lifecycle_flow.py`。
+- 变更普通 `/coding status` 或 Gateway status host shell 的参数解析、active task fallback、delivery/tree flag 分流或 status command façade 时，优先扩展 `tests/test_coding_status_command_executor.py`，再按影响范围扩展 `tests/test_status_reconcile_flow.py`、`tests/test_delivery_status_reconcile_flow.py` 或 `tests/test_gateway_command_group_flow.py`。
 - 变更状态展示、active background run reconcile、implementation not landed reconcile 或 execution policy 写入时，优先扩展 `tests/test_status_reconcile_flow.py`。
 - 变更 bugfix 完成后的飞书 Project comment/writeback 时，优先扩展 `tests/test_bugfix_writeback_flow.py` 和 `tests/test_workitem_service.py`。
 - 变更手动 QA、QA artifact 收集、QA clean-tree gate 或实现完成后的 QA 提示时，优先扩展 `tests/test_qa_flow.py` 和相邻 `RunService` / prompt contract tests。

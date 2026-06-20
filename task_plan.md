@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 208：Task 34 diagnostics command executor 第十一切片（complete）
+阶段 209：Task 34 status command executor 第十二切片（complete）
 
 ## 各阶段
 
@@ -1593,6 +1593,15 @@
 - [x] 实现：新增 `coding_orchestration/coding_diagnostics_command_executor.py`；`CodingOrchestrator.command_coding_cli()`、`command_coding_doctor()`、`_format_lark_preflight()`、`_format_project_mcp_preflight()`、`_format_source_resolve()`、`_hermes_runtime_available()` 和 Gateway immediate diagnostic 分支改为薄 wrapper。
 - [x] 文档：同步 Task 34 第十一切片进度、技术方案、项目地图、组件合同、machine-readable context 和发现。
 - [x] 验证：运行 diagnostics command executor、coding CLI、Gateway command group/controller、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 209：Task 34 status command executor 第十二切片
+- [x] 定域：只迁普通 `/coding status <task_id>` 和 Gateway status immediate host shell 的参数解析、active task fallback、缺 task/未找到文案、active run reconcile callback 调用、delivery/tree status 委托和 status presenter 调用；不迁 active run reconcile 实现、delivery status executor、TaskStatus presenter、Gateway route/controller、CLI direct dispatcher、runner/workspace/git 或 run lifecycle。
+- [x] TDD：新增 `tests/test_coding_status_command_executor.py`，覆盖缺 task、未找到、active run reconcile 后不展示 branch、delivery/tree flag 复用既有 delivery executor、Gateway active task fallback 和 Gateway status 展示 branch。
+- [x] RED：确认 `coding_status_command_executor` 缺失时测试失败。
+- [x] 实现：新增 `coding_orchestration/coding_status_command_executor.py`；`CodingOrchestrator.command_coding_status()` 和 `_status_for_event()` 改为薄 wrapper。
+- [x] 文档：同步 Task 34 第十二切片进度、技术方案、项目地图、组件合同、machine-readable context 和发现。
+- [x] 验证：运行 status command executor、status/delivery/Gateway 聚焦回归、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片
