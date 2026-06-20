@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 206：Task 34 delivery breakdown executor 第九切片（complete）
+阶段 207：Task 34 project command executor 第十切片（complete）
 
 ## 各阶段
 
@@ -1574,6 +1574,16 @@
 - [x] 实现：`delivery_command_executor.py` 新增 `command_coding_breakdown()` 和 `command_coding_analyze()`；`CodingOrchestrator.command_coding_breakdown()` / `command_coding_analyze()` 保留薄 wrapper。
 - [x] 文档：同步 Task 34 第九切片进度、技术方案、项目地图、组件合同、machine-readable context 和发现。
 - [x] 验证：运行 delivery command executor、delivery flow/service、Gateway command executor、command catalog、command run 聚焦回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 207：Task 34 project command executor 第十切片
+- [x] 定域：只迁 `/coding project list/init/use/status/clear` 命令模式提示和 Gateway immediate project context host shell；不迁 Gateway route、project profile catalog 纯规则、项目路径候选/别名规则、任务创建、runner/workspace/git、状态推进或 run lifecycle。
+- [x] TDD：新增 `tests/test_project_command_executor.py`，覆盖命令模式不写 Gateway binding、project init 参数/项目缺失、project init 成功 profile upsert + active binding、project use/status/list/clear 共享 active project binding，以及无 binding 的 status/clear 文案。
+- [x] RED：确认 `project_command_executor` 缺失时测试失败。
+- [x] 实现：新增 `coding_orchestration/project_command_executor.py`；`CodingOrchestrator.command_coding_project_*()` 和 Gateway immediate project 分支改为薄 wrapper；删除 orchestrator 中已迁出的 project command 私有 helper。
+- [x] hard code：新 executor 中项目路径示例改为通用 `/absolute/path/to/repo`，避免继续扩散本机路径示例。
+- [x] 文档：同步 Task 34 第十切片进度、技术方案、项目地图、组件合同、machine-readable context 和发现。
+- [x] 验证：运行 project command executor、Gateway project task / command group / rewrite / controller 聚焦回归、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片

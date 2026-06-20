@@ -4,6 +4,30 @@
 
 ## 会话：2026-06-19
 
+### 阶段 207：Task 34 project command executor 第十切片
+- **状态：** complete
+- 背景：
+  - 阶段 202-206 已把 delivery command façade 全部迁入 `delivery_command_executor.py`。
+  - `orchestrator.py` 仍直接承接 `/coding project list/init/use/status/clear` 的命令模式提示、Gateway immediate project context 分支、profile upsert callback 和 active project binding callback；底层 project profile catalog 与 project context 纯规则已拆出，适合继续按 host shell 迁移。
+  - multi-agent 只读探索同时建议 diagnostics façade 作为后续候选；本轮先完成已定域的 project command executor，后续可继续做 diagnostics。
+- 执行的操作：
+  - 新增 `tests/test_project_command_executor.py`，覆盖命令模式不写 Gateway binding、project init 参数/项目缺失、project init 成功 profile upsert + active binding、project use/status/list/clear 共享 active project binding，以及无 binding 的 status/clear 文案。
+  - RED 已确认：`project_command_executor` 缺失导致测试失败。
+  - 新增 `coding_orchestration/project_command_executor.py`，承接 `/coding project list/init/use/status/clear` 命令模式和 Gateway immediate project context host shell。
+  - `CodingOrchestrator.command_coding_project_*()` 和 `_gateway_immediate_route_message()` 中 project 分支改为薄 wrapper；删除 orchestrator 中已迁出的 `_initialize_project_for_event()`、`_select_active_project_for_event()`、`_active_project_status_for_event()`、`_format_project_list_for_event()` 和 `_clear_active_project_for_event()`。
+  - 新 executor 的项目路径示例使用通用 `/absolute/path/to/repo`，避免继续扩散本机路径示例。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_project_command_executor -v` 先失败于 missing import。
+  - GREEN：同一测试通过，5 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_gateway_project_task_flow tests.test_gateway_command_group_flow tests.test_gateway_rewrite_flow tests.test_gateway_command_controller -v`：44 tests passed；合并 project executor 后同组聚焦回归 49 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/project_command_executor.py coding_orchestration/orchestrator.py tests/test_project_command_executor.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4212 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：884 tests passed。
+- 剩余风险：
+  - `orchestrator.py` 当前 4212 行，仍是 architecture guard legacy large-file watch。
+  - 下一轮 Task 34 可优先 diagnostics façade，或继续选择普通 status/run presentation 等非 delivery 降载点；不要把 Gateway route、runner/workspace/git 或 run lifecycle 混入 project command executor。
+
 ### 阶段 206：Task 34 delivery breakdown executor 第九切片
 - **状态：** complete
 - 背景：

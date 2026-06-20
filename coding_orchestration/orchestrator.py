@@ -80,6 +80,7 @@ from . import (
     gateway_rewrite_presenter,
     merge_test_presenter,
     merge_test_readiness_service,
+    project_command_executor,
     project_profile_catalog,
     run_background_orchestration,
     run_artifact_paths,
@@ -769,19 +770,19 @@ class CodingOrchestrator:
         return self._format_task_list(tasks)
 
     def command_coding_project_list(self, raw_args: str = "") -> str:
-        return self._format_project_list(active_project=None)
+        return project_command_executor.command_coding_project_list(self, raw_args)
 
     def command_coding_project_init(self, raw_args: str = "") -> str:
-        return "命令模式缺少飞书来源，无法绑定当前项目；请在飞书里使用 /coding project init <project_path_or_name>。"
+        return project_command_executor.command_coding_project_init(self, raw_args)
 
     def command_coding_project_use(self, raw_args: str = "") -> str:
-        return "命令模式缺少飞书来源，无法绑定当前项目；请在飞书里使用 /coding project use <project_name>。"
+        return project_command_executor.command_coding_project_use(self, raw_args)
 
     def command_coding_project_status(self, raw_args: str = "") -> str:
-        return "命令模式缺少飞书来源，无法读取当前项目；请在飞书里使用 /coding project status。"
+        return project_command_executor.command_coding_project_status(self, raw_args)
 
     def command_coding_project_clear(self, raw_args: str = "") -> str:
-        return "命令模式缺少飞书来源，无法清除当前项目；请在飞书里使用 /coding project clear。"
+        return project_command_executor.command_coding_project_clear(self, raw_args)
 
     def command_coding_use(self, raw_args: str) -> str:
         task_id = raw_args.strip()
@@ -1562,11 +1563,11 @@ class CodingOrchestrator:
             "project_mcp_preflight": self._format_project_mcp_preflight,
             "source_resolve": lambda: self._format_source_resolve(raw_args),
             "list": lambda: self._format_task_list_for_event(event),
-            "project_list": lambda: self._format_project_list_for_event(event),
-            "project_init": lambda: self._initialize_project_for_event(raw_args, event),
-            "project_use": lambda: self._select_active_project_for_event(raw_args, event),
-            "project_status": lambda: self._active_project_status_for_event(event),
-            "project_clear": lambda: self._clear_active_project_for_event(event),
+            "project_list": lambda: project_command_executor.gateway_project_list(self, event),
+            "project_init": lambda: project_command_executor.gateway_project_init(self, raw_args, event),
+            "project_use": lambda: project_command_executor.gateway_project_use(self, raw_args, event),
+            "project_status": lambda: project_command_executor.gateway_project_status(self, event),
+            "project_clear": lambda: project_command_executor.gateway_project_clear(self, event),
             "use": lambda: self._select_active_task_for_event(raw_args, event),
             "exit": lambda: self._clear_active_task_for_event(event),
             "status": lambda: self._status_for_event(raw_args, event),
@@ -1925,77 +1926,6 @@ class CodingOrchestrator:
             self._active_task_id_for_event(event),
         )
 
-    def _initialize_project_for_event(self, raw_args: str, event: Any | None) -> str:
-        candidate = normalize_project_text(raw_args).strip()
-        if not candidate:
-            return "请提供项目路径或项目名称，例如 /coding project init /Users/xiaojing/Desktop/project/bps-admin。"
-        project_path = self._local_project_path_for_candidate(candidate)
-        if project_path is None:
-            return (
-                f"未找到项目：{candidate}\n"
-                "原因：无法在给定路径、已知项目父目录或 ~/Desktop/project 下定位目录。\n"
-                "影响：未写入项目上下文，也未绑定当前项目。\n"
-                "恢复动作：请发送绝对路径，例如 /coding project init /Users/xiaojing/Desktop/project/<repo>。"
-            )
-        project_name = project_path.name
-        aliases = self._project_aliases_from_human_text(candidate, project_name)
-        self._upsert_human_project_profile(
-            project_name=project_name,
-            project_path=project_path,
-            aliases=aliases,
-            body=f"project init: {candidate}",
-        )
-        profile = self._find_project_profile(project_name) or {
-            "name": project_name,
-            "project": project_name,
-            "aliases": aliases,
-            "path": str(project_path),
-            "status": "verified",
-            "updated_at": "",
-            "source": "project_init",
-            "dynamic_source_count": 0,
-        }
-        self._bind_active_project_for_event(profile, event)
-        return "\n".join(
-            [
-                f"已初始化项目：{project_name}",
-                f"路径：{project_path}",
-                f"当前项目：{project_name}",
-                "说明：已写入或刷新项目上下文；不会创建任务，也不会启动执行。",
-            ]
-        )
-
-    def _select_active_project_for_event(self, raw_args: str, event: Any | None) -> str:
-        project_name = normalize_project_text(raw_args).strip()
-        if not project_name:
-            return "请提供项目名称，例如 /coding project use bps-admin。"
-        profile = self._find_project_profile(project_name)
-        if profile is None:
-            return (
-                f"未找到项目：{project_name}\n"
-                "恢复动作：先使用 /coding project list 查看已有项目，或使用 /coding project init <project_path_or_name> 初始化。"
-            )
-        self._bind_active_project_for_event(profile, event)
-        return "\n".join(
-            [
-                f"已切换当前项目：{profile['name']}",
-                f"路径：{profile.get('path') or '未记录'}",
-                "说明：本次只切换会话项目上下文，不重新扫描、不创建任务。",
-            ]
-        )
-
-    def _active_project_status_for_event(self, event: Any | None) -> str:
-        active_project = self._active_project_for_event(event)
-        if not active_project:
-            return (
-                "当前没有绑定项目。\n"
-                "可用命令：/coding project list、/coding project use <project_name>、/coding project init <project_path_or_name>。"
-            )
-        return self._format_project_status(active_project)
-
-    def _format_project_list_for_event(self, event: Any | None) -> str:
-        return self._format_project_list(active_project=self._active_project_for_event(event))
-
     def _format_project_list(self, *, active_project: dict[str, Any] | None) -> str:
         return self._project_profile_catalog().format_list(active_project=active_project)
 
@@ -2028,12 +1958,6 @@ class CodingOrchestrator:
             event,
             find_project_profile=self._find_project_profile,
         )
-
-    def _clear_active_project_for_event(self, event: Any | None) -> str:
-        if not self._active_project_binding_key_for_event(event):
-            return "当前来源无法识别，没有可清除的当前项目。"
-        cleared = self.gateway_binding_service.clear_active_project_for_event(event)
-        return "已清除当前项目，不会删除项目上下文。" if cleared else "当前没有绑定项目。"
 
     def _active_project_binding_key_for_event(self, event: Any | None) -> str | None:
         return self.gateway_binding_service.active_project_binding_key_for_event(event)
