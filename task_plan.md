@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 207：Task 34 project command executor 第十切片（complete）
+阶段 208：Task 34 diagnostics command executor 第十一切片（complete）
 
 ## 各阶段
 
@@ -1584,6 +1584,15 @@
 - [x] hard code：新 executor 中项目路径示例改为通用 `/absolute/path/to/repo`，避免继续扩散本机路径示例。
 - [x] 文档：同步 Task 34 第十切片进度、技术方案、项目地图、组件合同、machine-readable context 和发现。
 - [x] 验证：运行 project command executor、Gateway project task / command group / rewrite / controller 聚焦回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 208：Task 34 diagnostics command executor 第十一切片
+- [x] 定域：只迁 `doctor`、`lark-preflight`、`project-mcp-preflight`、`source-resolve` 的 command-level diagnostic host shell、Project MCP config/stdio readiness gate、Hermes runtime availability probe 和 Gateway immediate diagnostic 分支；不迁 Gateway route/controller、CLI direct dispatcher、普通 status/list presentation、runner/workspace/git、source enrichment 或 run lifecycle。
+- [x] TDD：新增 `tests/test_coding_diagnostics_command_executor.py`，覆盖 doctor 在 runner router decision 异常时仍输出诊断、CLI status 继续委托 host façade、Project MCP 只有 enabled + token + command ready 才 dispatch、source-resolve 空输入不 dispatch、runtime availability 读取 runner runtime port。
+- [x] RED：确认 `coding_diagnostics_command_executor` 缺失时测试失败。
+- [x] 实现：新增 `coding_orchestration/coding_diagnostics_command_executor.py`；`CodingOrchestrator.command_coding_cli()`、`command_coding_doctor()`、`_format_lark_preflight()`、`_format_project_mcp_preflight()`、`_format_source_resolve()`、`_hermes_runtime_available()` 和 Gateway immediate diagnostic 分支改为薄 wrapper。
+- [x] 文档：同步 Task 34 第十一切片进度、技术方案、项目地图、组件合同、machine-readable context 和发现。
+- [x] 验证：运行 diagnostics command executor、coding CLI、Gateway command group/controller、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片

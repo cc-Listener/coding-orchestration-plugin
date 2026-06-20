@@ -2,6 +2,32 @@
 
 说明：本日志按时间倒序记录，历史阶段中的 “In Progress” 保留当时状态；当前事实以顶部最新阶段为准。Task 30 已在阶段 185 关闭，后续大文件治理、hard code、Skill/MCP/Hermes 解耦不再挂回 Task 30。
 
+## 会话：2026-06-20
+
+### 阶段 208：Task 34 diagnostics command executor 第十一切片
+- **状态：** complete
+- 背景：
+  - 阶段 202-206 已把 delivery command façade 全部迁入 `delivery_command_executor.py`，阶段 207 已把 project command façade 迁入 `project_command_executor.py`。
+  - `orchestrator.py` 仍直接承接 `doctor`、`lark-preflight`、`project-mcp-preflight`、`source-resolve` 的命令模式 dispatch、Project MCP config/stdio readiness gate、Hermes runtime availability probe 和 Gateway immediate diagnostic 分支；这些属于 diagnostic host shell，适合作为 Task 34 的下一片。
+  - 本轮不迁 Gateway route/controller、CLI direct dispatcher、普通 status/list presentation、runner/workspace/git、source enrichment 或 run lifecycle。
+- 执行的操作：
+  - 新增 `tests/test_coding_diagnostics_command_executor.py`，覆盖 doctor 在 runner router decision 异常时仍输出诊断、CLI status 继续委托 host façade、Project MCP 只有 enabled + token + command ready 才 dispatch、source-resolve 空输入不 dispatch、runtime availability 读取 runner runtime port。
+  - RED 已确认：`coding_diagnostics_command_executor` 缺失导致测试失败。
+  - 新增 `coding_orchestration/coding_diagnostics_command_executor.py`，承接 diagnostics command-mode dispatch、doctor 聚合、Project MCP preflight gate、source resolve gate、Hermes runtime availability probe 和 Gateway immediate diagnostic 分支。
+  - `CodingOrchestrator.command_coding_cli()`、`command_coding_doctor()`、`_format_lark_preflight()`、`_format_project_mcp_preflight()`、`_format_source_resolve()`、`_hermes_runtime_available()` 和 `_gateway_immediate_route_message()` 中 diagnostic 分支改为薄 wrapper。
+  - 同步 `task_plan.md`、`findings.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、实施计划、project map、component contract 和 machine-readable context。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_coding_diagnostics_command_executor -v` 先失败于 missing import。
+  - GREEN：同一测试通过，7 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_coding_diagnostics_command_executor tests.test_coding_cli tests.test_gateway_command_group_flow tests.test_gateway_command_controller -v`：46 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/coding_diagnostics_command_executor.py coding_orchestration/orchestrator.py tests/test_coding_diagnostics_command_executor.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 4153 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：891 tests passed。
+- 剩余风险：
+  - `orchestrator.py` 当前 4153 行，仍是 architecture guard legacy large-file watch。
+  - 下一轮 Task 34 可继续选择 ordinary status/run presentation、Gateway 执行副作用或其他非 delivery façade 降载点；不要把 Task 30 重新打开，也不要把 runner/workspace/git 或 active run reconcile 混入 diagnostics executor。
+
 ## 会话：2026-06-19
 
 ### 阶段 207：Task 34 project command executor 第十切片

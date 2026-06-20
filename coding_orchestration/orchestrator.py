@@ -19,10 +19,6 @@ from .doctor_presenter import (
     doctor_runtime_summary,
     doctor_scope_login_hint,
     doctor_status_label,
-    format_lark_preflight,
-    format_project_mcp_preflight,
-    format_source_resolve,
-    render_doctor_summary,
 )
 from .execution_policy import control_policy_for_mode
 from .feishu_copy import render_user_update
@@ -69,6 +65,7 @@ from .ports import KnowledgePort
 from .prompt_builder import PromptBuilder
 from . import (
     background_run_notifier,
+    coding_diagnostics_command_executor,
     delivery_command_executor,
     feedback_presenter,
     gateway_active_context,
@@ -469,48 +466,10 @@ class CodingOrchestrator:
         return WorkItemService.project_transitable_states(result)
 
     def command_coding_cli(self, args: Any = None) -> str:
-        if args is None:
-            parts: list[str] = []
-        elif isinstance(args, str):
-            parts = args.split()
-        else:
-            parts = [str(part) for part in args]
-        command = parts[0] if parts else "status"
-        rest = parts[1:]
-        if command == "doctor":
-            return self.command_coding_doctor()
-        if command == "lark-preflight":
-            return self._format_lark_preflight(self.tool_lark_preflight({}))
-        if command == "project-mcp-preflight":
-            return self._format_project_mcp_preflight()
-        if command == "source-resolve":
-            return self._format_source_resolve(" ".join(rest))
-        if command == "status":
-            return self.command_coding_status(" ".join(rest)) if rest else self.command_coding_list("")
-        return "Usage: hermes coding <doctor|status|lark-preflight|project-mcp-preflight|source-resolve>"
+        return coding_diagnostics_command_executor.command_coding_cli(self, args)
 
     def command_coding_doctor(self) -> str:
-        lark = self.tool_lark_preflight({})
-        project_mcp = self.tool_project_mcp_preflight({"include_tools": False})
-        kanban_available = bool(getattr(getattr(self, "kanban_bridge", None), "available", lambda: False)())
-        runtime_available = self._hermes_runtime_available()
-        router = getattr(self, "runner_router", None)
-        default_runner = str(getattr(router, "default_runner", "unknown"))
-        try:
-            codex_decision = router.codex_backend_decision(RunMode.IMPLEMENTATION) if router else None
-        except Exception:
-            codex_decision = None
-        codex_backend = getattr(codex_decision, "backend", "unknown")
-        hermes_provider = getattr(codex_decision, "hermes_provider", "")
-        return render_doctor_summary(
-            lark=lark,
-            project_mcp=project_mcp,
-            kanban_available=kanban_available,
-            runtime_available=runtime_available,
-            default_runner=default_runner,
-            codex_backend=codex_backend,
-            hermes_provider=hermes_provider,
-        )
+        return coding_diagnostics_command_executor.command_coding_doctor(self)
 
     @staticmethod
     def _doctor_lark_summary(result: dict[str, Any]) -> str:
@@ -596,44 +555,23 @@ class CodingOrchestrator:
         }
 
     def _format_lark_preflight(self, result: dict[str, Any]) -> str:
-        return format_lark_preflight(result)
+        return coding_diagnostics_command_executor.format_lark_preflight_result(result)
 
     def project_mcp_preflight_config(self) -> FeishuProjectMcpConfig:
-        return self._project_mcp_adapter().config
+        return coding_diagnostics_command_executor.project_mcp_preflight_config(self)
 
     @staticmethod
     def project_mcp_preflight_command_available(config: FeishuProjectMcpConfig) -> bool:
-        if config.transport != "stdio":
-            return True
-        command = config.command[0] if config.command else "npx"
-        return shutil.which(command) is not None
+        return coding_diagnostics_command_executor.project_mcp_preflight_command_available(config)
 
     def _format_project_mcp_preflight(self) -> str:
-        config = self.project_mcp_preflight_config()
-        command_available = self.project_mcp_preflight_command_available(config)
-        result: dict[str, Any] | None = None
-        if bool(config.enabled) and str(config.token or "").strip() and (
-            config.transport != "stdio" or command_available
-        ):
-            result = self.tool_project_mcp_preflight({"include_tools": True})
-        return format_project_mcp_preflight(
-            config,
-            command_available=command_available,
-            result=result,
-        )
+        return coding_diagnostics_command_executor.format_project_mcp_preflight(self)
 
     def _format_source_resolve(self, text: str) -> str:
-        if not text.strip():
-            return "Usage: hermes coding source-resolve <feishu_or_meegle_url>"
-        result = self.tool_source_resolve({"text": text})
-        return format_source_resolve(result)
+        return coding_diagnostics_command_executor.format_source_resolve(self, text)
 
     def _hermes_runtime_available(self) -> bool:
-        for runner in getattr(getattr(self, "runner_router", None), "runners", {}).values():
-            runtime = getattr(runner, "hermes_runtime", None)
-            if runtime is not None and runtime.available():
-                return True
-        return False
+        return coding_diagnostics_command_executor.hermes_runtime_available(self)
 
     def command_coding(self, raw_args: str = "") -> str:
         command, rest = self._normalize_coding_gateway_command("coding", raw_args)
@@ -1556,12 +1494,15 @@ class CodingOrchestrator:
         event: Any,
     ) -> str | None:
         raw_args = route.raw_args
+        diagnostic_message = coding_diagnostics_command_executor.gateway_immediate_route_message(
+            self,
+            route.handler_key,
+            raw_args,
+        )
+        if diagnostic_message is not None:
+            return diagnostic_message
         handlers = {
             "help": lambda: self.command_coding_help(raw_args),
-            "doctor": lambda: self.command_coding_doctor(),
-            "lark_preflight": lambda: self._format_lark_preflight(self.tool_lark_preflight({})),
-            "project_mcp_preflight": self._format_project_mcp_preflight,
-            "source_resolve": lambda: self._format_source_resolve(raw_args),
             "list": lambda: self._format_task_list_for_event(event),
             "project_list": lambda: project_command_executor.gateway_project_list(self, event),
             "project_init": lambda: project_command_executor.gateway_project_init(self, raw_args, event),
