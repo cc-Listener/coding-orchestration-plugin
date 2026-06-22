@@ -1,6 +1,8 @@
 import unittest
+from unittest import mock
 
 from coding_orchestration import gateway_coding_mode_executor
+from coding_orchestration import run_start_presenter
 
 
 class FakeGateway:
@@ -83,9 +85,6 @@ class FakeHost:
 
     def _task_has_active_run(self, task):
         return self.active_run
-
-    def _active_run_already_running_message(self, task):
-        return "已有任务正在运行"
 
     def _pending_rewrite_for_event(self, event):
         return self.pending_rewrite
@@ -176,6 +175,23 @@ class GatewayCodingModeExecutorTest(unittest.TestCase):
         self.assertEqual(host.explicit_commands, ["/coding list"])
         self.assertEqual(host.stored_pending, [])
         self.assertEqual(host.command_rewriter.calls[0]["active_project"]["name"], "proj")
+
+    def test_confirmation_reply_with_active_run_uses_start_presenter_directly(self):
+        host = FakeHost(rewriter=FakeRewriter({"canonical_command": "/coding list"}))
+        host.enabled = True
+        host.active_run = True
+        gateway = FakeGateway()
+
+        with mock.patch.object(
+            run_start_presenter,
+            "active_run_already_running_message",
+            side_effect=lambda task: f"已有任务正在运行:{task['task_id']}",
+        ) as presenter:
+            result = gateway_coding_mode_executor.handle_coding_mode_gateway_message(host, "确认", object(), gateway)
+
+        self.assertEqual(result, {"action": "skip", "reason": "coding_confirmation_active_run"})
+        self.assertEqual(presenter.call_count, 1)
+        self.assertEqual(gateway.messages, ["已有任务正在运行:task_1"])
 
     def test_destructive_rewrite_is_stored_for_confirmation(self):
         host = FakeHost(

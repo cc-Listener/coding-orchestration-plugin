@@ -1,6 +1,8 @@
 import unittest
+from unittest import mock
 
 from coding_orchestration import coding_run_command_executor
+from coding_orchestration import run_start_presenter
 from coding_orchestration.models import RunMode, TaskPhase
 
 
@@ -43,9 +45,6 @@ class FakeHost:
     def _task_is_plan_ready_for_implementation(self, task):
         return task.get("status") == "planned"
 
-    def _implementation_blocked_before_plan_ready_message(self, task):
-        return f"not-plan-ready:{task['task_id']}"
-
     def _qa_start_blocker(self, task):
         return self.qa_blocker
 
@@ -59,7 +58,7 @@ class CodingRunCommandExecutorTest(unittest.TestCase):
 
         self.assertEqual(coding_run_command_executor.command_coding_run(host, ""), "请提供任务 ID。")
         self.assertEqual(coding_run_command_executor.command_coding_run(host, "missing"), "未找到任务：missing")
-        with unittest.mock.patch.object(
+        with mock.patch.object(
             coding_run_command_executor.run_completion_presenter,
             "format_run_completion_message",
             side_effect=lambda task_id, result: f"run-complete:{task_id}:{result['mode']}",
@@ -82,9 +81,15 @@ class CodingRunCommandExecutorTest(unittest.TestCase):
     def test_command_implement_records_decision_before_plan_ready(self):
         host = FakeHost({"task_1": {"task_id": "task_1", "status": "needs_human"}})
 
-        message = coding_run_command_executor.command_coding_implement(host, "task_1")
+        with mock.patch.object(
+            run_start_presenter,
+            "implementation_blocked_before_plan_ready_message",
+            side_effect=lambda task: f"not-plan-ready:{task['task_id']}",
+        ) as presenter:
+            message = coding_run_command_executor.command_coding_implement(host, "task_1")
 
         self.assertEqual(message, "not-plan-ready:task_1")
+        self.assertEqual(presenter.call_count, 1)
         self.assertEqual(host.start_calls, [])
         self.assertEqual(host.ledger.human_decisions[0][0], "task_1")
         self.assertEqual(host.ledger.human_decisions[0][1]["type"], "implementation_command_before_plan_ready")
@@ -92,7 +97,7 @@ class CodingRunCommandExecutorTest(unittest.TestCase):
     def test_command_implement_starts_implementation_when_plan_ready(self):
         host = FakeHost({"task_1": {"task_id": "task_1", "status": "planned"}})
 
-        with unittest.mock.patch.object(
+        with mock.patch.object(
             coding_run_command_executor.run_completion_presenter,
             "format_implementation_completion_message",
             side_effect=lambda task_id, result: f"implementation-complete:{task_id}:{result['mode']}",
@@ -120,7 +125,7 @@ class CodingRunCommandExecutorTest(unittest.TestCase):
         self.assertEqual(host.qa_requests, [])
 
         host.qa_blocker = None
-        with unittest.mock.patch.object(
+        with mock.patch.object(
             coding_run_command_executor.run_completion_presenter,
             "format_qa_completion_message",
             side_effect=lambda task_id, result: f"qa-complete:{task_id}:{result['mode']}",

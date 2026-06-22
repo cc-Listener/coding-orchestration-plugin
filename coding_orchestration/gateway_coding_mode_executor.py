@@ -9,7 +9,7 @@ from .command_catalog import (
     command_catalog_context,
 )
 from .project_resolver import normalize_text as normalize_project_text
-from . import gateway_command_controller, gateway_rewrite_context, gateway_rewrite_presenter
+from . import gateway_command_controller, gateway_rewrite_context, gateway_rewrite_presenter, run_start_presenter
 
 
 _CODING_MODE_ENTER_RE = gateway_command_controller.CODING_MODE_ENTER_RE
@@ -60,7 +60,7 @@ def handle_coding_mode_gateway_message(host: Any, text: str, event: Any, gateway
     if host._is_human_confirmation_reply(normalized):
         active_task = host._active_task_for_event(event)
         if active_task and host._task_has_active_run(active_task):
-            host._reply_if_possible(gateway, event, host._active_run_already_running_message(active_task))
+            host._reply_if_possible(gateway, event, run_start_presenter.active_run_already_running_message(active_task))
             return {"action": "skip", "reason": "coding_confirmation_active_run"}
 
     pending = host._pending_rewrite_for_event(event)

@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 228：Task 37 Orchestrator 500 行治理第一切片（complete）
+阶段 229：Task 37 Orchestrator 500 行治理第二切片（complete）
 
 ## 各阶段
 
@@ -1525,6 +1525,14 @@
 - [x] RED：focused tests 先失败于 executor 仍调用 host 私有 completion presenter wrapper。
 - [x] 实现：executor 直接调用 presenter，`orchestrator.py` 内部改为 direct presenter call，删除 run completion presenter proxy wrapper。
 - [x] 验证：运行 focused tests、相邻回归、py_compile、architecture guard、diff check、release gate no-smoke。
+- **状态：** complete
+
+### 阶段 229：Task 37 Orchestrator 500 行治理第二切片
+- [x] 定域：只清理 run start presenter 私有代理；不触碰 `start_run()` runner/workspace/git 核心实现、不改变状态机或 Gateway route 规则。
+- [x] TDD：扩展 `tests/test_gateway_command_executor.py`、`tests/test_coding_run_command_executor.py` 和 `tests/test_gateway_coding_mode_executor.py`，要求 executor 在 host 不提供 run start 文案私有代理时直接消费 `run_start_presenter.py`。
+- [x] RED：focused tests 先失败于 executor 仍调用 `host._plan_only_started_message`、`host._plan_only_already_running_message`、`host._implementation_blocked_before_plan_ready_message` 和 `host._active_run_already_running_message`。
+- [x] 实现：`gateway_command_executor.py`、`coding_run_command_executor.py`、`gateway_coding_mode_executor.py` 和 `RunService` 初始化改为 direct presenter call / callback，删除 `CodingOrchestrator` 内 run start 文案代理。
+- [x] 验证：运行 focused tests、相邻回归、py_compile、文档/架构测试、architecture guard、diff check 和 release readiness no-smoke。
 - **状态：** complete
 
 ### 阶段 192：Task 34 本地项目解析 helper 第一切片

@@ -4,6 +4,34 @@
 
 ## 会话：2026-06-22
 
+### 阶段 229：Task 37 Orchestrator 500 行治理第二切片
+- **状态：** complete
+- 背景：
+  - 阶段 228 已清掉 run completion presenter 代理；`orchestrator.py` 仍保留 run start presenter 私有代理 wrapper。
+  - 本阶段继续选择已有明确 owner 的 presentation 代理清理，不触碰 `start_run()`、runner/workspace/git 或 run lifecycle 核心实现。
+- 执行的操作：
+  - 扩展 `tests/test_gateway_command_executor.py`、`tests/test_coding_run_command_executor.py` 和 `tests/test_gateway_coding_mode_executor.py`，要求 executor 在 host 不提供 run start 文案私有代理时仍直接消费 `run_start_presenter.py`。
+  - RED 已确认：focused tests 先失败于 executor 仍调用 `host._plan_only_started_message`、`host._plan_only_already_running_message`、`host._implementation_blocked_before_plan_ready_message` 和 `host._active_run_already_running_message`。
+  - 修改 `gateway_command_executor.py`、`coding_run_command_executor.py` 和 `gateway_coding_mode_executor.py`，将 plan/implementation/QA start ACK、before-plan-ready blocker 和 active-run duplicate 文案改为 direct presenter call。
+  - 修改 `CodingOrchestrator.__post_init__()`，让 `RunService` 直接注入 `run_start_presenter.active_run_already_running_message` 和 `run_start_presenter.cannot_start_run_message`。
+  - 删除 `CodingOrchestrator` 内 run start 文案私有代理和未使用的 run mode label wrapper。
+  - 同步 `PLUGIN_TECHNICAL_SOLUTION.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、`task_plan.md` 和 `findings.md`。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_gateway_command_executor tests.test_coding_run_command_executor tests.test_gateway_coding_mode_executor -v` 先失败 4 项，失败点为 executor 仍依赖 host 私有 run start presenter wrapper。
+  - GREEN：同一 focused tests 通过，17 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_gateway_command_executor tests.test_coding_run_command_executor tests.test_gateway_coding_mode_executor tests.test_run_start_presenter tests.test_run_service -v`：29 tests passed。
+  - Gateway/run/QA flow 回归：`rtk proxy python3 -m unittest tests.test_gateway_command_group_flow tests.test_gateway_rewrite_flow tests.test_gateway_pending_confirmation_flow tests.test_command_run_flow tests.test_plan_run_flow tests.test_qa_flow -v`：43 tests passed。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：23 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/gateway_command_executor.py coding_orchestration/gateway_coding_mode_executor.py coding_orchestration/coding_run_command_executor.py tests/test_gateway_command_executor.py tests/test_gateway_coding_mode_executor.py tests/test_coding_run_command_executor.py`：passed。
+  - YAML 解析：`rtk proxy python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 2911 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 968 tests passed，敏感扫描 no findings。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：2911 行。
+- 剩余风险：
+  - 500 行是长期目标；本阶段未迁 `start_run()` 核心接线、workspace/git/checkpoint、active run reconcile 或后台 run 状态收敛。
+
 ### 阶段 228：Task 37 Orchestrator 500 行治理第一切片
 - **状态：** complete
 - 背景：

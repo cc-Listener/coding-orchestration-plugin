@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from . import run_completion_presenter
+from . import run_completion_presenter, run_start_presenter
 from .models import RunMode, TaskPhase
 
 
@@ -39,7 +39,7 @@ def command_coding_implement(host: Any, raw_args: str) -> str:
                 "created_at": datetime.now(timezone.utc).isoformat(),
             },
         )
-        return host._implementation_blocked_before_plan_ready_message(task)
+        return run_start_presenter.implementation_blocked_before_plan_ready_message(task)
     host.ledger.update_phase(task_id, TaskPhase.PLAN_APPROVED.value)
     result = host.start_run(task_id, mode=RunMode.IMPLEMENTATION)
     return run_completion_presenter.format_implementation_completion_message(task_id, result)

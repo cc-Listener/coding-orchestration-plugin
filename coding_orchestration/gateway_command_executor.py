@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from . import gateway_command_controller
+from . import gateway_command_controller, run_start_presenter
 from .models import RunMode, TaskPhase, TaskStatus
 
 
@@ -91,8 +91,8 @@ def _handle_plan_run(
         return _reply(host, gateway, event, host._cancelled_task_message(task))
     task = host._apply_active_project_to_task_if_missing(task, event)
     if str(task.get("status") or "") == TaskStatus.RUNNING.value:
-        return _reply(host, gateway, event, host._plan_only_already_running_message(task))
-    host._reply_if_possible(gateway, event, host._plan_only_started_message(task))
+        return _reply(host, gateway, event, run_start_presenter.plan_only_already_running_message(task))
+    host._reply_if_possible(gateway, event, run_start_presenter.plan_only_started_message(task))
     host._start_background_plan_only(task_id, gateway, event)
     return dict(HANDLED_BY_CODING_ORCHESTRATION)
 
@@ -113,9 +113,9 @@ def _handle_implementation(
     task = host._apply_active_project_to_task_if_missing(task, event)
     if not host._task_is_plan_ready_for_implementation(task):
         host._record_implementation_confirmation_before_plan_ready(task_id, text, event)
-        return _reply(host, gateway, event, host._implementation_blocked_before_plan_ready_message(task))
+        return _reply(host, gateway, event, run_start_presenter.implementation_blocked_before_plan_ready_message(task))
     host._record_implementation_confirmation(task_id, text, event)
-    host._reply_if_possible(gateway, event, host._implementation_started_message(task))
+    host._reply_if_possible(gateway, event, run_start_presenter.implementation_started_message(task))
     host._start_background_implementation(task_id, gateway, event)
     return dict(HANDLED_BY_CODING_ORCHESTRATION)
 
@@ -136,7 +136,7 @@ def _handle_qa(
     if blocked:
         return _reply(host, gateway, event, blocked)
     host._record_qa_request(task_id, text, event)
-    host._reply_if_possible(gateway, event, host._qa_started_message(task))
+    host._reply_if_possible(gateway, event, run_start_presenter.qa_started_message(task))
     host._start_background_qa(task_id, gateway, event)
     return dict(HANDLED_BY_CODING_ORCHESTRATION)
 

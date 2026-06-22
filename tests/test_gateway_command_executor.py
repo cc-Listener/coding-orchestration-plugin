@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from coding_orchestration import gateway_command_controller as controller
 from coding_orchestration import gateway_command_executor as executor
+from coding_orchestration import run_start_presenter
 from coding_orchestration.models import TaskStatus
 
 
@@ -36,12 +38,6 @@ class FakeHost:
     def _apply_active_project_to_task_if_missing(self, task, event):
         return task
 
-    def _plan_only_started_message(self, task):
-        return f"plan started: {task['task_id']}"
-
-    def _plan_only_already_running_message(self, task):
-        return f"already running: {task['task_id']}"
-
     def _cancelled_task_message(self, task):
         return f"cancelled: {task['task_id']}"
 
@@ -66,11 +62,34 @@ class GatewayCommandExecutorTest(unittest.TestCase):
         host = FakeHost()
         route = controller.route_coding_gateway_command("/coding run")
 
-        result = executor.handle_gateway_custom_route(host, route, text="/coding run", event=object(), gateway=object())
+        with mock.patch.object(
+            run_start_presenter,
+            "plan_only_started_message",
+            side_effect=lambda task: f"plan started: {task['task_id']}",
+        ) as presenter:
+            result = executor.handle_gateway_custom_route(host, route, text="/coding run", event=object(), gateway=object())
 
         self.assertEqual(result, executor.HANDLED_BY_CODING_ORCHESTRATION)
+        self.assertEqual(presenter.call_count, 1)
         self.assertEqual(host.messages, ["plan started: task_active"])
         self.assertEqual(host.background_plan_started, ["task_active"])
+
+    def test_custom_plan_run_uses_start_presenter_when_task_is_already_running(self):
+        host = FakeHost()
+        host.ledger = FakeLedger({"task_id": "task_active", "status": TaskStatus.RUNNING.value})
+        route = controller.route_coding_gateway_command("/coding run")
+
+        with mock.patch.object(
+            run_start_presenter,
+            "plan_only_already_running_message",
+            side_effect=lambda task: f"already running: {task['task_id']}",
+        ) as presenter:
+            result = executor.handle_gateway_custom_route(host, route, text="/coding run", event=object(), gateway=object())
+
+        self.assertEqual(result, executor.HANDLED_BY_CODING_ORCHESTRATION)
+        self.assertEqual(presenter.call_count, 1)
+        self.assertEqual(host.messages, ["already running: task_active"])
+        self.assertEqual(host.background_plan_started, [])
 
     def test_delivery_route_uses_handler_key_and_active_task_fallback(self):
         host = FakeHost()

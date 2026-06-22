@@ -211,8 +211,8 @@ class CodingOrchestrator:
         if self.run_service is None:
             self.run_service = RunService(
                 cancelled_task_message=self._cancelled_task_message,
-                active_run_message=self._active_run_already_running_message,
-                cannot_start_run_message=self._cannot_start_run_message,
+                active_run_message=run_start_presenter.active_run_already_running_message,
+                cannot_start_run_message=run_start_presenter.cannot_start_run_message,
                 default_timeout_seconds=self.default_timeout_seconds,
                 implementation_timeout_seconds=self.implementation_timeout_seconds,
                 qa_timeout_seconds=self.qa_timeout_seconds,
@@ -1664,26 +1664,6 @@ class CodingOrchestrator:
             )
 
     @staticmethod
-    def _implementation_started_message(task: dict[str, Any]) -> str:
-        return run_start_presenter.implementation_started_message(task)
-
-    @staticmethod
-    def _qa_started_message(task: dict[str, Any]) -> str:
-        return run_start_presenter.qa_started_message(task)
-
-    @staticmethod
-    def _implementation_blocked_before_plan_ready_message(task: dict[str, Any]) -> str:
-        return run_start_presenter.implementation_blocked_before_plan_ready_message(task)
-
-    @staticmethod
-    def _plan_only_started_message(task: dict[str, Any]) -> str:
-        return run_start_presenter.plan_only_started_message(task)
-
-    @staticmethod
-    def _plan_only_already_running_message(task: dict[str, Any]) -> str:
-        return run_start_presenter.plan_only_already_running_message(task)
-
-    @staticmethod
     def _task_has_active_run(task: dict[str, Any]) -> bool:
         return RunService.task_has_active_run(task)
 
@@ -1701,10 +1681,6 @@ class CodingOrchestrator:
                 "建议：请先完成实现，或恢复实现工作区后再发送 /coding qa。"
             )
         return ""
-
-    @staticmethod
-    def _cannot_start_run_message(task: dict[str, Any], *, mode: RunMode, reason: str) -> str:
-        return run_start_presenter.cannot_start_run_message(task, mode=mode, reason=reason)
 
     def _clear_active_run_if_matches(self, task_id: str, run_id: str) -> None:
         run_status_transition_service.clear_active_run_if_matches(
@@ -1797,14 +1773,6 @@ class CodingOrchestrator:
             run=run,
             run_root=self.run_root,
         )
-
-    @staticmethod
-    def _run_mode_user_label(mode: RunMode | str | None) -> str:
-        return RunService.run_mode_user_label(mode)
-
-    @staticmethod
-    def _active_run_already_running_message(task: dict[str, Any], *, requested_mode: str | None = None) -> str:
-        return run_start_presenter.active_run_already_running_message(task, requested_mode=requested_mode)
 
     @staticmethod
     def _plan_feedback_received_message(task: dict[str, Any]) -> str:
