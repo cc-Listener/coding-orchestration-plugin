@@ -68,6 +68,7 @@
 - Coding Mode 自然语言 rewrite 不能继续由 Hermes 本地关键词判断承担；本轮已改为只在“进入coding”后调用可注入 LLM rewriter，LLM 输出标准 `/coding <action>` JSON，Hermes 负责 schema 校验和最终执行。
 - 用户最新确认：高置信度 rewrite 可以直接执行，例如“最近的记录/现在有多少 task”这类明确查询。低置信度、缺信息、非法命令或 destructive 候选不会自动创建 task、不会启动 Codex。
 - “查看最近对话记录，自然语言 rewrite 表现不符合预期”在存在 active task 时是对当前 coding task 的修复反馈，应 rewrite 为 `/coding bugfix <原文>`，不是 `/coding list` 或新建 task。
+- Task 34 第十六切片确认：普通 `/coding use/exit/cancel/restore/delete/complete` command-mode host shell 与 Gateway use/exit task binding shell 已迁入 `coding_task_control_command_executor.py`；delete artifact 实际文件清理仍由 orchestrator host callback 负责，runner/workspace/git、merge-test gate 和 run lifecycle 未迁入该 executor。阶段完成后 `orchestrator.py` 约 3668 行，仍需继续降到 3000 行以内。
 - `task_41c786eddf54/run_66f9a3cec8bc` 证明 `workspace-write` 仍不足以完成自动测试链路：缺 `node_modules` 时需要联网或私有源安装依赖，`$qa` 需要写 `.gstack` 报告和截图，QA bugfix commit 需要写主仓库 `.git/worktrees/.../index.lock`，dev server/browser QA 也可能需要 sandbox 外资源。
 - 受控高权限边界应是 runner 权限放开、工作目录和产物边界收紧：implementation/QA 的 Codex CLI 使用 bypass 以允许安装依赖和提交 QA 修复，但子进程 cwd 仍是 task worktree；prompt/manifest 明确源码修改只限 workspace，项目外只允许依赖缓存、git metadata、dev server/browser 临时产物和 `.gstack` QA artifact。
 - 用户进入 Codex session 查看真实交互时，当前 `input-prompt.md` 仍会把插件执行契约、输出 JSON 字段、状态机和权限边界一起塞进对话，虽然机器可控，但人工观察体验很差；需要把机器规范移到 run artifact，只在 visible prompt 中保留本轮需要执行的动作。

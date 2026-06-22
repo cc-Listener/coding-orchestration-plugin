@@ -101,6 +101,8 @@ project_map:
       reason: "Coding run command executor host shell，维护普通 /coding run <task_id>、/coding implement <task_id> 和 /coding qa <task_id> 的同步 command-mode task gate、human decision、QA request 和 start_run callback 接线；不拥有 /coding run <parent> --next、Gateway 异步启动、start_run 实现、active run reconcile、workspace/checkpoint/git、merge-test gates、delete/cancel/restore 或 run lifecycle。"
     - path: coding_orchestration/coding_feedback_command_executor.py
       reason: "Coding feedback command executor host shell，维护普通 /coding continue/change/bugfix 命令模式占位、Gateway active task feedback 分流、feedback human decision / draft knowledge 记录 helper 和 bugfix replan 选择规则；通过 host callback 调用 Project clarification、后台 plan/implementation 启动和 merged-test reopen，不拥有 Gateway route/controller、后台 runner 实现、start_run、workspace/checkpoint/git、merge-test gates、source enrichment 或 Project MCP 写回。"
+    - path: coding_orchestration/coding_task_control_command_executor.py
+      reason: "Coding task control command executor host shell，维护普通 /coding use/exit/cancel/restore/delete/complete command-mode 分支和 Gateway use/exit task binding shell；delete artifact 清理通过 host callback，不拥有 Gateway route/controller、文件系统清理实现、runner/workspace/git、merge-test gates 或 run lifecycle。"
     - path: coding_orchestration/gateway_rewrite_context.py
       reason: "Gateway rewrite context 纯投影 helper，只消费已采集的 task/project/media/catalog 事实并返回 LLM rewrite context 与 next-step hint；不读 ledger、不持有 Gateway event、不调用 command_rewriter、不发送回复。"
     - path: coding_orchestration/delivery_command_executor.py
@@ -315,6 +317,9 @@ component_contract:
     - name: coding_feedback_command_executor
       path: coding_orchestration/coding_feedback_command_executor.py
       preferred: true
+    - name: coding_task_control_command_executor
+      path: coding_orchestration/coding_task_control_command_executor.py
+      preferred: true
     - name: source_projection
       path: coding_orchestration/source_projection.py
       preferred: true
@@ -478,6 +483,10 @@ component_contract:
       path: coding_orchestration/coding_feedback_command_executor.py
       use_instead_of:
         - "在 orchestrator 中继续新增普通 /coding continue/change/bugfix 命令模式占位、Gateway active task feedback 分流、feedback human decision / draft knowledge 记录 helper 或 bugfix replan 选择规则。"
+    - name: coding_task_control_command_executor
+      path: coding_orchestration/coding_task_control_command_executor.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增普通 /coding use/exit/cancel/restore/delete/complete command-mode host shell 或 Gateway use/exit task binding shell。"
     - name: RunnerRouter
       path: coding_orchestration/runner_router.py
       use_instead_of:

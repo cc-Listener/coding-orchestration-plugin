@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 212：Task 34 feedback command executor 第十五切片（complete）
+阶段 213：Task 34 task control executor 第十六切片（complete）
 
 ## 各阶段
 
@@ -1629,6 +1629,15 @@
 - [x] 实现：新增 `coding_feedback_command_executor.py`；`CodingOrchestrator.command_coding_continue/change/bugfix()`、`_continue_active_task()`、`_change_active_task()`、`_bugfix_active_task()` 和 feedback 记录 helper 改为薄 wrapper 或迁出。
 - [x] 文档：同步 Task 34 第十五切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 feedback command executor、gateway feedback/change/continue/task-control 聚焦回归、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 213：Task 34 task control executor 第十六切片
+- [x] 定域：只迁普通 `/coding use/exit/cancel/restore/delete/complete` command-mode host shell 与 Gateway use/exit task binding shell；delete artifact 实际清理仍通过 host `_purge_task_artifacts()` callback，不迁文件系统清理实现、runner/workspace/git、merge-test gates 或 run lifecycle。
+- [x] TDD：新增 `tests/test_coding_task_control_command_executor.py`，覆盖 command-mode use/exit、Gateway use/exit binding、cancel task/run id、restore cancelled、delete gate/成功路径和 complete gate。
+- [x] RED：确认新 executor 缺失或未接线时测试失败。
+- [x] 实现：新增 `coding_task_control_command_executor.py`；`CodingOrchestrator.command_coding_use/exit/cancel/restore/delete/complete()`、`_select_active_task_for_event()`、`_clear_active_task_for_event()` 和 `_delete_task_from_args()` 改为薄 wrapper。
+- [x] 文档：同步 Task 34 第十六切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 task control executor、cancel/restore/completion/gateway task-control 聚焦回归、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片
