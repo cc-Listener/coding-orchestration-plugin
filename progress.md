@@ -4,6 +4,28 @@
 
 ## 会话：2026-06-22
 
+### 阶段 221：Task 29 Gateway controller 收口
+- **状态：** complete
+- 背景：
+  - Task 29 早期剩余项 custom route executor、pending action executor 和 active context helper 已分别由 `gateway_command_executor.py`、`gateway_pending_action_executor.py` 和 `gateway_active_context.py` 承接。
+  - `PLUGIN_TECHNICAL_SOLUTION.md` 的长期任务表仍把 Task 29 标为 `In Progress`，会误导后续切片继续把 runner/workspace/git/run lifecycle 挂回 Gateway controller 瘦身任务。
+  - 本轮只做文档/合同状态收口，不改 Gateway 运行行为。
+- 执行的操作：
+  - 扩展 `tests/test_docs_and_install_entry.py`，新增 Task 29 完成态 contract test。
+  - RED 已确认：focused test 失败于 Task 29 状态表仍是 `In Progress`。
+  - 更新 Task 29 状态表为 `Complete`，明确 `gateway_command_controller.py`、`gateway_command_executor.py`、`gateway_pending_action_executor.py` 和 `gateway_active_context.py` 的职责边界。
+  - 同步 `task_plan.md`、`findings.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md` 和 `contracts/project-context.yaml`。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry.DocsAndInstallEntryTest.test_task_29_gateway_controller_status_is_complete -v` 先失败于 Task 29 状态表仍为 `In Progress`。
+  - GREEN：同一 focused test 通过，1 test passed。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：18 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile tests/test_docs_and_install_entry.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 2992 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整回归：`rtk proxy python3 -m unittest discover -s tests -v`：953 tests passed。
+- 剩余风险：
+  - Gateway executor 仍通过 orchestrator façade/callback 触发部分业务副作用，但这不再属于 Task 29；run lifecycle、workspace/git 和 runner 治理继续归后续独立任务。
+
 ### 阶段 220：Task 34 task lifecycle guard service 第二十三切片
 - **状态：** complete
 - 背景：

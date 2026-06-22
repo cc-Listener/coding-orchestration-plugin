@@ -173,6 +173,29 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         self.assertIn("Hermes native tools", combined)
         self.assertIn("blocked 只表示 hard human-blocked", combined)
 
+    def test_task_29_gateway_controller_status_is_complete(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        technical = (repo_root / "PLUGIN_TECHNICAL_SOLUTION.md").read_text(encoding="utf-8")
+        component_contract = (repo_root / "docs" / "component-contract.md").read_text(encoding="utf-8")
+        project_map = (repo_root / "docs" / "project-map.md").read_text(encoding="utf-8")
+
+        task_29_line = next(
+            line
+            for line in technical.splitlines()
+            if line.startswith("| Task 29. Command / Gateway controller 瘦身 |")
+        )
+        self.assertIn("| Complete |", task_29_line)
+        for expected in (
+            "gateway_command_controller.py",
+            "gateway_command_executor.py",
+            "gateway_pending_action_executor.py",
+            "gateway_active_context.py",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, task_29_line)
+                self.assertIn(expected, component_contract)
+                self.assertIn(expected, project_map)
+
     def test_install_script_runs_when_invoked_by_path(self):
         repo_root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as tmp:

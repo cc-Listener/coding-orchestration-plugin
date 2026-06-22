@@ -93,6 +93,14 @@ project_map:
       reason: "Project command executor host shell，维护 /coding project list/init/use/status/clear 命令模式提示和 Gateway immediate project context 分支，调用注入的 profile upsert、active project binding、project formatter 与路径解析 callback；不拥有 Gateway route、不创建任务、不启动 runner、不推进状态、不实现 project profile catalog 纯规则。"
     - path: coding_orchestration/coding_help_command_executor.py
       reason: "Coding help command executor host shell，维护普通 /coding help、Gateway /commands listing、分页和 Hermes built-in command list 拼接；不拥有 command catalog 纯数据、Gateway route/controller、runner/workspace/git 或 run lifecycle。"
+    - path: coding_orchestration/gateway_command_controller.py
+      reason: "Gateway command controller 纯规则层，维护显式 /coding / /commands 解析、命令归一化、route metadata、handler key、reply mode、task id 来源、merge-test 参数、rewrite canonical command、确认/取消词、dedupe 和授权探测；Task 29 完成后不得承载 ledger、runner、消息发送、状态推进或 run lifecycle。"
+    - path: coding_orchestration/gateway_command_executor.py
+      reason: "Gateway custom route host shell，维护 task/run/delivery/implementation/QA/prepare-merge-test/merge-test route metadata 到 host action 的分发；不承载 controller 纯解析规则，不拥有 runner/workspace/git/run lifecycle。"
+    - path: coding_orchestration/gateway_pending_action_executor.py
+      reason: "Gateway pending action host shell，维护确认/取消、latest human_required fallback、取消任务 gate 和确认后显式命令续接；不拥有 controller 纯解析规则、runner/workspace/git 或 run lifecycle。"
+    - path: coding_orchestration/gateway_active_context.py
+      reason: "Gateway active context host helper，维护 active project 回填缺项目 task 和 human decision 记录；不负责 active binding 存取、项目初始化、项目画像或 runner/workspace/git/run lifecycle。"
     - path: coding_orchestration/gateway_coding_mode_executor.py
       reason: "Gateway coding mode host shell，维护 coding mode enter/exit、pending rewrite 确认/取消、高置信度 rewrite direct execute、低置信度 handoff 和 rewrite context 装配；不拥有 Gateway route/controller、pending action executor、task 创建实现、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_diagnostics_command_executor.py
@@ -343,6 +351,18 @@ component_contract:
     - name: coding_background_run_executor
       path: coding_orchestration/coding_background_run_executor.py
       preferred: true
+    - name: gateway_command_controller
+      path: coding_orchestration/gateway_command_controller.py
+      preferred: true
+    - name: gateway_command_executor
+      path: coding_orchestration/gateway_command_executor.py
+      preferred: true
+    - name: gateway_pending_action_executor
+      path: coding_orchestration/gateway_pending_action_executor.py
+      preferred: true
+    - name: gateway_active_context
+      path: coding_orchestration/gateway_active_context.py
+      preferred: true
     - name: source_context_repair_service
       path: coding_orchestration/source_context_repair_service.py
       preferred: true
@@ -534,6 +554,22 @@ component_contract:
       path: coding_orchestration/coding_background_run_executor.py
       use_instead_of:
         - "在 orchestrator 中继续新增 Gateway 后台 run mode-specific 启动、completion message 选择、失败通知接线或 completion notification callback。"
+    - name: gateway_command_controller
+      path: coding_orchestration/gateway_command_controller.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增显式 /coding / /commands 解析、命令归一化、route metadata、handler key、reply mode、task id 来源、merge-test 参数、rewrite canonical command、确认/取消词、dedupe 或授权探测。"
+    - name: gateway_command_executor
+      path: coding_orchestration/gateway_command_executor.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 task/run/delivery/implementation/QA/prepare-merge-test/merge-test Gateway custom route 分发。"
+    - name: gateway_pending_action_executor
+      path: coding_orchestration/gateway_pending_action_executor.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 pending action 确认/取消、latest human_required fallback、取消任务 gate 或确认后显式命令续接。"
+    - name: gateway_active_context
+      path: coding_orchestration/gateway_active_context.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 active project 回填缺项目 task 或对应 human decision 记录。"
     - name: source_context_repair_service
       path: coding_orchestration/source_context_repair_service.py
       use_instead_of:

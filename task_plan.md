@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 220：Task 34 task lifecycle guard service 第二十三切片（complete）
+阶段 221：Task 29 Gateway controller 收口（complete）
 
 ## 各阶段
 
@@ -1701,6 +1701,15 @@
 - [x] 实现：新增 `task_lifecycle_guard_service.py`；`CodingOrchestrator._active_coding_statuses()`、`_task_is_cancelled()`、`_cancelled_task_message()`、`_restore_state_for_cancelled_task()` 和 `_reopen_merged_test_task_for_bugfix_if_needed()` 改为薄 wrapper。
 - [x] 文档：同步 Task 34 第二十三切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 lifecycle guard focused、cancel/restore / feedback / task-control / Gateway executor 相邻回归、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 221：Task 29 Gateway controller 收口
+- [x] 定域：只收口 Task 29 文档/合同状态；不迁 runner/workspace/git/run lifecycle，不改 Gateway 运行行为。
+- [x] TDD：新增 `tests/test_docs_and_install_entry.py` 的 Task 29 完成态 contract test，要求技术方案状态表为 `Complete`，且四个 Gateway 模块在技术方案、组件合同和项目地图中可见。
+- [x] RED：先运行 focused test，确认失败于 Task 29 状态表仍为 `In Progress`。
+- [x] 实现：将 Task 29 状态表改为 `Complete`，明确 `gateway_command_controller.py`、`gateway_command_executor.py`、`gateway_pending_action_executor.py` 和 `gateway_active_context.py` 的完成边界。
+- [x] 文档：同步进度、实施计划、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 Task 29 focused test、文档/架构测试、py_compile、architecture guard、diff check，并视时间运行完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片
