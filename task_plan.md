@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 219：Task 34 kanban sync service 第二十二切片（complete）
+阶段 220：Task 34 task lifecycle guard service 第二十三切片（complete）
 
 ## 各阶段
 
@@ -1692,6 +1692,15 @@
 - [x] 实现：新增 `kanban_sync_service.py`；`CodingOrchestrator._sync_task_to_kanban()`、`_sync_status_to_kanban()`、`_kanban_sync_skipped()` 和 `_kanban_sync_record_from_result()` 改为薄 wrapper。
 - [x] 文档：同步 Task 34 第二十二切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 kanban sync focused、kanban bridge / orchestrator run flow / run status transition 相邻回归、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 220：Task 34 task lifecycle guard service 第二十三切片
+- [x] 定域：只迁取消态保护、active coding status 列表、取消恢复状态选择和 merged_test bugfix reopen host helper；不改状态机、不改 runner/workspace/git、不改 run lifecycle。
+- [x] TDD：新增 `tests/test_task_lifecycle_guard_service.py`，覆盖 active status 列表、取消任务文案、cancelled task restore 状态选择和 merged_test bugfix reopen 写回。
+- [x] RED：先运行 focused test，确认因 `task_lifecycle_guard_service` 缺失失败。
+- [x] 实现：新增 `task_lifecycle_guard_service.py`；`CodingOrchestrator._active_coding_statuses()`、`_task_is_cancelled()`、`_cancelled_task_message()`、`_restore_state_for_cancelled_task()` 和 `_reopen_merged_test_task_for_bugfix_if_needed()` 改为薄 wrapper。
+- [x] 文档：同步 Task 34 第二十三切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 lifecycle guard focused、cancel/restore / feedback / task-control / Gateway executor 相邻回归、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片

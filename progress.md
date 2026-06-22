@@ -4,6 +4,29 @@
 
 ## 会话：2026-06-22
 
+### 阶段 220：Task 34 task lifecycle guard service 第二十三切片
+- **状态：** complete
+- 背景：
+  - 阶段 219 已把 Kanban create/status sync host helper 和 sync record 投影迁入 `kanban_sync_service.py`，`orchestrator.py` 降到 3064 行。
+  - `orchestrator.py` 仍直接承接 active coding status 列表、取消态保护文案、cancelled task 恢复状态选择和 merged_test bugfix reopen；这些是 task lifecycle guard helper，可迁出且不触碰 runner/workspace/git。
+  - 本轮不改状态机、不迁 `start_run()`、runner/workspace/git 或 run lifecycle。
+- 执行的操作：
+  - 新增 `tests/test_task_lifecycle_guard_service.py`，覆盖 active coding status 排除终态、取消任务文案、cancelled task restore 状态选择和 merged_test bugfix reopen 写回。
+  - RED 已确认：`task_lifecycle_guard_service` 缺失导致测试失败。
+  - 新增 `coding_orchestration/task_lifecycle_guard_service.py`，承接 active status、取消态 guard、restore 选择和 merged_test reopen；`CodingOrchestrator._active_coding_statuses()`、`_task_is_cancelled()`、`_cancelled_task_message()`、`_restore_state_for_cancelled_task()` 和 `_reopen_merged_test_task_for_bugfix_if_needed()` 改为薄 wrapper。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_task_lifecycle_guard_service -v` 先失败于 missing import。
+  - GREEN：同一测试通过，5 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_task_lifecycle_guard_service tests.test_cancel_restore_flow tests.test_coding_task_control_command_executor tests.test_coding_feedback_command_executor tests.test_gateway_command_executor tests.test_gateway_pending_action_executor tests.test_coding_run_command_executor tests.test_coding_merge_test_command_executor tests.test_gateway_coding_mode_executor -v`：49 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/task_lifecycle_guard_service.py coding_orchestration/orchestrator.py tests/test_task_lifecycle_guard_service.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 2992 lines`。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整回归：`rtk proxy python3 -m unittest discover -s tests -v`：952 tests passed。
+- 剩余风险：
+  - Task 34 的 `orchestrator.py` 低于 3000 行退出信号已达到；但它仍是 architecture guard legacy large-file watch（1000 行阈值豁免），长期大文件治理仍需后续任务继续推进。
+  - 状态机、run lifecycle、workspace/git/checkpoint 和 runner 调度仍在既有边界。
+
 ### 阶段 219：Task 34 kanban sync service 第二十二切片
 - **状态：** complete
 - 背景：

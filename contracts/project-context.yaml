@@ -111,6 +111,8 @@ project_map:
       reason: "Source context repair host service，维护 source context 读取、deferred source pre-run enrichment、既有 task context 修复、source summary 回写和项目上下文回填接线；不改 legacy source_context schema、不实现 source reader、不承载 source 权限策略、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/kanban_sync_service.py
       reason: "Kanban sync host service，维护 task 创建时的 Kanban create 写回、状态同步写回、skipped/failed sync record 和 task status view 字段投影；不改 kanban_bridge 工具映射、不改状态机、不承载 runner/workspace/git 或 run lifecycle。"
+    - path: coding_orchestration/task_lifecycle_guard_service.py
+      reason: "Task lifecycle guard service，维护 active coding status 列表、取消态保护文案、cancelled task 恢复状态选择和 merged_test bugfix reopen 写回；不改状态机、不承载 runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_feedback_command_executor.py
       reason: "Coding feedback command executor host shell，维护普通 /coding continue/change/bugfix 命令模式占位、Gateway active task feedback 分流、feedback human decision / draft knowledge 记录 helper 和 bugfix replan 选择规则；通过 host callback 调用 Project clarification、后台 plan/implementation 启动和 merged-test reopen，不拥有 Gateway route/controller、后台 runner 实现、start_run、workspace/checkpoint/git、merge-test gates、source enrichment 或 Project MCP 写回。"
     - path: coding_orchestration/coding_task_control_command_executor.py
@@ -347,6 +349,9 @@ component_contract:
     - name: kanban_sync_service
       path: coding_orchestration/kanban_sync_service.py
       preferred: true
+    - name: task_lifecycle_guard_service
+      path: coding_orchestration/task_lifecycle_guard_service.py
+      preferred: true
     - name: gateway_coding_mode_executor
       path: coding_orchestration/gateway_coding_mode_executor.py
       preferred: true
@@ -537,6 +542,10 @@ component_contract:
       path: coding_orchestration/kanban_sync_service.py
       use_instead_of:
         - "在 orchestrator 中继续新增 Kanban create/status sync host helper、skipped/failed sync record 或 task status view 字段投影。"
+    - name: task_lifecycle_guard_service
+      path: coding_orchestration/task_lifecycle_guard_service.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增 active coding status 列表、取消态保护文案、cancelled task 恢复状态选择或 merged_test bugfix reopen 写回。"
     - name: gateway_coding_mode_executor
       path: coding_orchestration/gateway_coding_mode_executor.py
       use_instead_of:
