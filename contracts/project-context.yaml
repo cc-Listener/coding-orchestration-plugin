@@ -91,6 +91,8 @@ project_map:
       reason: "Project profile catalog，只读取 LLM Wiki project profile、registry project facts 和初始化质量评估，返回 profile/list/status 数据或文案；不写 profile、不绑定 active project、不发送 Gateway 回复。"
     - path: coding_orchestration/project_command_executor.py
       reason: "Project command executor host shell，维护 /coding project list/init/use/status/clear 命令模式提示和 Gateway immediate project context 分支，调用注入的 profile upsert、active project binding、project formatter 与路径解析 callback；不拥有 Gateway route、不创建任务、不启动 runner、不推进状态、不实现 project profile catalog 纯规则。"
+    - path: coding_orchestration/coding_help_command_executor.py
+      reason: "Coding help command executor host shell，维护普通 /coding help、Gateway /commands listing、分页和 Hermes built-in command list 拼接；不拥有 command catalog 纯数据、Gateway route/controller、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/gateway_coding_mode_executor.py
       reason: "Gateway coding mode host shell，维护 coding mode enter/exit、pending rewrite 确认/取消、高置信度 rewrite direct execute、低置信度 handoff 和 rewrite context 装配；不拥有 Gateway route/controller、pending action executor、task 创建实现、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_diagnostics_command_executor.py
@@ -322,6 +324,9 @@ component_contract:
     - name: coding_task_control_command_executor
       path: coding_orchestration/coding_task_control_command_executor.py
       preferred: true
+    - name: coding_help_command_executor
+      path: coding_orchestration/coding_help_command_executor.py
+      preferred: true
     - name: gateway_coding_mode_executor
       path: coding_orchestration/gateway_coding_mode_executor.py
       preferred: true
@@ -492,6 +497,10 @@ component_contract:
       path: coding_orchestration/coding_task_control_command_executor.py
       use_instead_of:
         - "在 orchestrator 中继续新增普通 /coding use/exit/cancel/restore/delete/complete command-mode host shell 或 Gateway use/exit task binding shell。"
+    - name: coding_help_command_executor
+      path: coding_orchestration/coding_help_command_executor.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增普通 /coding help、Gateway /commands listing、分页或 Hermes built-in command list 拼接。"
     - name: gateway_coding_mode_executor
       path: coding_orchestration/gateway_coding_mode_executor.py
       use_instead_of:

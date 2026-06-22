@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 214：Task 34 gateway coding mode executor 第十七切片（complete）
+阶段 215：Task 34 help command executor 第十八切片（complete）
 
 ## 各阶段
 
@@ -1647,6 +1647,15 @@
 - [x] 实现：新增 `gateway_coding_mode_executor.py`；`CodingOrchestrator._handle_coding_mode_gateway_message()` 及 rewrite helper 改为薄 wrapper 或迁出。
 - [x] 文档：同步 Task 34 第十七切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 gateway coding mode executor、rewrite/natural-language/pending confirmation 聚焦回归、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 215：Task 34 help command executor 第十八切片
+- [x] 定域：只迁普通 `/coding help`、Gateway `/commands` listing 和 Hermes built-in command list host shell；不迁 Gateway route/controller、command catalog 纯数据、runner/workspace/git 或 run lifecycle。
+- [x] TDD：新增 `tests/test_coding_help_command_executor.py`，覆盖 `/coding help`、`/commands` 分页、内置 Hermes 命令拼接和 invalid page 文案。
+- [x] RED：先运行 focused test，确认因 `coding_help_command_executor` 缺失失败。
+- [x] 实现：新增 `coding_help_command_executor.py`；`CodingOrchestrator.command_coding_help()`、`command_commands_listing()` 和 `_hermes_gateway_command_lines()` 改为薄 wrapper。
+- [x] 文档：同步 Task 34 第十八切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 help executor focused、Gateway command group/command catalog 相邻回归、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片

@@ -4,6 +4,28 @@
 
 ## 会话：2026-06-22
 
+### 阶段 215：Task 34 help command executor 第十八切片
+- **状态：** complete
+- 背景：
+  - 阶段 214 已把 Gateway coding mode host shell 迁入 `gateway_coding_mode_executor.py`。
+  - `orchestrator.py` 仍直接承接普通 `/coding help`、Gateway `/commands` listing、分页和 Hermes built-in command list 拼接；这些属于 help command host shell，可独立迁出。
+  - 本轮不迁 Gateway route/controller、command catalog 纯数据、runner/workspace/git 或 run lifecycle。
+- 执行的操作：
+  - 新增 `tests/test_coding_help_command_executor.py`，覆盖 `/coding help` catalog 文案、`/commands` listing、Hermes built-in command list 拼接、invalid page 和 out-of-range page。
+  - RED 已确认：`coding_help_command_executor` 缺失导致测试失败。
+  - 新增 `coding_orchestration/coding_help_command_executor.py`，承接 help/listing host shell；`CodingOrchestrator.command_coding_help()`、`command_commands_listing()` 和 `_hermes_gateway_command_lines()` 改为薄 wrapper。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_coding_help_command_executor -v` 先失败于 missing import。
+  - GREEN：同一测试通过，4 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_coding_help_command_executor tests.test_command_catalog tests.test_gateway_command_group_flow tests.test_gateway_coding_mode_lifecycle_flow -v`：26 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/coding_help_command_executor.py coding_orchestration/orchestrator.py tests/test_coding_help_command_executor.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 3442 lines`。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：928 tests passed。
+- 剩余风险：
+  - `orchestrator.py` 当前 3442 行，仍是 architecture guard legacy large-file watch；Task 34 还未达到 3000 行以内退出信号。
+
 ### 阶段 214：Task 34 gateway coding mode executor 第十七切片
 - **状态：** complete
 - 背景：
