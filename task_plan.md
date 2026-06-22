@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 211：Task 34 run command executor 第十四切片（complete）
+阶段 212：Task 34 feedback command executor 第十五切片（complete）
 
 ## 各阶段
 
@@ -1620,6 +1620,15 @@
 - [x] 实现：新增 `coding_run_command_executor.py`；`CodingOrchestrator.command_coding_run()` 普通分支、`command_coding_implement()` 和 `command_coding_qa()` 改为薄 wrapper，`--next` 继续委托 delivery executor。
 - [x] 文档：同步 Task 34 第十四切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 run command executor、command run / QA / cancel restore 聚焦回归、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 212：Task 34 feedback command executor 第十五切片
+- [x] 定域：只迁普通 `/coding continue/change/bugfix` 命令模式占位、Gateway active task feedback host shell、feedback human decision / draft knowledge 记录 helper 和 bugfix replan 选择规则；不迁 Gateway route/controller、后台 runner 实现、`start_run()`、workspace/checkpoint/git、merge-test gates、source enrichment 或 Project MCP 写回。
+- [x] TDD：新增 `tests/test_coding_feedback_command_executor.py`，覆盖 command-mode 占位文案、continue runtime/clarification/plan feedback、change running queue 与 plan restart、bugfix replan/implementation 分流、feedback 记录 payload 和 media/wiki refs。
+- [x] RED：确认新 executor 缺失或未接线时测试失败。
+- [x] 实现：新增 `coding_feedback_command_executor.py`；`CodingOrchestrator.command_coding_continue/change/bugfix()`、`_continue_active_task()`、`_change_active_task()`、`_bugfix_active_task()` 和 feedback 记录 helper 改为薄 wrapper 或迁出。
+- [x] 文档：同步 Task 34 第十五切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 feedback command executor、gateway feedback/change/continue/task-control 聚焦回归、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片

@@ -65,6 +65,7 @@ from .ports import KnowledgePort
 from .prompt_builder import PromptBuilder
 from . import (
     background_run_notifier,
+    coding_feedback_command_executor,
     coding_diagnostics_command_executor,
     coding_run_command_executor,
     coding_status_command_executor,
@@ -736,13 +737,13 @@ class CodingOrchestrator:
         return "命令模式缺少飞书来源，无法退出指定会话；请在飞书里使用 /coding exit。"
 
     def command_coding_continue(self, raw_args: str) -> str:
-        return "当前会话没有绑定任务；请在飞书里使用 /coding continue <反馈>，或使用 /coding run <task_id>。"
+        return coding_feedback_command_executor.command_coding_continue(self, raw_args)
 
     def command_coding_change(self, raw_args: str) -> str:
-        return "当前会话没有绑定任务；请在飞书里使用 /coding change <反馈>。"
+        return coding_feedback_command_executor.command_coding_change(self, raw_args)
 
     def command_coding_bugfix(self, raw_args: str) -> str:
-        return "当前会话没有绑定任务；请在飞书里使用 /coding bugfix <反馈>，或使用 /coding implement <task_id>。"
+        return coding_feedback_command_executor.command_coding_bugfix(self, raw_args)
 
     def command_coding_status(self, raw_args: str) -> str:
         return coding_status_command_executor.command_coding_status(self, raw_args)
@@ -1924,147 +1925,13 @@ class CodingOrchestrator:
         return task_status_presenter.qa_health_score_from_report_path(path_value)
 
     def _continue_active_task(self, raw_args: str, event: Any, gateway: Any) -> str:
-        task = self._active_task_for_event(event)
-        if task is None:
-            return "未找到当前开发任务，请先使用 /coding use <task_id>。"
-        if self._task_is_cancelled(task):
-            return self._cancelled_task_message(task)
-        if not raw_args.strip():
-            return "请在 /coding continue 后提供补充内容。"
-        if self._mentions_image_placeholder_without_media(raw_args, event):
-            return self._missing_feedback_media_message(task, "continue")
-        status = str(task.get("status") or "")
-        if status == TaskStatus.RUNNING.value:
-            self._record_runtime_feedback(task, raw_args, event)
-            return self._runtime_feedback_received_message(task)
-        if not task.get("project_path"):
-            project_resolved = self._record_human_clarification(task, raw_args, event)
-            updated_task = self.ledger.get_task(task["task_id"]) or task
-            if project_resolved:
-                self._start_background_plan_only(task["task_id"], gateway, event)
-                return self._human_clarification_project_resolved_message(updated_task)
-            return self._human_clarification_received_message(updated_task)
-        if status == TaskStatus.NEEDS_HUMAN.value:
-            project_resolved = self._record_human_clarification(task, raw_args, event)
-            updated_task = self.ledger.get_task(task["task_id"]) or task
-            if project_resolved:
-                self._start_background_plan_only(task["task_id"], gateway, event)
-                return self._human_clarification_project_resolved_message(updated_task)
-            return self._human_clarification_received_message(updated_task)
-        self._record_plan_feedback(task, raw_args, event)
-        self._start_background_plan_only(task["task_id"], gateway, event)
-        return self._plan_feedback_received_message(task)
+        return coding_feedback_command_executor.continue_active_task(self, raw_args, event, gateway)
 
     def _change_active_task(self, raw_args: str, event: Any, gateway: Any) -> str:
-        task = self._active_task_for_event(event)
-        if task is None:
-            return "未找到当前开发任务，请先使用 /coding use <task_id>。"
-        if self._task_is_cancelled(task):
-            return self._cancelled_task_message(task)
-        if not raw_args.strip():
-            return "请在 /coding change 后提供需求变更内容。"
-        if self._mentions_image_placeholder_without_media(raw_args, event):
-            return self._missing_feedback_media_message(task, "change")
-        self._record_requirement_change(task, raw_args, event)
-        status = str(task.get("status") or "")
-        if status == TaskStatus.RUNNING.value:
-            return self._requirement_change_queued_message(task)
-        self._start_background_plan_only(task["task_id"], gateway, event)
-        return self._requirement_change_received_message(task)
+        return coding_feedback_command_executor.change_active_task(self, raw_args, event, gateway)
 
     def _bugfix_active_task(self, raw_args: str, event: Any, gateway: Any) -> str:
-        task = self._active_task_for_event(event)
-        if task is None:
-            return "未找到当前开发任务，请先使用 /coding use <task_id>。"
-        if self._task_is_cancelled(task):
-            return self._cancelled_task_message(task)
-        if not raw_args.strip():
-            return "请在 /coding bugfix 后提供修复反馈。"
-        if self._mentions_image_placeholder_without_media(raw_args, event):
-            return self._missing_feedback_media_message(task, "bugfix")
-        task = self._reopen_merged_test_task_for_bugfix_if_needed(task, event)
-        if self._bugfix_feedback_should_replan(task, raw_args):
-            self._record_plan_feedback(task, raw_args, event)
-            self._start_background_plan_only(task["task_id"], gateway, event)
-            if self._bugfix_feedback_should_replan_after_blocked_plan(task):
-                return self._blocked_plan_feedback_received_message(task)
-            return self._plan_feedback_received_message(task)
-        self._record_implementation_feedback(task, raw_args, event)
-        self._start_background_implementation(task["task_id"], gateway, event)
-        return self._implementation_feedback_received_message(task)
-
-    @staticmethod
-    def _bugfix_feedback_should_replan(task: dict[str, Any], feedback: str) -> bool:
-        if CodingOrchestrator._bugfix_feedback_should_replan_after_blocked_plan(task):
-            return True
-        status = str(task.get("status") or "")
-        if status != TaskStatus.PLANNED.value:
-            return False
-        if CodingOrchestrator._task_has_post_plan_run(task):
-            return False
-        text = normalize_project_text(feedback).lower()
-        if any(
-            marker in text
-            for marker in (
-                "源分支",
-                "source branch",
-                "worktree",
-                "session",
-                "截图",
-                "图片",
-                "样式",
-                "展示",
-                "调整",
-                "修改",
-                "修复",
-                "忽略",
-                "git",
-                "文件",
-            )
-        ):
-            return False
-        phase = str(task.get("phase") or "")
-        if phase in {TaskPhase.DRAFT.value, TaskPhase.PLANNING.value}:
-            return True
-        return any(
-            marker in text
-            for marker in (
-                "plan",
-                "计划",
-                "重新制定",
-                "补充",
-                "需求",
-                "字段",
-                "schema",
-                "swagger",
-                "api",
-            )
-        )
-
-    @staticmethod
-    def _task_has_post_plan_run(task: dict[str, Any]) -> bool:
-        for run in task.get("agent_runs") or []:
-            if str(run.get("mode") or "") in {
-                RunMode.IMPLEMENTATION.value,
-                RunMode.QA.value,
-                RunMode.MERGE_TEST.value,
-            }:
-                return True
-        return False
-
-    @staticmethod
-    def _bugfix_feedback_should_replan_after_blocked_plan(task: dict[str, Any]) -> bool:
-        if str(task.get("status") or "") != TaskStatus.BLOCKED.value:
-            return False
-        runs = list(task.get("agent_runs") or [])
-        if not runs:
-            return False
-        latest_run = runs[-1]
-        if str(latest_run.get("mode") or "") != RunMode.PLAN_ONLY.value:
-            return False
-        if str(latest_run.get("status") or "") != AgentRunStatus.BLOCKED.value:
-            return False
-        return not CodingOrchestrator._task_is_plan_ready_for_implementation(task)
+        return coding_feedback_command_executor.bugfix_active_task(self, raw_args, event, gateway)
 
     def _reopen_merged_test_task_for_bugfix_if_needed(self, task: dict[str, Any], event: Any) -> dict[str, Any]:
         if str(task.get("status") or "") != TaskStatus.MERGED_TEST.value:
@@ -2225,66 +2092,6 @@ class CodingOrchestrator:
     @staticmethod
     def _task_is_plan_ready_for_implementation(task: dict[str, Any]) -> bool:
         return RunService.task_is_plan_ready_for_implementation(task)
-
-    def _record_plan_feedback(self, task: dict[str, Any], text: str, event: Any) -> None:
-        self.ledger.update_phase(task["task_id"], TaskPhase.PLAN_REVISION.value)
-        self._record_task_feedback(
-            task,
-            text,
-            event,
-            decision_type="plan_feedback",
-            title_prefix="计划反馈",
-            summary_heading="人工计划反馈",
-            tags=["requirement", "plan_feedback", "draft"],
-        )
-
-    def _record_requirement_change(self, task: dict[str, Any], text: str, event: Any) -> None:
-        self.ledger.update_phase(task["task_id"], TaskPhase.PLAN_REVISION.value)
-        self._record_task_feedback(
-            task,
-            text,
-            event,
-            decision_type="requirement_change",
-            title_prefix="需求变更",
-            summary_heading="人工需求变更",
-            tags=["requirement", "requirement_change", "draft"],
-        )
-
-    def _record_implementation_feedback(self, task: dict[str, Any], text: str, event: Any) -> None:
-        self.ledger.update_phase(task["task_id"], TaskPhase.BUGFIXING.value)
-        self._record_task_feedback(
-            task,
-            text,
-            event,
-            decision_type="implementation_feedback",
-            title_prefix="实现反馈",
-            summary_heading="人工实现反馈",
-            tags=["requirement", "implementation_feedback", "bugfix", "draft"],
-        )
-
-    def _record_runtime_feedback(self, task: dict[str, Any], text: str, event: Any) -> None:
-        self._record_task_feedback(
-            task,
-            text,
-            event,
-            decision_type="runtime_feedback",
-            title_prefix="运行中反馈",
-            summary_heading="运行中反馈",
-            tags=["requirement", "runtime_feedback", "draft"],
-        )
-
-    def _record_human_clarification(self, task: dict[str, Any], text: str, event: Any) -> ProjectResolveResult | None:
-        self._record_task_feedback(
-            task,
-            text,
-            event,
-            decision_type="human_clarification",
-            title_prefix="人工补充",
-            summary_heading="人工补充",
-            tags=["requirement", "human_clarification", "draft"],
-        )
-        updated_task = self.ledger.get_task(task["task_id"]) or task
-        return self._apply_project_clarification(updated_task, text)
 
     def _apply_project_clarification(self, task: dict[str, Any], text: str) -> ProjectResolveResult | None:
         if task.get("project_path"):
@@ -2568,56 +2375,6 @@ class CodingOrchestrator:
                 },
                 options={"dedupe_key": f"project:{project_name}"},
             )
-
-    def _record_task_feedback(
-        self,
-        task: dict[str, Any],
-        text: str,
-        event: Any,
-        *,
-        decision_type: str,
-        title_prefix: str,
-        summary_heading: str,
-        tags: list[str],
-    ) -> None:
-        task_id = task["task_id"]
-        feedback = normalize_project_text(text)
-        now = datetime.now(timezone.utc).isoformat()
-        media = self._event_media_for_ledger(event)
-        decision = {
-            "type": decision_type,
-            "text": feedback,
-            "gateway_source": self._event_source_for_ledger(event),
-            "created_at": now,
-        }
-        if media:
-            decision["media"] = media
-        self.ledger.append_human_decision(task_id, decision)
-        feedback_body = self._append_media_description(feedback, media)
-        updated_summary = (
-            f"{str(task.get('requirement_summary') or '').rstrip()}\n\n"
-            f"## {summary_heading} {now}\n"
-            f"{feedback_body}"
-        ).strip()
-        self.ledger.update_requirement_summary(task_id, updated_summary)
-        source = task.get("source") or {}
-        feedback_ref = self.wiki.upsert(
-            {
-                "kind": "draft_knowledge",
-                "title": f"{title_prefix} {task_id}",
-                "body": feedback_body,
-                "source_refs": self._draft_knowledge_source_refs(task_id, {}, event),
-                "project": source.get("project_name"),
-                "module": None,
-                "tags": tags,
-                "confidence": "medium",
-                "status": "draft",
-            },
-            options={"dedupe_key": f"{task_id}:{decision_type}:{len(task.get('human_decisions') or []) + 1}"},
-        )
-        refs = list(task.get("llm_wiki_refs") or [])
-        refs.append(feedback_ref)
-        self.ledger.replace_llm_wiki_refs(task_id, refs)
 
     @staticmethod
     def _implementation_started_message(task: dict[str, Any]) -> str:

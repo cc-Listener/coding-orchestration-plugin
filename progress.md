@@ -4,6 +4,30 @@
 
 ## 会话：2026-06-22
 
+### 阶段 212：Task 34 feedback command executor 第十五切片
+- **状态：** complete
+- 背景：
+  - 阶段 211 已把普通 run / implement / QA command-mode host shell 迁入 `coding_run_command_executor.py`。
+  - `orchestrator.py` 仍直接承接普通 `/coding continue/change/bugfix` 命令模式占位、Gateway active task feedback 分流、feedback human decision / draft knowledge 记录 helper 和 bugfix replan 选择规则；这些属于 feedback command host shell，不需要接管 runner/workspace/git 核心实现。
+  - 本轮不迁 Gateway route/controller、后台 runner 实现、`start_run()`、workspace/checkpoint/git、merge-test gates、source enrichment 或 Project MCP 写回。
+- 执行的操作：
+  - 新增 `tests/test_coding_feedback_command_executor.py`，覆盖 command-mode 占位文案、continue runtime/clarification/plan feedback、change running queue 与 plan restart、bugfix replan/implementation 分流、feedback 记录 payload 和 media/wiki refs。
+  - RED 已确认：`coding_feedback_command_executor` 缺失导致测试失败。
+  - 新增 `coding_orchestration/coding_feedback_command_executor.py`，承接 continue/change/bugfix command-mode 占位、Gateway active task feedback host shell、feedback 记录 helper 和 bugfix replan 选择规则。
+  - `CodingOrchestrator.command_coding_continue/change/bugfix()`、`_continue_active_task()`、`_change_active_task()` 和 `_bugfix_active_task()` 改为薄 wrapper；无引用的 feedback 记录 wrapper 从 orchestrator 删除，Project clarification、后台 plan/implementation 启动和 merged-test reopen 仍由 host callback 承担。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_coding_feedback_command_executor -v` 先失败于 missing import。
+  - GREEN：同一测试通过，6 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_coding_feedback_command_executor tests.test_gateway_feedback_flow tests.test_gateway_change_continue_flow tests.test_gateway_task_control_flow tests.test_gateway_natural_language_command_flow -v`：30 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/coding_feedback_command_executor.py coding_orchestration/orchestrator.py tests/test_coding_feedback_command_executor.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 3813 lines`。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：912 tests passed。
+- 剩余风险：
+  - `orchestrator.py` 当前 3813 行，仍是 architecture guard legacy large-file watch；Task 34 还未达到 3000 行以内退出信号。
+  - 下一轮 Task 34 可继续选择 task control/use/exit host shell、Gateway run-family 执行副作用或其它不触碰 runner/workspace/git 的 façade 降载点。
+
 ### 阶段 211：Task 34 run command executor 第十四切片
 - **状态：** complete
 - 背景：
