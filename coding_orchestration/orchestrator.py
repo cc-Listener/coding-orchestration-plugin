@@ -66,6 +66,7 @@ from .prompt_builder import PromptBuilder
 from . import (
     background_run_notifier,
     coding_diagnostics_command_executor,
+    coding_run_command_executor,
     coding_status_command_executor,
     coding_task_list_command_executor,
     delivery_command_executor,
@@ -811,17 +812,7 @@ class CodingOrchestrator:
         args = raw_args.split()
         if "--next" in args:
             return delivery_command_executor.command_coding_run_next(self, raw_args)
-        task_id = raw_args.strip()
-        if not task_id:
-            return "请提供任务 ID。"
-        task = self.ledger.get_task(task_id)
-        if not task:
-            return f"未找到任务：{task_id}"
-        try:
-            result = self.start_run(task_id, mode=RunMode.PLAN_ONLY)
-        except ValueError as exc:
-            return str(exc)
-        return self._format_run_completion_message(task_id, result)
+        return coding_run_command_executor.command_coding_run(self, raw_args)
 
     def command_coding_analyze(self, raw_args: str) -> str:
         return delivery_command_executor.command_coding_analyze(self, raw_args)
@@ -973,41 +964,10 @@ class CodingOrchestrator:
         return path == root_resolved or root_resolved in path.parents
 
     def command_coding_implement(self, raw_args: str) -> str:
-        task_id = raw_args.strip()
-        if not task_id:
-            return "请提供任务 ID。"
-        task = self.ledger.get_task(task_id)
-        if not task:
-            return f"未找到任务：{task_id}"
-        if self._task_is_cancelled(task):
-            return self._cancelled_task_message(task)
-        if not self._task_is_plan_ready_for_implementation(task):
-            self.ledger.append_human_decision(
-                task_id,
-                {
-                    "type": "implementation_command_before_plan_ready",
-                    "text": raw_args,
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                },
-            )
-            return self._implementation_blocked_before_plan_ready_message(task)
-        self.ledger.update_phase(task_id, TaskPhase.PLAN_APPROVED.value)
-        result = self.start_run(task_id, mode=RunMode.IMPLEMENTATION)
-        return self._format_implementation_completion_message(task_id, result)
+        return coding_run_command_executor.command_coding_implement(self, raw_args)
 
     def command_coding_qa(self, raw_args: str) -> str:
-        task_id = raw_args.strip()
-        if not task_id:
-            return "请提供任务 ID。"
-        task = self.ledger.get_task(task_id)
-        if not task:
-            return f"未找到任务：{task_id}"
-        blocked = self._qa_start_blocker(task)
-        if blocked:
-            return blocked
-        self._record_qa_request(task_id, f"/coding qa {task_id}", event=None)
-        result = self.start_run(task_id, mode=RunMode.QA)
-        return self._format_qa_completion_message(task_id, result)
+        return coding_run_command_executor.command_coding_qa(self, raw_args)
 
     def command_prepare_merge_test(self, raw_args: str) -> str:
         task_id = raw_args.strip()

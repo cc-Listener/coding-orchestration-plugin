@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 210：Task 34 list command executor 第十三切片（complete）
+阶段 211：Task 34 run command executor 第十四切片（complete）
 
 ## 各阶段
 
@@ -1611,6 +1611,15 @@
 - [x] 实现：新增 `coding_task_list_command_executor.py`；`CodingOrchestrator.command_coding_list()`、`_format_task_list_for_event()` 和 `_format_task_list()` 改为薄 wrapper。
 - [x] 文档：同步 Task 34 第十三切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 list command executor、task list presenter、completion/list/Gateway 聚焦回归、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 211：Task 34 run command executor 第十四切片
+- [x] 定域：只迁普通 `/coding run <task_id>`、`/coding implement <task_id>` 和 `/coding qa <task_id>` 的同步 command-mode host shell；不迁 `/coding run <parent> --next`、Gateway 异步启动、`start_run()`、active run reconcile、workspace/checkpoint/git、merge-test gates、delete/cancel/restore 或 run lifecycle 实现。
+- [x] TDD：新增 `tests/test_coding_run_command_executor.py`，覆盖 run 缺 task、未找到、`start_run()` ValueError、plan-only mode 调用、implementation plan-ready gate、plan-not-ready human decision、cancelled gate 和 QA blocker。
+- [x] RED：确认新 executor 缺失或未接线时测试失败。
+- [x] 实现：新增 `coding_run_command_executor.py`；`CodingOrchestrator.command_coding_run()` 普通分支、`command_coding_implement()` 和 `command_coding_qa()` 改为薄 wrapper，`--next` 继续委托 delivery executor。
+- [x] 文档：同步 Task 34 第十四切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 run command executor、command run / QA / cancel restore 聚焦回归、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片
