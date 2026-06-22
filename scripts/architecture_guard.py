@@ -14,7 +14,6 @@ LINE_FAIL_LIMIT = 1000
 
 LINE_EXEMPTIONS = {
     "coding_orchestration/orchestrator.py": "legacy orchestration facade; tracked by Task 18/20",
-    "tests/test_orchestrator_run_flow.py": "legacy flow suite; tracked by Task 19",
 }
 
 BOUNDARY_DEBT: set[tuple[str, str]] = set()

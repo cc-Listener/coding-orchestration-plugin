@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 225：Task 32 Tool dispatcher 完成态收口（complete）
+阶段 226：Task 35 Legacy test final cleanup 完成态收口（complete）
 
 ## 各阶段
 
@@ -1501,6 +1501,14 @@
 - [x] RED：focused 文档测试先失败于 Task 32 仍为 `In Progress`。
 - [x] 文档：同步 `PLUGIN_TECHNICAL_SOLUTION.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、`progress.md` 和 `findings.md`。
 - [x] 验证：运行 Task 32 完成态 focused test、dispatcher/CLI/Gateway 相邻回归、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 226：Task 35 Legacy test final cleanup 完成态收口
+- [x] 定域：只收口旧测试治理，不移动业务测试、不改生产行为、不新增 `.codex/agents` 或运行根内容。
+- [x] TDD：扩展 `tests/test_architecture_guard.py` 和 `tests/test_docs_and_install_entry.py`，要求 resolved legacy flow suite 不再保留 large-file 豁免，并要求 Task 35 完成态记录包含旧私有 helper、旧文件形态、`tests/test_orchestrator_run_flow.py` 与 `tests/test_architecture_guard.py`。
+- [x] RED：focused tests 先失败于 `tests/test_orchestrator_run_flow.py` 仍在 `LINE_EXEMPTIONS`，以及 Task 35 仍为 `Planned`。
+- [x] 实现：移除 `scripts/architecture_guard.py` 中 resolved legacy test flow exemption；同步技术方案、项目地图、组件合同、约定、machine-readable context、进度和发现。
+- [x] 验证：运行 Task 35 focused tests、文档/架构相邻测试、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 192：Task 34 本地项目解析 helper 第一切片

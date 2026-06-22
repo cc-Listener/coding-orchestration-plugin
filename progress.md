@@ -4,6 +4,28 @@
 
 ## 会话：2026-06-22
 
+### 阶段 226：Task 35 Legacy test final cleanup 完成态收口
+- **状态：** complete
+- 背景：
+  - Task 19 已把巨型 `tests/test_orchestrator_run_flow.py` 拆到行为域小文件；当前该文件仅 192 行，保留端到端 smoke、Kanban transition 和 plan-only resume sandbox。
+  - Task 35 剩余风险是治理记录仍未关闭，且 `scripts/architecture_guard.py` 还保留 `tests/test_orchestrator_run_flow.py` 的 legacy large-file 豁免。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_guard.py`，新增 resolved legacy flow suite 不再保留 large-file 豁免的 contract。
+  - 扩展 `tests/test_docs_and_install_entry.py`，新增 Task 35 完成态 contract，要求技术方案和 canonical 文档记录旧私有 helper、旧文件形态、`tests/test_orchestrator_run_flow.py` 与 `tests/test_architecture_guard.py`。
+  - RED 已确认：focused tests 分别失败于 `tests/test_orchestrator_run_flow.py` 仍在 `LINE_EXEMPTIONS`，以及 Task 35 仍为 `Planned`。
+  - 移除 `scripts/architecture_guard.py` 中 resolved legacy flow suite 豁免；同步 `PLUGIN_TECHNICAL_SOLUTION.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、`task_plan.md` 和 `findings.md`。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_resolved_legacy_test_flow_suite_is_not_exempted tests.test_docs_and_install_entry.DocsAndInstallEntryTest.test_task_35_legacy_test_cleanup_status_is_complete -v` 先失败 2 项。
+  - GREEN：同一 focused tests 通过，2 tests passed。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：22 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile scripts/architecture_guard.py tests/test_architecture_guard.py tests/test_docs_and_install_entry.py`：passed。
+  - YAML 解析：`rtk proxy python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 2991 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整回归：`rtk proxy python3 -m unittest discover -s tests -v`：962 tests passed。
+- 剩余风险：
+  - `orchestrator.py` 仍是 legacy large-file watch，继续归 Task 18/20 长期治理；Task 35 不再跟踪旧测试大文件债务。
+
 ### 阶段 225：Task 32 Tool dispatcher 完成态收口
 - **状态：** complete
 - 背景：

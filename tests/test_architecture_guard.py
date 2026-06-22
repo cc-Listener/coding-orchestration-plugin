@@ -8,7 +8,7 @@ SCRIPTS_ROOT = REPO_ROOT / "scripts"
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
-from architecture_guard import scan_paths, scan_repository
+from architecture_guard import LINE_EXEMPTIONS, scan_paths, scan_repository
 
 
 class ArchitectureGuardTest(unittest.TestCase):
@@ -82,6 +82,9 @@ class ArchitectureGuardTest(unittest.TestCase):
 
         self.assertFalse([item for item in findings if item.is_failure])
         self.assertTrue(any(item.code == "legacy_large_file" for item in findings))
+
+    def test_resolved_legacy_test_flow_suite_is_not_exempted(self):
+        self.assertNotIn("tests/test_orchestrator_run_flow.py", LINE_EXEMPTIONS)
 
 
 if __name__ == "__main__":
