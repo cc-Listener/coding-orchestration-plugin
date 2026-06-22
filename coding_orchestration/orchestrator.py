@@ -521,8 +521,7 @@ class CodingOrchestrator:
             status_view = task_status_view(task.get("status"))
             status = status_view["status"] or "unknown"
             task_counts[status] = task_counts.get(status, 0) + 1
-            source_context = ((task.get("source") or {}).get("source_context") or {})
-            source_status = self._source_status_from_context(source_context)
+            source_status = source_projection.source_projection_from_source(task.get("source") or {}).status
             source_health[source_status] = source_health.get(source_status, 0) + 1
             for run in reversed(task.get("agent_runs") or []):
                 if str(run.get("status") or "") in {

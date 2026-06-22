@@ -4,6 +4,30 @@
 
 ## 会话：2026-06-22
 
+### 阶段 222：Task 31 dashboard source health 第七切片
+- **状态：** complete
+- 背景：
+  - Task 31 已让 prompt、context-index、ContextAssembler、TaskService、run manifest permission gate 和 run 前 deferred source enrichment 消费 `SourceProjection`。
+  - dashboard source health 仍在 `CodingOrchestrator.dashboard_status_payload()` 中直接读取 legacy `source_context` 并调用 `_source_status_from_context()`。
+  - 本轮只迁 dashboard source health 统计，不改 source reader、ledger schema、TaskService、run manifest 权限、diagnostic command 或 Gateway。
+- 执行的操作：
+  - 扩展 `tests/test_dashboard_api_contract.py`，新增 dashboard source health projection contract。
+  - RED 已确认：focused test 失败于 `source_projection_from_source()` 未被调用。
+  - 修改 `CodingOrchestrator.dashboard_status_payload()`，使用 `source_projection.source_projection_from_source(task.source).status` 统计 `source_health`。
+  - 同步 `task_plan.md`、`findings.md`、`PLUGIN_TECHNICAL_SOLUTION.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md` 和 `contracts/project-context.yaml`。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_dashboard_api_contract.DashboardApiContractTest.test_dashboard_source_health_uses_source_projection -v` 先失败于 projection 未被调用。
+  - GREEN：同一 focused test 通过，1 test passed。
+  - Dashboard contract：`rtk proxy python3 -m unittest tests.test_dashboard_api_contract -v`：4 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_dashboard_api_contract tests.test_source_projection tests.test_task_service tests.test_run_manifest_service tests.test_source_plan_flow -v`：38 tests passed。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：18 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py tests/test_dashboard_api_contract.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 2991 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整回归：`rtk proxy python3 -m unittest discover -s tests -v`：954 tests passed。
+- 剩余风险：
+  - generic diagnostic helper 中 legacy source context payload 仍未完全收口；可作为 Task 31 后续小切片处理。
+
 ### 阶段 221：Task 29 Gateway controller 收口
 - **状态：** complete
 - 背景：

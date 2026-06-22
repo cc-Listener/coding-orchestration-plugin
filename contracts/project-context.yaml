@@ -130,7 +130,7 @@ project_map:
     - path: coding_orchestration/delivery_command_executor.py
       reason: "Delivery command executor host shell，维护 /coding breakdown、/coding analyze、/coding approve-breakdown、/coding materialize、/coding run <parent> --next、/coding status <parent> --delivery/--tree 用户可见分支和 decomposition / human decision / ledger / rollup callback 绑定；不承载 DeliveryService 纯规则、不实现 runner、不触碰 Gateway route 或 workspace/git 副作用。"
     - path: coding_orchestration/source_projection.py
-      reason: "SourceProjection 纯投影层，把 SourceResult / legacy source_context 映射为 prompt/context/status/manifest/run-preflight 稳定字段，并提供 context-index 序列化 payload；不读外部来源、不写 ledger、不推进状态、不改变 source_context 持久化。"
+      reason: "SourceProjection 纯投影层，把 SourceResult / legacy source_context 映射为 prompt/context/status/manifest/run-preflight/dashboard source health 稳定字段，并提供 context-index 序列化 payload；不读外部来源、不写 ledger、不推进状态、不改变 source_context 持久化。"
     - path: coding_orchestration/run_diff_guard_service.py
       reason: "Run diff guard observation host service，维护 before snapshot、changed files 观测、QA report artifact 过滤、policy violations 组合、plan-only 写入 violations 补充和 diff summary 写回；不写 ledger/report/manifest/summary、不启动 runner、不推进状态。"
     - path: coding_orchestration/run_dispatch_service.py
@@ -601,7 +601,7 @@ component_contract:
     - name: source_projection
       path: coding_orchestration/source_projection.py
       use_instead_of:
-        - "在 prompt/context/status/manifest/run-preflight 消费层继续新增 reader-specific source_context 字段判断；先投影为 SourceProjection，再渲染、写入 context artifact 或决定 run 前 source refresh。"
+        - "在 prompt/context/status/manifest/run-preflight/dashboard source health 消费层继续新增 reader-specific source_context 字段判断；先投影为 SourceProjection，再渲染、写入 context artifact、统计 source health 或决定 run 前 source refresh。"
     - name: validate_codex_semantic_report
       path: coding_orchestration/report_contract.py
       use_instead_of:

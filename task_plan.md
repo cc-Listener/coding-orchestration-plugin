@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 221：Task 29 Gateway controller 收口（complete）
+阶段 222：Task 31 dashboard source health 第七切片（complete）
 
 ## 各阶段
 
@@ -1710,6 +1710,15 @@
 - [x] 实现：将 Task 29 状态表改为 `Complete`，明确 `gateway_command_controller.py`、`gateway_command_executor.py`、`gateway_pending_action_executor.py` 和 `gateway_active_context.py` 的完成边界。
 - [x] 文档：同步进度、实施计划、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 Task 29 focused test、文档/架构测试、py_compile、architecture guard、diff check，并视时间运行完整单测。
+- **状态：** complete
+
+### 阶段 222：Task 31 dashboard source health 第七切片
+- [x] 定域：只让 dashboard source health 统计消费 `SourceProjection`；不改 source reader、ledger schema、TaskService、run manifest 权限、diagnostic command 或 Gateway。
+- [x] TDD：扩展 `tests/test_dashboard_api_contract.py`，patch `source_projection_from_source()` 并确认 dashboard source health 使用 projection status 计数。
+- [x] RED：先运行 focused test，确认旧实现没有调用 projection，仍直接读取 legacy `source_context`。
+- [x] 实现：`CodingOrchestrator.dashboard_status_payload()` 使用 `source_projection.source_projection_from_source(task.source).status` 统计来源健康。
+- [x] 文档：同步 Task 31 第七切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 dashboard focused、dashboard contract、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片
