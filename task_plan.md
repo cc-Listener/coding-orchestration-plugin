@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 226：Task 35 Legacy test final cleanup 完成态收口（complete）
+阶段 227：Task 36 Release readiness gate 完成态收口（complete）
 
 ## 各阶段
 
@@ -1509,6 +1509,14 @@
 - [x] RED：focused tests 先失败于 `tests/test_orchestrator_run_flow.py` 仍在 `LINE_EXEMPTIONS`，以及 Task 35 仍为 `Planned`。
 - [x] 实现：移除 `scripts/architecture_guard.py` 中 resolved legacy test flow exemption；同步技术方案、项目地图、组件合同、约定、machine-readable context、进度和发现。
 - [x] 验证：运行 Task 35 focused tests、文档/架构相邻测试、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 227：Task 36 Release readiness gate 完成态收口
+- [x] 定域：只新增发布 readiness gate 和操作合同；不触碰业务流程、不读取本地 auth/token、不写运行根。
+- [x] TDD：新增 `tests/test_release_readiness.py`，要求 gate 包含完整单测、architecture guard、`git diff --check`、敏感扫描和最小 Hermes smoke，并验证失败时短路；扩展 `tests/test_docs_and_install_entry.py` 锁定 Task 36 完成态。
+- [x] RED：focused tests 先失败于 `scripts/release_readiness.py` 缺失，以及 Task 36 仍为 `Planned`。
+- [x] 实现：新增 `scripts/release_readiness.py`，提供 `build_release_readiness_steps()`、`run_release_readiness()` 和仓库敏感值扫描；同步技术方案、项目地图、组件合同、约定、使用说明、machine-readable context、进度和发现。
+- [x] 验证：运行 release readiness focused tests、文档/架构相邻测试、py_compile、architecture guard、diff check、release gate no-smoke 和完整单测。
 - **状态：** complete
 
 ### 阶段 192：Task 34 本地项目解析 helper 第一切片

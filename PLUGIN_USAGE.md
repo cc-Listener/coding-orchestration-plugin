@@ -152,6 +152,24 @@ rtk hermes gateway status
 - `/coding help` 能输出完整命令说明。
 - 默认普通自然语言不会进入 plugin；发送“进入coding”后，本会话自然语言会先交给 LLM rewrite。高置信度会直接执行为 `/coding <action>`；低置信度交给 Hermes 主 agent 基于插件上下文继续判断；高风险候选会要求确认。
 
+## 发布 readiness
+
+发布前统一运行：
+
+```bash
+rtk proxy python3 scripts/release_readiness.py
+```
+
+该 gate 会按顺序执行完整单测、architecture guard、`git diff --check`、敏感扫描和最小 Hermes smoke。最小 Hermes smoke 包含 `hermes plugins list`、`hermes gateway status` 和 Gateway health 检查。
+
+如果本机没有运行 Hermes，可以在代码切片验证阶段显式跳过 smoke：
+
+```bash
+rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke
+```
+
+正式发布前仍需要在可用 Hermes 环境补跑完整 gate。
+
 ## 卸载和清理旧组件
 
 卸载 Hermes coding 相关组件时，先执行 dry-run：

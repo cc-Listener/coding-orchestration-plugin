@@ -44,7 +44,7 @@ project_map:
       role: unittest coverage for orchestration, runners, source resolution, install scripts, dashboard, state machine; legacy flow cleanup is locked by tests/test_architecture_guard.py, with tests/test_orchestrator_run_flow.py limited to smoke/transition/sandbox and old private-helper coverage moved to service/policy/presenter/adapter contracts
     - name: scripts
       path: scripts/
-      role: user-facing install and uninstall entry scripts
+      role: user-facing install, uninstall, architecture guard, and release readiness entry scripts; scripts/release_readiness.py runs full unittest, architecture guard, git diff --check, sensitive scan, and minimal Hermes smoke
     - name: examples
       path: examples/
       role: project registry and WORKFLOW examples

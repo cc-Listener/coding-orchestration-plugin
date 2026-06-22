@@ -273,6 +273,35 @@ class DocsAndInstallEntryTest(unittest.TestCase):
                 self.assertIn(expected, project_map)
                 self.assertIn(expected, conventions)
 
+    def test_task_36_release_readiness_status_is_complete(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        technical = (repo_root / "PLUGIN_TECHNICAL_SOLUTION.md").read_text(encoding="utf-8")
+        component_contract = (repo_root / "docs" / "component-contract.md").read_text(encoding="utf-8")
+        project_map = (repo_root / "docs" / "project-map.md").read_text(encoding="utf-8")
+        conventions = (repo_root / "docs" / "conventions.md").read_text(encoding="utf-8")
+        usage = (repo_root / "PLUGIN_USAGE.md").read_text(encoding="utf-8")
+
+        task_36_line = next(
+            line
+            for line in technical.splitlines()
+            if line.startswith("| Task 36. Release readiness and operating contract |")
+        )
+        self.assertIn("| Complete |", task_36_line)
+        for expected in (
+            "scripts/release_readiness.py",
+            "完整单测",
+            "architecture guard",
+            "git diff --check",
+            "敏感扫描",
+            "Hermes smoke",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, task_36_line)
+                self.assertIn(expected, component_contract)
+                self.assertIn(expected, project_map)
+                self.assertIn(expected, conventions)
+                self.assertIn(expected, usage)
+
     def test_install_script_runs_when_invoked_by_path(self):
         repo_root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as tmp:

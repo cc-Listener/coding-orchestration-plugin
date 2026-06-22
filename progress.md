@@ -4,6 +4,29 @@
 
 ## 会话：2026-06-22
 
+### 阶段 227：Task 36 Release readiness gate 完成态收口
+- **状态：** complete
+- 背景：
+  - Task 35 已关闭 legacy test final cleanup，当前长期队列最后一项是 Task 36 发布 readiness 与操作合同。
+  - 既有发布检查仍是文档 checklist，缺少可重复执行的 gate 来串联完整单测、架构守卫、diff 空白检查、敏感值扫描和 Hermes/Gateway 最小 smoke。
+- 执行的操作：
+  - 新增 `tests/test_release_readiness.py`，锁定 release gate 的必经步骤、首个失败短路行为，以及敏感值扫描对真实形态 token 和占位符的区分。
+  - 扩展 `tests/test_docs_and_install_entry.py`，新增 Task 36 完成态 contract，要求技术方案记录 `scripts/release_readiness.py`、完整单测、architecture guard、`git diff --check`、敏感扫描、Hermes smoke 和 `--skip-hermes-smoke`。
+  - RED 已确认：focused tests 先失败于 `scripts/release_readiness.py` 缺失，以及 Task 36 仍为 `Planned`。
+  - 新增 `scripts/release_readiness.py`，提供 `build_release_readiness_steps()`、`run_release_readiness()`、仓库敏感值扫描和 `--skip-hermes-smoke` 离线验证入口。
+  - 同步 `PLUGIN_TECHNICAL_SOLUTION.md`、`PLUGIN_USAGE.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、`task_plan.md` 和 `findings.md`。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_release_readiness tests.test_docs_and_install_entry.DocsAndInstallEntryTest.test_task_36_release_readiness_status_is_complete -v` 先失败于 release readiness 脚本缺失和 Task 36 状态未完成。
+  - GREEN：`rtk proxy python3 -m unittest tests.test_release_readiness tests.test_docs_and_install_entry.DocsAndInstallEntryTest.test_task_36_release_readiness_status_is_complete -v`：4 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_release_readiness tests.test_docs_and_install_entry tests.test_architecture_guard -v`：26 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile scripts/release_readiness.py tests/test_release_readiness.py tests/test_docs_and_install_entry.py`：passed。
+  - YAML 解析：`rtk proxy python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 2991 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，包含完整单测、architecture guard、diff check 和敏感扫描。
+- 剩余风险：
+  - 本机未默认运行 Hermes smoke；正式发布前仍应跑不带 `--skip-hermes-smoke` 的默认 gate，确认 `hermes plugins list`、`hermes gateway status` 和 Gateway health。
+
 ### 阶段 226：Task 35 Legacy test final cleanup 完成态收口
 - **状态：** complete
 - 背景：

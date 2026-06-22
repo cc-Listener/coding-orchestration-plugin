@@ -41,6 +41,8 @@
 
 ## 验证 Gate
 
+发布 readiness gate 统一入口是 `rtk proxy python3 scripts/release_readiness.py`：默认串联完整单测、architecture guard、`git diff --check`、敏感扫描和最小 Hermes smoke；本机未运行 Hermes 时可显式追加 `--skip-hermes-smoke`，但正式发布前必须补跑 smoke。
+
 | 场景 | 命令 |
 | --- | --- |
 | 完整单测 | `rtk proxy python3 -m unittest discover -s tests -v` |
