@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import Any
 
 from ..models import TaskStatus, canonical_task_status
-from ..ports import SourceResult
 from ..source_links import extract_feishu_document_link, extract_feishu_project_link
 from ..source_projection import SourceProjection, source_projection_from_context, source_projection_from_source
 from ..source_recovery import feishu_document_lark_cli_command, feishu_document_recovery_action
@@ -220,19 +219,24 @@ def looks_like_failed_feishu_project_context(context: dict[str, Any]) -> bool:
 
 
 def requirement_summary(clean_text: str, source_context: dict[str, Any] | None) -> str:
-    if not source_context or source_context.get("read_status") != "success":
+    if not source_context:
         return clean_text
-    if "raw_fields" in source_context:
+    projection = source_projection_from_context(source_context)
+    if not projection.ok:
         return clean_text
-    summary = str(source_context.get("summary_markdown") or "").strip()
+    if projection.raw_fields:
+        return clean_text
+    summary = projection.summary_markdown.strip()
     if not summary:
         return clean_text
     return f"{clean_text}\n\n{summary}".strip()
 
 
 def message_summary(clean_text: str, source_context: dict[str, Any] | None) -> str:
-    if source_context and source_context.get("title"):
-        return str(source_context["title"])
+    if source_context:
+        title = source_projection_from_context(source_context).title.strip()
+        if title:
+            return title
     return clean_text
 
 
@@ -266,17 +270,18 @@ def source_context_for_ledger(source_context: dict[str, Any]) -> dict[str, Any]:
 def source_context_requires_human(source_context: dict[str, Any]) -> bool:
     if not source_context:
         return False
+    projection = source_projection_from_context(source_context)
     if (
-        source_context.get("codex_resolvable")
-        or source_context.get("deferred_source_resolution")
-        or source_context.get("resolution_owner") in {"codex", "hermes_or_human"}
+        projection.codex_resolvable
+        or projection.deferred_source_resolution
+        or projection.resolution_owner in {"codex", "hermes_or_human"}
     ):
         return False
-    return bool(source_context.get("requires_human_context"))
+    return projection.requires_human_context
 
 
 def source_status_from_context(context: dict[str, Any] | None) -> str:
-    return SourceResult.from_context(context).status
+    return source_projection_from_context(context).status
 
 
 def latest_agent_run(task: dict[str, Any]) -> dict[str, Any] | None:

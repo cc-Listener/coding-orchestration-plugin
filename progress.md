@@ -4,6 +4,31 @@
 
 ## 会话：2026-06-22
 
+### 阶段 224：Task 31 task creation source helper 完成切片
+- **状态：** complete
+- 背景：
+  - 阶段 223 已让 source-resolve / diagnostic payload helper 消费 `SourceProjection`。
+  - task creation source status / needs-human / title / summary helper 仍直接读取 legacy `source_context` 字段。
+  - 本轮只迁 task creation helper，不改 source reader、ledger schema、source_context 持久化、Gateway 或 run lifecycle。
+- 执行的操作：
+  - 扩展 `tests/test_task_service.py`，新增 initial status、needs-human gate、message/requirement summary 的 projection contract。
+  - RED 已确认：focused tests 分别失败于旧 helper 仍返回 `planned`、不需要人工、以及未追加 projected summary。
+  - 修改 `coding_orchestration/services/task_utils.py`，`source_status_from_context()`、`source_context_requires_human()`、`message_summary()` 和 `requirement_summary()` 改为消费 `source_projection_from_context()`。
+  - 扩展 `tests/test_docs_and_install_entry.py`，用文档 contract 锁定 Task 31 完成态。
+  - 将 `PLUGIN_TECHNICAL_SOLUTION.md` 中 Task 31 标为 Complete，并同步 `task_plan.md`、`findings.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md` 和 `contracts/project-context.yaml`。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_task_service.TaskServiceTest.test_initial_task_status_for_create_reads_source_status_from_projection tests.test_task_service.TaskServiceTest.test_source_context_requires_human_reads_gate_fields_from_projection tests.test_task_service.TaskServiceTest.test_task_creation_summaries_read_source_fields_from_projection -v` 先失败 3 项。
+  - GREEN：同一 focused tests 通过，3 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_task_service tests.test_source_projection tests.test_source_plan_flow tests.test_source_flow -v`：29 tests passed。
+  - 扩展相邻回归：`rtk proxy python3 -m unittest tests.test_task_service tests.test_source_projection tests.test_source_flow tests.test_source_plan_flow tests.test_run_manifest_service tests.test_dashboard_api_contract tests.test_orchestrator_tools tests.test_coding_cli -v`：79 tests passed。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：19 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/services/task_utils.py tests/test_task_service.py tests/test_docs_and_install_entry.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 2991 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整回归：`rtk proxy python3 -m unittest discover -s tests -v`：959 tests passed。
+- 剩余风险：
+  - legacy `source_context` 仍保留在 ledger/storage/source reader 兼容边界；source reader/schema 深改不属于 Task 31。
+
 ### 阶段 223：Task 31 source diagnostic payload 第八切片
 - **状态：** complete
 - 背景：

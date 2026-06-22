@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 223：Task 31 source diagnostic payload 第八切片（complete）
+阶段 224：Task 31 task creation source helper 完成切片（complete）
 
 ## 各阶段
 
@@ -1728,6 +1728,15 @@
 - [x] 实现：`task_utils.source_context_payload()` 使用 `source_projection_from_context()` 输出 `ok/source_status/source_type/url/title/summary/error/recovery_action`。
 - [x] 文档：同步 Task 31 第八切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 source payload focused、TaskService/source-resolve/CLI 相邻回归、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 224：Task 31 task creation source helper 完成切片
+- [x] 定域：只让 task creation source helper 消费 `SourceProjection`；不改 source reader、ledger schema、source_context 持久化、Gateway 或 run lifecycle。
+- [x] TDD：扩展 `tests/test_task_service.py`，patch `source_projection_from_context()` 并确认初始状态、needs-human gate、message/requirement summary 来自 projection。
+- [x] RED：focused tests 先失败于旧 helper 仍返回 legacy `read_status`/gate/title/summary 结果。
+- [x] 实现：`task_utils.source_status_from_context()`、`source_context_requires_human()`、`message_summary()` 和 `requirement_summary()` 改为消费 `SourceProjection`。
+- [x] 文档：将 Task 31 标为 Complete，并同步技术方案、计划、进度、发现、项目地图、组件合同、约定和 machine-readable context。
+- [x] 验证：运行 task creation helper focused、TaskService/source projection/source flow 相邻回归、py_compile、文档完成态 focused、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片

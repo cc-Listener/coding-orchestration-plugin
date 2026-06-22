@@ -196,6 +196,31 @@ class DocsAndInstallEntryTest(unittest.TestCase):
                 self.assertIn(expected, component_contract)
                 self.assertIn(expected, project_map)
 
+    def test_task_31_source_port_status_is_complete(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        technical = (repo_root / "PLUGIN_TECHNICAL_SOLUTION.md").read_text(encoding="utf-8")
+        component_contract = (repo_root / "docs" / "component-contract.md").read_text(encoding="utf-8")
+        project_map = (repo_root / "docs" / "project-map.md").read_text(encoding="utf-8")
+
+        task_31_line = next(
+            line
+            for line in technical.splitlines()
+            if line.startswith("| Task 31. SourcePort 消费闭环 |")
+        )
+        self.assertIn("| Complete |", task_31_line)
+        self.assertIn("task creation helper", task_31_line)
+        self.assertNotIn("仍可后续", task_31_line)
+        for expected in (
+            "source_projection.py",
+            "TaskService",
+            "run_manifest_service",
+            "source_context_repair_service.py",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, task_31_line)
+                self.assertIn(expected, component_contract)
+                self.assertIn(expected, project_map)
+
     def test_install_script_runs_when_invoked_by_path(self):
         repo_root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as tmp:

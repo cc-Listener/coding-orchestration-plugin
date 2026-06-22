@@ -235,6 +235,72 @@ class TaskServiceTest(unittest.TestCase):
             ["coding_lark_preflight", "coding_source_resolve", "coding_task_status"],
         )
 
+    def test_initial_task_status_for_create_reads_source_status_from_projection(self):
+        legacy_context = {"read_status": "success", "source_type": "legacy_source"}
+        projection = SimpleNamespace(status="permission_missing")
+
+        with patch(
+            "coding_orchestration.services.task_utils.source_projection_from_context",
+            return_value=projection,
+            create=True,
+        ):
+            status = TaskService.initial_task_status_for_create(
+                resolved_needs_human=False,
+                source_needs_human=False,
+                source_context=legacy_context,
+            )
+
+        self.assertEqual(status, "needs_human")
+
+    def test_source_context_requires_human_reads_gate_fields_from_projection(self):
+        legacy_context = {
+            "codex_resolvable": True,
+            "deferred_source_resolution": True,
+            "resolution_owner": "codex",
+            "requires_human_context": False,
+        }
+        projection = SimpleNamespace(
+            codex_resolvable=False,
+            deferred_source_resolution=False,
+            resolution_owner="",
+            requires_human_context=True,
+        )
+
+        with patch(
+            "coding_orchestration.services.task_utils.source_projection_from_context",
+            return_value=projection,
+            create=True,
+        ):
+            self.assertTrue(TaskService.source_context_requires_human(legacy_context))
+
+    def test_task_creation_summaries_read_source_fields_from_projection(self):
+        legacy_context = {
+            "read_status": "failed",
+            "title": "legacy title",
+            "summary_markdown": "legacy summary",
+        }
+        projection = SimpleNamespace(
+            ok=True,
+            status="ok",
+            title="projected title",
+            summary_markdown="projected summary",
+            raw_fields=[],
+        )
+
+        with patch(
+            "coding_orchestration.services.task_utils.source_projection_from_context",
+            return_value=projection,
+            create=True,
+        ):
+            self.assertEqual(
+                TaskService.requirement_summary("base requirement", legacy_context),
+                "base requirement\n\nprojected summary",
+            )
+            self.assertEqual(
+                TaskService.message_summary("base requirement", legacy_context),
+                "projected title",
+            )
+
     def test_source_context_payload_reads_fields_from_projection(self):
         legacy_context = {
             "read_status": "failed",
