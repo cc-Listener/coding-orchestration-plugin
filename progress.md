@@ -4,6 +4,29 @@
 
 ## 会话：2026-06-22
 
+### 阶段 219：Task 34 kanban sync service 第二十二切片
+- **状态：** complete
+- 背景：
+  - 阶段 218 已把 source context 读取、deferred source pre-run enrichment 和既有 task context 修复迁入 `source_context_repair_service.py`。
+  - `orchestrator.py` 仍直接承接 Kanban create/status sync host helper、skipped/failed sync record 和 task status view 字段投影；这些可迁出为 host service，继续复用既有 `kanban_bridge.py` 工具映射和状态视图。
+  - 本轮不改 `kanban_bridge.py` 工具映射、不改状态机、不迁 `start_run()`、runner/workspace/git 或 run lifecycle。
+- 执行的操作：
+  - 新增 `tests/test_kanban_sync_service.py`，覆盖 task 创建时写回 `kanban_task_id` / `kanban` session、create 异常失败记录、状态同步写回 status view 字段、缺 bridge/缺 kanban task id 的 skipped 记录。
+  - RED 已确认：`kanban_sync_service` 缺失导致测试失败。
+  - 新增 `coding_orchestration/kanban_sync_service.py`，承接 Kanban create/status sync host helper 和 sync record 投影；`CodingOrchestrator._sync_task_to_kanban()`、`_sync_status_to_kanban()`、`_kanban_sync_skipped()`、`_kanban_sync_record_from_result()` 和 `_task_status_sync_fields()` 改为薄 wrapper。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_kanban_sync_service -v` 先失败于 missing import；修正测试夹具枚举后 focused GREEN。
+  - GREEN：`rtk proxy python3 -m unittest tests.test_kanban_sync_service -v`：6 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_kanban_sync_service tests.test_kanban_bridge tests.test_orchestrator_run_flow tests.test_run_status_transition_service tests.test_task_status_payload tests.test_task_service -v`：32 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/kanban_sync_service.py coding_orchestration/orchestrator.py tests/test_kanban_sync_service.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 3064 lines`。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整回归：`rtk proxy python3 -m unittest discover -s tests -v`：947 tests passed。
+- 剩余风险：
+  - `orchestrator.py` 当前 3064 行，仍是 architecture guard legacy large-file watch；Task 34 还未达到 3000 行以内退出信号。
+  - Kanban bridge 真实工具映射、状态机、run lifecycle 和 workspace/git/checkpoint 仍在既有边界。
+
 ### 阶段 218：Task 34 source context repair service 第二十一切片
 - **状态：** complete
 - 背景：

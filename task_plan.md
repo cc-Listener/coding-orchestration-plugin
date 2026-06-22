@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 218：Task 34 source context repair service 第二十一切片（complete）
+阶段 219：Task 34 kanban sync service 第二十二切片（complete）
 
 ## 各阶段
 
@@ -1683,6 +1683,15 @@
 - [x] 实现：新增 `source_context_repair_service.py`；`CodingOrchestrator._read_source_context()`、`_repair_task_context_from_existing_task()` 和 `_enrich_deferred_source_context_before_run()` 改为薄 wrapper。
 - [x] 文档：同步 Task 34 第二十一切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 source context repair focused、source/source-plan/projection/task-service/Gateway project/run manifest 相邻回归、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 219：Task 34 kanban sync service 第二十二切片
+- [x] 定域：只迁 Kanban create/status sync host helper 和 sync record/skipped 投影；不改 `kanban_bridge.py` 工具映射、不改状态机、不改 runner/workspace/git 或 run lifecycle。
+- [x] TDD：新增 `tests/test_kanban_sync_service.py`，覆盖创建 task 写回 kanban session、状态同步写回 status view 字段、缺 bridge/缺 kanban task id 的 skipped 记录和 bridge 异常失败记录。
+- [x] RED：先运行 focused test，确认因 `kanban_sync_service` 缺失失败。
+- [x] 实现：新增 `kanban_sync_service.py`；`CodingOrchestrator._sync_task_to_kanban()`、`_sync_status_to_kanban()`、`_kanban_sync_skipped()` 和 `_kanban_sync_record_from_result()` 改为薄 wrapper。
+- [x] 文档：同步 Task 34 第二十二切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 kanban sync focused、kanban bridge / orchestrator run flow / run status transition 相邻回归、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片
