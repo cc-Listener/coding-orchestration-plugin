@@ -65,7 +65,6 @@ from . import (
     coding_task_list_command_executor,
     coding_task_control_command_executor,
     delivery_command_executor,
-    feedback_presenter,
     gateway_active_context,
     gateway_coding_mode_executor,
     gateway_command_controller,
@@ -1017,10 +1016,6 @@ class CodingOrchestrator:
         return not CodingOrchestrator._event_media_for_ledger(event)
 
     @staticmethod
-    def _missing_feedback_media_message(task: dict[str, Any], action: str) -> str:
-        return feedback_presenter.missing_feedback_media_message(task, action)
-
-    @staticmethod
     def _media_prompt_lines(media: list[dict[str, Any]], *, indent: str = "") -> list[str]:
         if not media:
             return []
@@ -1773,38 +1768,6 @@ class CodingOrchestrator:
             run=run,
             run_root=self.run_root,
         )
-
-    @staticmethod
-    def _plan_feedback_received_message(task: dict[str, Any]) -> str:
-        return feedback_presenter.plan_feedback_received_message(task)
-
-    @staticmethod
-    def _blocked_plan_feedback_received_message(task: dict[str, Any]) -> str:
-        return feedback_presenter.blocked_plan_feedback_received_message(task)
-
-    @staticmethod
-    def _requirement_change_received_message(task: dict[str, Any]) -> str:
-        return feedback_presenter.requirement_change_received_message(task)
-
-    @staticmethod
-    def _requirement_change_queued_message(task: dict[str, Any]) -> str:
-        return feedback_presenter.requirement_change_queued_message(task)
-
-    @staticmethod
-    def _implementation_feedback_received_message(task: dict[str, Any]) -> str:
-        return feedback_presenter.implementation_feedback_received_message(task)
-
-    @staticmethod
-    def _runtime_feedback_received_message(task: dict[str, Any]) -> str:
-        return feedback_presenter.runtime_feedback_received_message(task)
-
-    @staticmethod
-    def _human_clarification_received_message(task: dict[str, Any]) -> str:
-        return feedback_presenter.human_clarification_received_message(task)
-
-    @staticmethod
-    def _human_clarification_project_resolved_message(task: dict[str, Any]) -> str:
-        return feedback_presenter.human_clarification_project_resolved_message(task)
 
     def start_run(
         self,

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from . import feedback_presenter
 from .models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
 from .project_resolver import normalize_text as normalize_project_text
 from .services import RunService
@@ -29,28 +30,28 @@ def continue_active_task(host: Any, raw_args: str, event: Any, gateway: Any) -> 
     if not raw_args.strip():
         return "请在 /coding continue 后提供补充内容。"
     if host._mentions_image_placeholder_without_media(raw_args, event):
-        return host._missing_feedback_media_message(task, "continue")
+        return feedback_presenter.missing_feedback_media_message(task, "continue")
     status = str(task.get("status") or "")
     if status == TaskStatus.RUNNING.value:
         record_runtime_feedback(host, task, raw_args, event)
-        return host._runtime_feedback_received_message(task)
+        return feedback_presenter.runtime_feedback_received_message(task)
     if not task.get("project_path"):
         project_resolved = record_human_clarification(host, task, raw_args, event)
         updated_task = host.ledger.get_task(task["task_id"]) or task
         if project_resolved:
             host._start_background_plan_only(task["task_id"], gateway, event)
-            return host._human_clarification_project_resolved_message(updated_task)
-        return host._human_clarification_received_message(updated_task)
+            return feedback_presenter.human_clarification_project_resolved_message(updated_task)
+        return feedback_presenter.human_clarification_received_message(updated_task)
     if status == TaskStatus.NEEDS_HUMAN.value:
         project_resolved = record_human_clarification(host, task, raw_args, event)
         updated_task = host.ledger.get_task(task["task_id"]) or task
         if project_resolved:
             host._start_background_plan_only(task["task_id"], gateway, event)
-            return host._human_clarification_project_resolved_message(updated_task)
-        return host._human_clarification_received_message(updated_task)
+            return feedback_presenter.human_clarification_project_resolved_message(updated_task)
+        return feedback_presenter.human_clarification_received_message(updated_task)
     record_plan_feedback(host, task, raw_args, event)
     host._start_background_plan_only(task["task_id"], gateway, event)
-    return host._plan_feedback_received_message(task)
+    return feedback_presenter.plan_feedback_received_message(task)
 
 
 def change_active_task(host: Any, raw_args: str, event: Any, gateway: Any) -> str:
@@ -62,13 +63,13 @@ def change_active_task(host: Any, raw_args: str, event: Any, gateway: Any) -> st
     if not raw_args.strip():
         return "请在 /coding change 后提供需求变更内容。"
     if host._mentions_image_placeholder_without_media(raw_args, event):
-        return host._missing_feedback_media_message(task, "change")
+        return feedback_presenter.missing_feedback_media_message(task, "change")
     record_requirement_change(host, task, raw_args, event)
     status = str(task.get("status") or "")
     if status == TaskStatus.RUNNING.value:
-        return host._requirement_change_queued_message(task)
+        return feedback_presenter.requirement_change_queued_message(task)
     host._start_background_plan_only(task["task_id"], gateway, event)
-    return host._requirement_change_received_message(task)
+    return feedback_presenter.requirement_change_received_message(task)
 
 
 def bugfix_active_task(host: Any, raw_args: str, event: Any, gateway: Any) -> str:
@@ -80,17 +81,17 @@ def bugfix_active_task(host: Any, raw_args: str, event: Any, gateway: Any) -> st
     if not raw_args.strip():
         return "请在 /coding bugfix 后提供修复反馈。"
     if host._mentions_image_placeholder_without_media(raw_args, event):
-        return host._missing_feedback_media_message(task, "bugfix")
+        return feedback_presenter.missing_feedback_media_message(task, "bugfix")
     task = host._reopen_merged_test_task_for_bugfix_if_needed(task, event)
     if bugfix_feedback_should_replan(task, raw_args):
         record_plan_feedback(host, task, raw_args, event)
         host._start_background_plan_only(task["task_id"], gateway, event)
         if bugfix_feedback_should_replan_after_blocked_plan(task):
-            return host._blocked_plan_feedback_received_message(task)
-        return host._plan_feedback_received_message(task)
+            return feedback_presenter.blocked_plan_feedback_received_message(task)
+        return feedback_presenter.plan_feedback_received_message(task)
     record_implementation_feedback(host, task, raw_args, event)
     host._start_background_implementation(task["task_id"], gateway, event)
-    return host._implementation_feedback_received_message(task)
+    return feedback_presenter.implementation_feedback_received_message(task)
 
 
 def bugfix_feedback_should_replan(task: dict[str, Any], feedback: str) -> bool:

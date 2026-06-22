@@ -1,7 +1,9 @@
 import unittest
+from unittest import mock
 from unittest.mock import ANY
 
 from coding_orchestration import coding_feedback_command_executor
+from coding_orchestration import feedback_presenter
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
 
 
@@ -48,6 +50,7 @@ class FakeHost:
         self.wiki = FakeWiki()
         self.active_task = task
         self.media = []
+        self.missing_media = False
         self.plan_starts = []
         self.implementation_starts = []
         self.project_clarification_result = None
@@ -62,10 +65,7 @@ class FakeHost:
         return f"cancelled:{task['task_id']}"
 
     def _mentions_image_placeholder_without_media(self, raw_args, event):
-        return False
-
-    def _missing_feedback_media_message(self, task, action):
-        return f"missing-media:{action}:{task['task_id']}"
+        return self.missing_media
 
     def _event_media_for_ledger(self, event):
         return list(self.media)
@@ -89,30 +89,6 @@ class FakeHost:
 
     def _start_background_implementation(self, task_id, gateway, event):
         self.implementation_starts.append((task_id, gateway, event))
-
-    def _runtime_feedback_received_message(self, task):
-        return f"runtime-feedback:{task['task_id']}"
-
-    def _human_clarification_project_resolved_message(self, task):
-        return f"project-resolved:{task['task_id']}"
-
-    def _human_clarification_received_message(self, task):
-        return f"clarification:{task['task_id']}"
-
-    def _plan_feedback_received_message(self, task):
-        return f"plan-feedback:{task['task_id']}"
-
-    def _requirement_change_queued_message(self, task):
-        return f"change-queued:{task['task_id']}"
-
-    def _requirement_change_received_message(self, task):
-        return f"change-received:{task['task_id']}"
-
-    def _blocked_plan_feedback_received_message(self, task):
-        return f"blocked-plan-feedback:{task['task_id']}"
-
-    def _implementation_feedback_received_message(self, task):
-        return f"implementation-feedback:{task['task_id']}"
 
     def _reopen_merged_test_task_for_bugfix_if_needed(self, task, event):
         return task
@@ -142,9 +118,15 @@ class CodingFeedbackCommandExecutorTest(unittest.TestCase):
         task = {"task_id": "task_1", "status": TaskStatus.RUNNING.value, "requirement_summary": "原需求"}
         host = FakeHost(task)
 
-        message = coding_feedback_command_executor.continue_active_task(host, "运行中补充", object(), gateway="gw")
+        with mock.patch.object(
+            feedback_presenter,
+            "runtime_feedback_received_message",
+            side_effect=lambda task: f"runtime-feedback:{task['task_id']}",
+        ) as presenter:
+            message = coding_feedback_command_executor.continue_active_task(host, "运行中补充", object(), gateway="gw")
 
         self.assertEqual(message, "runtime-feedback:task_1")
+        self.assertEqual(presenter.call_count, 1)
         self.assertEqual(host.ledger.human_decisions[0][1]["type"], "runtime_feedback")
         self.assertEqual(host.plan_starts, [])
 
@@ -153,25 +135,94 @@ class CodingFeedbackCommandExecutorTest(unittest.TestCase):
         host = FakeHost(task)
         host.project_clarification_result = object()
 
-        message = coding_feedback_command_executor.continue_active_task(host, "项目在 /repo", object(), gateway="gw")
+        with mock.patch.object(
+            feedback_presenter,
+            "human_clarification_project_resolved_message",
+            side_effect=lambda task: f"project-resolved:{task['task_id']}",
+        ) as presenter:
+            message = coding_feedback_command_executor.continue_active_task(host, "项目在 /repo", object(), gateway="gw")
 
         self.assertEqual(message, "project-resolved:task_1")
+        self.assertEqual(presenter.call_count, 1)
         self.assertEqual(host.ledger.human_decisions[0][1]["type"], "human_clarification")
+        self.assertEqual(host.plan_starts, [("task_1", "gw", ANY)])
+
+    def test_continue_active_task_uses_feedback_presenter_for_clarification_and_missing_media(self):
+        task = {"task_id": "task_1", "status": TaskStatus.NEEDS_HUMAN.value, "requirement_summary": "原需求"}
+        host = FakeHost(task)
+
+        with mock.patch.object(
+            feedback_presenter,
+            "human_clarification_received_message",
+            side_effect=lambda task: f"clarification:{task['task_id']}",
+        ) as presenter:
+            message = coding_feedback_command_executor.continue_active_task(host, "还缺项目", object(), gateway="gw")
+
+        self.assertEqual(message, "clarification:task_1")
+        self.assertEqual(presenter.call_count, 1)
+        self.assertEqual(host.plan_starts, [])
+
+        host = FakeHost(task)
+        host.missing_media = True
+        with mock.patch.object(
+            feedback_presenter,
+            "missing_feedback_media_message",
+            side_effect=lambda task, action: f"missing-media:{action}:{task['task_id']}",
+        ) as media_presenter:
+            media_message = coding_feedback_command_executor.continue_active_task(host, "[Image]", object(), gateway="gw")
+
+        self.assertEqual(media_message, "missing-media:continue:task_1")
+        self.assertEqual(media_presenter.call_count, 1)
+        self.assertEqual(host.ledger.human_decisions, [])
+
+    def test_continue_active_task_records_plan_feedback_and_uses_presenter(self):
+        task = {
+            "task_id": "task_1",
+            "status": TaskStatus.PLANNED.value,
+            "project_path": "/repo",
+            "requirement_summary": "原需求",
+        }
+        host = FakeHost(task)
+
+        with mock.patch.object(
+            feedback_presenter,
+            "plan_feedback_received_message",
+            side_effect=lambda task: f"plan-feedback:{task['task_id']}",
+        ) as presenter:
+            message = coding_feedback_command_executor.continue_active_task(host, "补充计划", object(), gateway="gw")
+
+        self.assertEqual(message, "plan-feedback:task_1")
+        self.assertEqual(presenter.call_count, 1)
+        self.assertEqual(host.ledger.human_decisions[0][1]["type"], "plan_feedback")
         self.assertEqual(host.plan_starts, [("task_1", "gw", ANY)])
 
     def test_change_active_task_queues_when_running_and_restarts_plan_otherwise(self):
         running = {"task_id": "task_1", "status": TaskStatus.RUNNING.value, "requirement_summary": "原需求"}
         running_host = FakeHost(running)
 
-        running_message = coding_feedback_command_executor.change_active_task(running_host, "需求变更", object(), "gw")
+        with (
+            mock.patch.object(
+                feedback_presenter,
+                "requirement_change_queued_message",
+                side_effect=lambda task: f"change-queued:{task['task_id']}",
+            ) as queued_presenter,
+            mock.patch.object(
+                feedback_presenter,
+                "requirement_change_received_message",
+                side_effect=lambda task: f"change-received:{task['task_id']}",
+            ) as received_presenter,
+        ):
+            running_message = coding_feedback_command_executor.change_active_task(running_host, "需求变更", object(), "gw")
 
-        self.assertEqual(running_message, "change-queued:task_1")
-        self.assertEqual(running_host.plan_starts, [])
+            self.assertEqual(running_message, "change-queued:task_1")
+            self.assertEqual(running_host.plan_starts, [])
 
-        planned = {"task_id": "task_2", "status": TaskStatus.PLANNED.value, "requirement_summary": "原需求"}
-        planned_host = FakeHost(planned)
-        planned_message = coding_feedback_command_executor.change_active_task(planned_host, "需求变更", object(), "gw")
+            planned = {"task_id": "task_2", "status": TaskStatus.PLANNED.value, "requirement_summary": "原需求"}
+            planned_host = FakeHost(planned)
+            planned_message = coding_feedback_command_executor.change_active_task(planned_host, "需求变更", object(), "gw")
 
+        self.assertEqual(queued_presenter.call_count, 1)
+        self.assertEqual(received_presenter.call_count, 1)
         self.assertEqual(planned_message, "change-received:task_2")
         self.assertEqual(planned_host.plan_starts, [("task_2", "gw", ANY)])
 
@@ -185,21 +236,40 @@ class CodingFeedbackCommandExecutorTest(unittest.TestCase):
         }
         blocked_host = FakeHost(blocked_plan)
 
-        blocked_message = coding_feedback_command_executor.bugfix_active_task(blocked_host, "补充 API 字段", object(), "gw")
+        with (
+            mock.patch.object(
+                feedback_presenter,
+                "blocked_plan_feedback_received_message",
+                side_effect=lambda task: f"blocked-plan-feedback:{task['task_id']}",
+            ) as blocked_presenter,
+            mock.patch.object(
+                feedback_presenter,
+                "implementation_feedback_received_message",
+                side_effect=lambda task: f"implementation-feedback:{task['task_id']}",
+            ) as implementation_presenter,
+        ):
+            blocked_message = coding_feedback_command_executor.bugfix_active_task(
+                blocked_host,
+                "补充 API 字段",
+                object(),
+                "gw",
+            )
 
-        self.assertEqual(blocked_message, "blocked-plan-feedback:task_1")
-        self.assertEqual(blocked_host.ledger.human_decisions[0][1]["type"], "plan_feedback")
-        self.assertEqual(blocked_host.plan_starts, [("task_1", "gw", ANY)])
+            self.assertEqual(blocked_message, "blocked-plan-feedback:task_1")
+            self.assertEqual(blocked_host.ledger.human_decisions[0][1]["type"], "plan_feedback")
+            self.assertEqual(blocked_host.plan_starts, [("task_1", "gw", ANY)])
 
-        ready = {
-            "task_id": "task_2",
-            "status": TaskStatus.READY_FOR_MERGE_TEST.value,
-            "phase": TaskPhase.READY_TO_MERGE_TEST.value,
-            "requirement_summary": "原需求",
-        }
-        ready_host = FakeHost(ready)
-        ready_message = coding_feedback_command_executor.bugfix_active_task(ready_host, "修复样式", object(), "gw")
+            ready = {
+                "task_id": "task_2",
+                "status": TaskStatus.READY_FOR_MERGE_TEST.value,
+                "phase": TaskPhase.READY_TO_MERGE_TEST.value,
+                "requirement_summary": "原需求",
+            }
+            ready_host = FakeHost(ready)
+            ready_message = coding_feedback_command_executor.bugfix_active_task(ready_host, "修复样式", object(), "gw")
 
+        self.assertEqual(blocked_presenter.call_count, 1)
+        self.assertEqual(implementation_presenter.call_count, 1)
         self.assertEqual(ready_message, "implementation-feedback:task_2")
         self.assertEqual(ready_host.ledger.human_decisions[0][1]["type"], "implementation_feedback")
         self.assertEqual(ready_host.implementation_starts, [("task_2", "gw", ANY)])
