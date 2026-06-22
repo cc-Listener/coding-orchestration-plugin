@@ -380,17 +380,18 @@ def source_context_payload(context: dict[str, Any] | None) -> dict[str, Any]:
             "task_status": "",
             "error": "No source context returned.",
         }
-    source_status = source_status_from_context(context)
-    ok = source_status == "ok"
+    projection = source_projection_from_context(context)
+    source_status = projection.status
+    ok = projection.ok
     return {
         "ok": ok,
         "source_status": source_status,
         "task_status": "planned" if ok else "",
-        "source_type": context.get("source_type") or "",
-        "url": context.get("url") or "",
-        "title": context.get("title") or "",
-        "summary_markdown": context.get("summary_markdown") or "",
-        "error": context.get("error") or "",
-        "recovery_action": context.get("recovery_action") or "",
+        "source_type": projection.source_type,
+        "url": projection.url,
+        "title": projection.title,
+        "summary_markdown": projection.summary_markdown,
+        "error": projection.error,
+        "recovery_action": projection.recovery_action,
         "raw": context,
     }

@@ -4,6 +4,24 @@
 
 ## 会话：2026-06-22
 
+### 阶段 223：Task 31 source diagnostic payload 第八切片
+- **状态：** complete
+- 背景：
+  - 阶段 222 已让 dashboard source health 统计消费 `SourceProjection`。
+  - `TaskService.source_context_payload()` 仍直接从 legacy context 读取 source-resolve / diagnostic payload 的 `source_type`、URL、标题、摘要、错误和恢复动作字段。
+  - 本轮只迁 generic diagnostic payload helper，不改 source reader、ledger schema、task 创建、run manifest 权限或 Gateway。
+- 执行的操作：
+  - 扩展 `tests/test_task_service.py`，新增 `source_context_payload()` projection contract。
+  - RED 已确认：focused test 失败于 payload 仍返回 legacy `source_type`。
+  - 修改 `coding_orchestration/services/task_utils.py`，`source_context_payload()` 通过 `source_projection_from_context()` 输出稳定字段，同时保留 `raw` legacy context。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_task_service.TaskServiceTest.test_source_context_payload_reads_fields_from_projection -v` 先失败于 `source_type` 仍来自 legacy context。
+  - GREEN：同一 focused test 通过，1 test passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_task_service tests.test_orchestrator_tools tests.test_coding_cli tests.test_source_projection -v`：42 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/services/task_utils.py tests/test_task_service.py`：passed。
+- 剩余风险：
+  - task creation source status / needs-human / title / summary helper 仍有 legacy context 读取；需要后续小切片收口后再关闭 Task 31。
+
 ### 阶段 222：Task 31 dashboard source health 第七切片
 - **状态：** complete
 - 背景：

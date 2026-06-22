@@ -235,6 +235,44 @@ class TaskServiceTest(unittest.TestCase):
             ["coding_lark_preflight", "coding_source_resolve", "coding_task_status"],
         )
 
+    def test_source_context_payload_reads_fields_from_projection(self):
+        legacy_context = {
+            "read_status": "failed",
+            "source_type": "legacy_source",
+            "url": "https://legacy.example/doc",
+            "title": "legacy title",
+            "summary_markdown": "legacy summary",
+            "error": "legacy error",
+            "recovery_action": "legacy recovery",
+        }
+        projection = SimpleNamespace(
+            ok=True,
+            status="ok",
+            source_type="projected_source",
+            url="https://projected.example/doc",
+            title="projected title",
+            summary_markdown="projected summary",
+            error="",
+            recovery_action="projected recovery",
+        )
+
+        with patch(
+            "coding_orchestration.services.task_utils.source_projection_from_context",
+            return_value=projection,
+            create=True,
+        ):
+            payload = TaskService.source_context_payload(legacy_context)
+
+        self.assertEqual(payload["ok"], True)
+        self.assertEqual(payload["source_status"], "ok")
+        self.assertEqual(payload["task_status"], "planned")
+        self.assertEqual(payload["source_type"], "projected_source")
+        self.assertEqual(payload["url"], "https://projected.example/doc")
+        self.assertEqual(payload["title"], "projected title")
+        self.assertEqual(payload["summary_markdown"], "projected summary")
+        self.assertEqual(payload["recovery_action"], "projected recovery")
+        self.assertEqual(payload["raw"], legacy_context)
+
 
 if __name__ == "__main__":
     unittest.main()
