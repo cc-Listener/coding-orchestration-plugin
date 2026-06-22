@@ -32,7 +32,7 @@
 | Hermes CLI 子命令 | `from coding_orchestration.cli import register_cli` | `coding_orchestration/cli.py` | `coding_orchestration/cli.py` | `register_cli` |
 | 运行配置边界 | `from coding_orchestration.config import RuntimeConfig, ToolConfig` | `coding_orchestration/config.py` | `coding_orchestration/config.py` | `RuntimeConfig`、`ToolConfig` |
 | 工具规格合同 | `from coding_orchestration.tool_specs import coding_tool_specs` | `coding_orchestration/tool_specs.py` | `coding_orchestration/tool_specs.py`、`plugin_tools.py` | `ToolSpec`、`coding_tool_specs` |
-| 工具 operation dispatcher | `from coding_orchestration.tool_operation_dispatcher import ToolOperationDispatcher` | `coding_orchestration/tool_operation_dispatcher.py` | `tool_operation_dispatcher.py`、`plugin_tools.py`、`orchestrator.py` | `ToolOperationDispatcher` |
+| 工具 operation dispatcher | `from coding_orchestration.tool_operation_dispatcher import ToolOperationDispatcher` | `coding_orchestration/tool_operation_dispatcher.py` | `tool_operation_dispatcher.py`、`plugin_tools.py`、`cli.py`、`orchestrator.py`；Gateway `/coding project-mcp-preflight` diagnostic leaf 复用同一 operation 边界 | `ToolOperationDispatcher` |
 | 端口合同 | `from coding_orchestration.ports import RunnerPort, WorkItemPort, SourceResult` | `coding_orchestration/ports.py` | `coding_orchestration/ports.py` | `HostPort`、`RunnerPort`、`SourcePort`、`SourceResult`、`WorkItemPort`、`LedgerPort` |
 | 任务状态模型 | `from coding_orchestration.models import TaskStatus, TaskPhase, RunMode` | `coding_orchestration/models.py` | `coding_orchestration/models.py` | `TaskStatus`、`TaskPhase`、`RunMode` |
 | 状态转换 | `from coding_orchestration.state_machine import TaskStateMachine` | `coding_orchestration/state_machine.py` | `coding_orchestration/state_machine.py` | `TaskStateMachine` |

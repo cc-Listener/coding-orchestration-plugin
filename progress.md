@@ -4,6 +4,30 @@
 
 ## 会话：2026-06-22
 
+### 阶段 225：Task 32 Tool dispatcher 完成态收口
+- **状态：** complete
+- 背景：
+  - 阶段 191 已让 CLI 普通 `status <task_id>` 读取 `task.status` dispatcher payload。
+  - Task 32 的现有消费面已覆盖 Hermes native tools、CLI `lark-preflight` / `source-resolve` / `project-mcp-preflight` / `status <task_id>`，以及 Gateway `/coding project-mcp-preflight` diagnostic leaf。
+  - 剩余的 future MCP tool 入口没有真实消费方，按边界记录为后续有消费方时再接入，不作为 Task 32 未完成项。
+- 执行的操作：
+  - 扩展 `tests/test_docs_and_install_entry.py`，新增 Task 32 完成态 contract。
+  - RED 已确认：focused test 失败于 `PLUGIN_TECHNICAL_SOLUTION.md` 中 Task 32 仍为 `In Progress`。
+  - 将 `PLUGIN_TECHNICAL_SOLUTION.md` 中 Task 32 标为 Complete，明确不把 `doctor` 聚合、Gateway status、delivery/tree presentation、active run reconcile 或 runner/workspace/git/run lifecycle 下沉到 shared dispatcher。
+  - 同步 `docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、`task_plan.md` 和 `findings.md`。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry.DocsAndInstallEntryTest.test_task_32_tool_dispatcher_status_is_complete -v` 先失败于 Task 32 状态仍为 `In Progress`。
+  - GREEN：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry.DocsAndInstallEntryTest.test_task_32_tool_dispatcher_status_is_complete -v`：1 test passed。
+  - YAML 解析：`rtk proxy python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_tool_operation_dispatcher tests.test_plugin_registration tests.test_tool_specs tests.test_coding_cli tests.test_gateway_command_controller tests.test_gateway_command_group_flow -v`：69 tests passed。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：20 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile tests/test_docs_and_install_entry.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 2991 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整回归：`rtk proxy python3 -m unittest discover -s tests -v`：960 tests passed。
+- 剩余风险：
+  - future MCP tool 只有出现真实消费方后再接入；当前不为此预留未验证 host adapter。
+
 ### 阶段 224：Task 31 task creation source helper 完成切片
 - **状态：** complete
 - 背景：

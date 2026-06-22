@@ -31,7 +31,7 @@
 | `coding_orchestration/project_command_executor.py` | Project command executor host shell：维护 `/coding project list/init/use/status/clear` 命令模式提示和 Gateway immediate project context 分支，调用 host 提供的项目路径解析、profile upsert、active project binding 与 project list/status formatter；不拥有 Gateway route、不创建任务、不启动 runner、不推进状态、不实现 project profile catalog 纯规则。 |
 | `coding_orchestration/config.py` | 运行配置和工具默认值边界；用于逐步收口路径、命令、域名和 env key hard code。 |
 | `coding_orchestration/tool_specs.py` | Hermes native tools / future MCP tools 的 host-agnostic 工具规格合同。 |
-| `coding_orchestration/tool_operation_dispatcher.py` | Tool operation dispatcher：按 `ToolSpec.operation_id` 分发到当前 service/façade handler；Hermes native tool 注册层只做 host payload 归一和 handler 包装，不持有 orchestrator 方法名映射。 |
+| `coding_orchestration/tool_operation_dispatcher.py` | `ToolOperationDispatcher`：按 `ToolSpec.operation_id` 分发到当前 service/façade handler；`plugin_tools.py` Hermes native tool 注册层只做 host payload 归一和 handler 包装，不持有 orchestrator 方法名映射；`cli.py` 的 tool-equivalent 命令和 Gateway `/coding project-mcp-preflight` diagnostic leaf 复用同一 operation 边界。 |
 | `coding_orchestration/cli.py` | Hermes CLI 子命令入口；纯 tool-equivalent 命令直接走 `dispatch_tool_operation()`，普通 `status <task_id>` 只读取 `task.status` payload，`project-mcp-preflight` 额外保留 host config 与 stdio command readiness gate。 |
 | `coding_orchestration/ports.py` | 逐步拆分核心域和 adapter 的端口合同，覆盖 host、runner、source、work item、ledger、knowledge 和 runtime；`SourceResult` 是 source 读取的稳定结果合同。 |
 | `coding_orchestration/models.py` | 公共枚举和数据结构：任务状态、phase、run mode、runner capability、artifact contract。 |

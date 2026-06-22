@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 224：Task 31 task creation source helper 完成切片（complete）
+阶段 225：Task 32 Tool dispatcher 完成态收口（complete）
 
 ## 各阶段
 
@@ -1493,6 +1493,14 @@
 - [x] 实现：`coding_orchestration/cli.py` 对 `status <task_id>` 直接 dispatch `task.status`；`task_status_presenter.py` 新增 tool payload 的用户可见渲染函数。
 - [x] 文档：同步 Task 32 第五切片进度、技术方案和发现。
 - [x] 验证：运行 CLI/status/dispatcher 聚焦回归、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 225：Task 32 Tool dispatcher 完成态收口
+- [x] 定域：只收口 Task 32 状态和合同；不迁 `doctor` 聚合、Gateway status、delivery/tree presentation、active run reconcile、runner/workspace/git/run lifecycle 或无真实消费方的 future MCP tool。
+- [x] TDD：扩展 `tests/test_docs_and_install_entry.py`，要求长期任务表把 Task 32 标为 `Complete`，并在技术方案、项目地图、组件合同和约定中同时记录 `ToolOperationDispatcher`、`plugin_tools.py`、`cli.py` 与 Gateway `/coding project-mcp-preflight` 边界。
+- [x] RED：focused 文档测试先失败于 Task 32 仍为 `In Progress`。
+- [x] 文档：同步 `PLUGIN_TECHNICAL_SOLUTION.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、`progress.md` 和 `findings.md`。
+- [x] 验证：运行 Task 32 完成态 focused test、dispatcher/CLI/Gateway 相邻回归、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 192：Task 34 本地项目解析 helper 第一切片
