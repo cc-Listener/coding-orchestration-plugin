@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from . import run_completion_presenter
 from .models import RunMode, TaskPhase
 
 
@@ -17,7 +18,7 @@ def command_coding_run(host: Any, raw_args: str) -> str:
         result = host.start_run(task_id, mode=RunMode.PLAN_ONLY)
     except ValueError as exc:
         return str(exc)
-    return host._format_run_completion_message(task_id, result)
+    return run_completion_presenter.format_run_completion_message(task_id, result)
 
 
 def command_coding_implement(host: Any, raw_args: str) -> str:
@@ -41,7 +42,7 @@ def command_coding_implement(host: Any, raw_args: str) -> str:
         return host._implementation_blocked_before_plan_ready_message(task)
     host.ledger.update_phase(task_id, TaskPhase.PLAN_APPROVED.value)
     result = host.start_run(task_id, mode=RunMode.IMPLEMENTATION)
-    return host._format_implementation_completion_message(task_id, result)
+    return run_completion_presenter.format_implementation_completion_message(task_id, result)
 
 
 def command_coding_qa(host: Any, raw_args: str) -> str:
@@ -56,4 +57,4 @@ def command_coding_qa(host: Any, raw_args: str) -> str:
         return blocked
     host._record_qa_request(task_id, f"/coding qa {task_id}", event=None)
     result = host.start_run(task_id, mode=RunMode.QA)
-    return host._format_qa_completion_message(task_id, result)
+    return run_completion_presenter.format_qa_completion_message(task_id, result)

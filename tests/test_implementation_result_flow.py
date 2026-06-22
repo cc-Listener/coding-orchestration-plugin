@@ -10,6 +10,7 @@ from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
+from coding_orchestration.run_completion_presenter import format_implementation_completion_message
 from tests.orchestrator_flow_fixtures import FakeRouter, FakeRunner, _write_workflow
 
 
@@ -168,7 +169,7 @@ class ImplementationResultFlowTest(unittest.TestCase):
             self.assertEqual(task["status"], TaskStatus.READY_FOR_MERGE_TEST.value)
             self.assertEqual(task["phase"], TaskPhase.READY_TO_MERGE_TEST.value)
     def test_implementation_completion_message_prompts_manual_merge_test(self):
-        message = CodingOrchestrator._format_implementation_completion_message(
+        message = format_implementation_completion_message(
             "task_ready_merge",
             {
                 "run_id": "run_impl",
@@ -203,7 +204,7 @@ class ImplementationResultFlowTest(unittest.TestCase):
                 },
             }
 
-            message = CodingOrchestrator._format_implementation_completion_message("task_1", result)
+            message = format_implementation_completion_message("task_1", result)
 
             self.assertIn("实现已完成", message)
             self.assertIn("结果状态：等待手动执行 merge test(ready_for_merge_test)", message)
@@ -215,7 +216,7 @@ class ImplementationResultFlowTest(unittest.TestCase):
             self.assertNotIn("artifact=", message)
             self.assertNotIn("调试信息", message)
     def test_implementation_completion_message_keeps_failed_status_visible(self):
-        message = CodingOrchestrator._format_implementation_completion_message(
+        message = format_implementation_completion_message(
             "task_failed",
             {
                 "run_id": "run_failed",
@@ -238,7 +239,7 @@ class ImplementationResultFlowTest(unittest.TestCase):
             }
             (run_dir / "report.json").write_text(json.dumps(report), encoding="utf-8")
 
-            message = CodingOrchestrator._format_implementation_completion_message(
+            message = format_implementation_completion_message(
                 "task_1",
                 {
                     "run_id": "run_1",

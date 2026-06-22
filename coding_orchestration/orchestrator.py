@@ -709,17 +709,17 @@ class CodingOrchestrator:
     @staticmethod
     def _format_decomposition_blocked_message(task_id: str, result: dict[str, Any]) -> str:
         artifacts = result.get("artifacts") or {}
-        report = CodingOrchestrator._load_report_from_artifacts(artifacts)
-        summary = CodingOrchestrator._completion_user_summary(report, artifacts, summary_limit=1200)
-        next_actions = CodingOrchestrator._completion_next_actions(report)
+        report = run_completion_presenter.load_report_from_artifacts(artifacts)
+        summary = run_completion_presenter.completion_user_summary(report, artifacts, summary_limit=1200)
+        next_actions = run_completion_presenter.completion_next_actions(report)
         if not next_actions:
             next_actions = ["补充缺失信息后，重新发送 /coding breakdown。"]
         return render_user_update(
             title="拆解未完成",
             task_id=task_id,
             user_facing_summary=summary or "本轮没有产出可确认的交付拆解方案。",
-            next_actions=CodingOrchestrator._dedupe_texts(next_actions),
-            risk_note=CodingOrchestrator._completion_risk_note(report),
+            next_actions=run_completion_presenter.dedupe_texts(next_actions),
+            risk_note=run_completion_presenter.completion_risk_note(report),
         )
 
     @staticmethod
@@ -2589,7 +2589,7 @@ class CodingOrchestrator:
             if run.get("mode") != RunMode.PLAN_ONLY.value:
                 continue
             artifact = run.get("artifact") or {}
-            summary = CodingOrchestrator._read_text_excerpt(artifact.get("summary"), limit=5000)
+            summary = run_completion_presenter.read_text_excerpt(artifact.get("summary"), limit=5000)
             if summary:
                 return (
                     f"计划 run：{run.get('run_id')}\n"
@@ -2620,7 +2620,7 @@ class CodingOrchestrator:
             if run.get("mode") != RunMode.IMPLEMENTATION.value:
                 continue
             artifact = run.get("artifact") or {}
-            summary = CodingOrchestrator._read_text_excerpt(artifact.get("summary"), limit=5000)
+            summary = run_completion_presenter.read_text_excerpt(artifact.get("summary"), limit=5000)
             if not summary:
                 summary = CodingOrchestrator._report_summary_markdown(artifact.get("report"))
             if summary:
@@ -2927,56 +2927,8 @@ class CodingOrchestrator:
         )
 
     @staticmethod
-    def _format_run_completion_message(task_id: str, result: dict[str, Any]) -> str:
-        return run_completion_presenter.format_run_completion_message(task_id, result)
-
-    @staticmethod
-    def _format_implementation_completion_message(task_id: str, result: dict[str, Any]) -> str:
-        return run_completion_presenter.format_implementation_completion_message(task_id, result)
-
-    @staticmethod
-    def _format_qa_completion_message(task_id: str, result: dict[str, Any]) -> str:
-        return run_completion_presenter.format_qa_completion_message(task_id, result)
-
-    @staticmethod
-    def _format_stale_run_completion_message(task_id: str, result: dict[str, Any]) -> str:
-        return run_completion_presenter.format_stale_run_completion_message(task_id, result)
-
-    @staticmethod
-    def _format_merge_test_completion_message(task_id: str, result: dict[str, Any]) -> str:
-        return run_completion_presenter.format_merge_test_completion_message(task_id, result)
-
-    @staticmethod
-    def _load_report_from_artifacts(artifacts: dict[str, Any]) -> dict[str, Any]:
-        return run_completion_presenter.load_report_from_artifacts(artifacts)
-
-    @staticmethod
-    def _completion_user_summary(report: dict[str, Any], artifacts: dict[str, Any], *, summary_limit: int) -> str:
-        return run_completion_presenter.completion_user_summary(report, artifacts, summary_limit=summary_limit)
-
-    @staticmethod
-    def _completion_user_summary_with_status(result: dict[str, Any], summary: str) -> str:
-        return run_completion_presenter.completion_user_summary_with_status(result, summary)
-
-    @staticmethod
-    def _completion_next_actions(report: dict[str, Any]) -> list[str]:
-        return run_completion_presenter.completion_next_actions(report)
-
-    @staticmethod
-    def _dedupe_texts(items: list[Any]) -> list[str]:
-        return run_completion_presenter.dedupe_texts(items)
-
-    @staticmethod
-    def _completion_risk_note(report: dict[str, Any]) -> str:
-        return run_completion_presenter.completion_risk_note(report)
-
-    @staticmethod
     def _merge_test_started_message(task: dict[str, Any]) -> str:
         return merge_test_presenter.merge_test_started_message(task)
-
-    @staticmethod
-    def _read_text_excerpt(path_value: Any, *, limit: int) -> str:
-        return run_completion_presenter.read_text_excerpt(path_value, limit=limit)
 
     @staticmethod
     async def _call_sender(sender: Any, *args: Any) -> None:

@@ -42,21 +42,6 @@ class FakeHost:
         self.wait_calls.append((task_id, result, mode))
         return self.wait_result or {**result, "task_status": f"{mode.value}_done"}
 
-    def _format_run_completion_message(self, task_id, result):
-        return f"plan-message:{task_id}:{result['run_id']}"
-
-    def _format_stale_run_completion_message(self, task_id, result):
-        return f"stale-message:{task_id}:{result['run_id']}"
-
-    def _format_implementation_completion_message(self, task_id, result):
-        return f"implementation-message:{task_id}:{result['run_id']}"
-
-    def _format_qa_completion_message(self, task_id, result):
-        return f"qa-message:{task_id}:{result['run_id']}"
-
-    def _format_merge_test_completion_message(self, task_id, result):
-        return f"merge-message:{task_id}:{result['run_id']}"
-
     def _mark_background_run_failed(self, task_id, exc, *, mode):
         self.failures.append((task_id, str(exc), mode))
 
@@ -90,10 +75,16 @@ class CodingBackgroundRunExecutorTest(unittest.TestCase):
         host = FakeHost()
         gateway = RecordingGateway()
 
-        coding_background_run_executor.run_plan_only_and_notify(host, "task_1", gateway, FakeEvent(), None)
+        with patch.object(
+            coding_background_run_executor.run_completion_presenter,
+            "format_run_completion_message",
+            side_effect=lambda task_id, result: f"plan-message:{task_id}:{result['run_id']}",
+        ) as presenter:
+            coding_background_run_executor.run_plan_only_and_notify(host, "task_1", gateway, FakeEvent(), None)
 
         self.assertEqual(host.start_calls, [("task_1", RunMode.PLAN_ONLY)])
         self.assertEqual(host.wait_calls[0][2], RunMode.PLAN_ONLY)
+        self.assertEqual(presenter.call_count, 1)
         self.assertEqual(gateway.messages[0][1], "plan-message:task_1:run_plan-only")
         self.assertEqual(host.notifications[0][1], RunMode.PLAN_ONLY)
         self.assertEqual(host.notifications[0][3]["status"], "ok")
@@ -108,18 +99,30 @@ class CodingBackgroundRunExecutorTest(unittest.TestCase):
         }
         gateway = RecordingGateway()
 
-        coding_background_run_executor.run_implementation_and_notify(host, "task_1", gateway, FakeEvent(), None)
+        with patch.object(
+            coding_background_run_executor.run_completion_presenter,
+            "format_stale_run_completion_message",
+            side_effect=lambda task_id, result: f"stale-message:{task_id}:{result['run_id']}",
+        ) as presenter:
+            coding_background_run_executor.run_implementation_and_notify(host, "task_1", gateway, FakeEvent(), None)
 
         self.assertEqual(host.start_calls, [("task_1", RunMode.IMPLEMENTATION)])
+        self.assertEqual(presenter.call_count, 1)
         self.assertEqual(gateway.messages[0][1], "stale-message:task_1:run_stale")
 
     def test_run_qa_uses_qa_completion_message(self):
         host = FakeHost()
         gateway = RecordingGateway()
 
-        coding_background_run_executor.run_qa_and_notify(host, "task_1", gateway, FakeEvent(), None)
+        with patch.object(
+            coding_background_run_executor.run_completion_presenter,
+            "format_qa_completion_message",
+            side_effect=lambda task_id, result: f"qa-message:{task_id}:{result['run_id']}",
+        ) as presenter:
+            coding_background_run_executor.run_qa_and_notify(host, "task_1", gateway, FakeEvent(), None)
 
         self.assertEqual(host.start_calls, [("task_1", RunMode.QA)])
+        self.assertEqual(presenter.call_count, 1)
         self.assertEqual(gateway.messages[0][1], "qa-message:task_1:run_qa")
 
     def test_run_merge_test_stores_pending_action_before_notification(self):
@@ -127,11 +130,17 @@ class CodingBackgroundRunExecutorTest(unittest.TestCase):
         event = FakeEvent()
         gateway = RecordingGateway()
 
-        coding_background_run_executor.run_merge_test_and_notify(host, "task_1", gateway, event, None)
+        with patch.object(
+            coding_background_run_executor.run_completion_presenter,
+            "format_merge_test_completion_message",
+            side_effect=lambda task_id, result: f"merge-message:{task_id}:{result['run_id']}",
+        ) as presenter:
+            coding_background_run_executor.run_merge_test_and_notify(host, "task_1", gateway, event, None)
 
         self.assertEqual(host.start_calls, [("task_1", RunMode.MERGE_TEST)])
         self.assertEqual(host.pending_actions[0][0], event)
         self.assertEqual(host.pending_actions[0][1], "task_1")
+        self.assertEqual(presenter.call_count, 1)
         self.assertEqual(gateway.messages[0][1], "merge-message:task_1:run_merge-test")
 
     def test_run_failure_marks_failed_and_records_empty_notification(self):

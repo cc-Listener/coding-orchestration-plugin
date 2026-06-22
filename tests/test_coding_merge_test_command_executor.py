@@ -82,10 +82,6 @@ class FakeHost:
         return {"status": "success"}
 
     @staticmethod
-    def _format_merge_test_completion_message(task_id: str, result: dict) -> str:
-        return f"merge-test 已处理：{task_id}"
-
-    @staticmethod
     def _blocked_merge_test_release_note(release: dict) -> str:
         return f"已按风险确认继续：{release.get('reason')}"
 
@@ -134,9 +130,15 @@ class CodingMergeTestCommandExecutorTest(unittest.TestCase):
     def test_merge_test_records_request_and_starts_merge_run(self):
         host = FakeHost({"task_id": "task_1", "status": TaskStatus.READY_FOR_MERGE_TEST.value})
 
-        message = coding_merge_test_command_executor.command_coding_merge_test(host, "task_1 --confirm-qa-risk")
+        with unittest.mock.patch.object(
+            coding_merge_test_command_executor.run_completion_presenter,
+            "format_merge_test_completion_message",
+            side_effect=lambda task_id, result: f"merge-test 已处理：{task_id}",
+        ) as presenter:
+            message = coding_merge_test_command_executor.command_coding_merge_test(host, "task_1 --confirm-qa-risk")
 
         self.assertIn("merge-test 已处理：task_1", message)
+        self.assertEqual(presenter.call_count, 1)
         self.assertEqual(host.ledger.task["phase"], TaskPhase.READY_TO_MERGE_TEST.value)
         self.assertEqual(host.ledger.task["merge_records"][-1]["type"], "merge_test_requested")
         self.assertEqual(host.start_calls, [("task_1", RunMode.MERGE_TEST)])

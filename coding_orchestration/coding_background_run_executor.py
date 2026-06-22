@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from . import background_run_notifier
+from . import background_run_notifier, run_completion_presenter
 from .models import RunMode
 
 
@@ -45,7 +45,7 @@ def run_plan_only_and_notify(host: Any, task_id: str, gateway: Any, event: Any, 
         event,
         loop,
         mode=mode,
-        format_success_message=lambda result: host._format_run_completion_message(task_id, result),
+        format_success_message=lambda result: run_completion_presenter.format_run_completion_message(task_id, result),
     )
 
 
@@ -59,9 +59,9 @@ def run_implementation_and_notify(host: Any, task_id: str, gateway: Any, event: 
         loop,
         mode=mode,
         format_success_message=lambda result: (
-            host._format_stale_run_completion_message(task_id, result)
+            run_completion_presenter.format_stale_run_completion_message(task_id, result)
             if result.get("stale_completion")
-            else host._format_implementation_completion_message(task_id, result)
+            else run_completion_presenter.format_implementation_completion_message(task_id, result)
         ),
     )
 
@@ -75,7 +75,7 @@ def run_qa_and_notify(host: Any, task_id: str, gateway: Any, event: Any, loop: A
         event,
         loop,
         mode=mode,
-        format_success_message=lambda result: host._format_qa_completion_message(task_id, result),
+        format_success_message=lambda result: run_completion_presenter.format_qa_completion_message(task_id, result),
     )
 
 
@@ -89,7 +89,7 @@ def run_merge_test_and_notify(host: Any, task_id: str, gateway: Any, event: Any,
         loop,
         mode=mode,
         after_success=lambda result: host._store_pending_action_from_merge_test_result(event, task_id, result),
-        format_success_message=lambda result: host._format_merge_test_completion_message(task_id, result),
+        format_success_message=lambda result: run_completion_presenter.format_merge_test_completion_message(task_id, result),
     )
 
 

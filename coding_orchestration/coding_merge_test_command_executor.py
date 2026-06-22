@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from . import gateway_command_controller, merge_test_presenter
+from . import gateway_command_controller, merge_test_presenter, run_completion_presenter
 from .models import RunMode, TaskPhase, TaskStatus
 
 
@@ -97,7 +97,7 @@ def command_coding_merge_test(host: Any, raw_args: str) -> str:
         },
     )
     result = host.start_run(task_id, mode=RunMode.MERGE_TEST)
-    message = host._format_merge_test_completion_message(task_id, result)
+    message = run_completion_presenter.format_merge_test_completion_message(task_id, result)
     if release:
         message = f"{message}\n\n{host._blocked_merge_test_release_note(release)}"
     if qa_evidence.get("message"):

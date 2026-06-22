@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 227：Task 36 Release readiness gate 完成态收口（complete）
+阶段 228：Task 37 Orchestrator 500 行治理第一切片（complete）
 
 ## 各阶段
 
@@ -1517,6 +1517,14 @@
 - [x] RED：focused tests 先失败于 `scripts/release_readiness.py` 缺失，以及 Task 36 仍为 `Planned`。
 - [x] 实现：新增 `scripts/release_readiness.py`，提供 `build_release_readiness_steps()`、`run_release_readiness()` 和仓库敏感值扫描；同步技术方案、项目地图、组件合同、约定、使用说明、machine-readable context、进度和发现。
 - [x] 验证：运行 release readiness focused tests、文档/架构相邻测试、py_compile、architecture guard、diff check、release gate no-smoke 和完整单测。
+- **状态：** complete
+
+### 阶段 228：Task 37 Orchestrator 500 行治理第一切片
+- [x] 定域：以 500 行为长期目标，先迁出已有 owner 的 run completion presentation 代理；不触碰 `start_run()` runner/workspace/git 核心实现、不改变 Gateway route 或状态推进。
+- [x] TDD：扩展 executor tests，要求 command/background/merge-test executor 直接消费 `run_completion_presenter.py`，不再依赖 `CodingOrchestrator._format_*completion_message` 私有代理。
+- [x] RED：focused tests 先失败于 executor 仍调用 host 私有 completion presenter wrapper。
+- [x] 实现：executor 直接调用 presenter，`orchestrator.py` 内部改为 direct presenter call，删除 run completion presenter proxy wrapper。
+- [x] 验证：运行 focused tests、相邻回归、py_compile、architecture guard、diff check、release gate no-smoke。
 - **状态：** complete
 
 ### 阶段 192：Task 34 本地项目解析 helper 第一切片

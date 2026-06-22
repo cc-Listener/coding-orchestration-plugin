@@ -4,6 +4,35 @@
 
 ## 会话：2026-06-22
 
+### 阶段 228：Task 37 Orchestrator 500 行治理第一切片
+- **状态：** complete
+- 背景：
+  - 用户将 `coding_orchestration/orchestrator.py` 的后续治理目标明确为 500 行左右，并要求按低耦合、高内聚原则继续瘦身。
+  - 当前不适合先粗暴搬迁 runner/workspace/git/run lifecycle 核心实现；首片选择已有明确 owner 的 run completion presentation 代理清理。
+- 执行的操作：
+  - 扩展 `tests/test_coding_background_run_executor.py`、`tests/test_coding_run_command_executor.py` 和 `tests/test_coding_merge_test_command_executor.py`，要求 executor 在 host 不提供 `CodingOrchestrator._format_*completion_message` 私有代理时仍直接消费 `run_completion_presenter.py`。
+  - RED 已确认：focused tests 先失败于 executor module 尚未持有 `run_completion_presenter`，仍只能通过 host 私有 completion wrapper 间接渲染文案。
+  - 修改 `coding_background_run_executor.py`、`coding_run_command_executor.py` 和 `coding_merge_test_command_executor.py`，将 completion 文案渲染改为 direct presenter call。
+  - 修改 `coding_orchestration/orchestrator.py`，内部 decomposition blocked message、confirmed plan / merge-test context 摘要读取改为 direct presenter call，并删除 `_format_*completion_message`、completion helper 和 `_read_text_excerpt` 私有代理。
+  - 将旧 flow 测试中直接调用 `CodingOrchestrator._format_*completion_message` 的断言迁到 `run_completion_presenter.py` owner。
+  - 同步 `PLUGIN_TECHNICAL_SOLUTION.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml` 和 `task_plan.md`。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_coding_background_run_executor tests.test_coding_run_command_executor tests.test_coding_merge_test_command_executor -v` 先失败 8 项，失败点为 executor module 缺少 direct `run_completion_presenter`。
+  - GREEN：同一 focused tests 通过，16 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_coding_background_run_executor tests.test_coding_run_command_executor tests.test_coding_merge_test_command_executor tests.test_run_completion_presenter tests.test_background_run_notifier -v`：26 tests passed。
+  - Flow 回归：`rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_implementation_result_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：38 tests passed。
+  - Gateway safety 漏改回归：`rtk proxy python3 -m unittest tests.test_gateway_safety_lifecycle_flow -v`：4 tests passed。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：23 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/coding_background_run_executor.py coding_orchestration/coding_run_command_executor.py coding_orchestration/coding_merge_test_command_executor.py tests/test_coding_background_run_executor.py tests/test_coding_run_command_executor.py tests/test_coding_merge_test_command_executor.py tests/test_implementation_result_flow.py tests/test_plan_run_flow.py`：passed。
+  - YAML 解析：`rtk proxy python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 2943 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 966 tests passed，敏感扫描 no findings。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：2943 行。
+- 剩余风险：
+  - 500 行是长期目标；本阶段仍保留 `start_run()` 核心接线、Gateway reply wrapper、background wrapper 和大量兼容 façade，后续需继续按 owner 边界逐片迁出。
+
 ### 阶段 227：Task 36 Release readiness gate 完成态收口
 - **状态：** complete
 - 背景：

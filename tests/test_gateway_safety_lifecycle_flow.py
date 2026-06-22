@@ -14,6 +14,7 @@ from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_knowledge_resolver import ProjectKnowledgeResolver
 from coding_orchestration.project_workitem_binding import ProjectWorkitemIdentity
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
+from coding_orchestration.run_completion_presenter import format_stale_run_completion_message
 from coding_orchestration.runners.base import RunResult
 from tests.orchestrator_flow_fixtures import (
     AsyncFailingGateway,
@@ -165,7 +166,7 @@ class GatewaySafetyLifecycleFlowTest(unittest.TestCase):
             self.assertEqual(task["agent_runs"][-1]["stale_completion"], True)
 
     def test_stale_run_completion_hides_newer_run_id_from_user_summary(self):
-        message = CodingOrchestrator._format_stale_run_completion_message(
+        message = format_stale_run_completion_message(
             "task_stale",
             {
                 "run_id": "run_old",
@@ -214,4 +215,3 @@ class GatewaySafetyLifecycleFlowTest(unittest.TestCase):
             self.assertIsNone(result)
             self.assertEqual(orchestrator.auto_implementation_started, [])
             self.assertEqual(gateway.messages, [])
-

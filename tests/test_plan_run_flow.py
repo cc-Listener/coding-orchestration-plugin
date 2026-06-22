@@ -10,6 +10,7 @@ from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
+from coding_orchestration.run_completion_presenter import format_run_completion_message
 from tests.orchestrator_flow_fixtures import (
     FakeBackgroundQueuedRunner,
     FakeGateway,
@@ -153,7 +154,7 @@ class PlanRunFlowTest(unittest.TestCase):
             )
             stderr_path.write_text("unexpected argument '--ask-for-approval' found", encoding="utf-8")
 
-            message = CodingOrchestrator._format_run_completion_message(
+            message = format_run_completion_message(
                 "task_1",
                 {
                     "run_id": "run_1",
@@ -189,7 +190,7 @@ class PlanRunFlowTest(unittest.TestCase):
             )
             summary_path.write_text("## 计划\n- 增加状态筛选", encoding="utf-8")
 
-            message = CodingOrchestrator._format_run_completion_message(
+            message = format_run_completion_message(
                 "task_1",
                 {
                     "run_id": "run_1",
