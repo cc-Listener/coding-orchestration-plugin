@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 216：Task 34 merge-test command executor 第十九切片（complete）
+阶段 217：Task 34 background run executor 第二十切片（complete）
 
 ## 各阶段
 
@@ -1665,6 +1665,15 @@
 - [x] 实现：新增 `coding_merge_test_command_executor.py`；`CodingOrchestrator.command_prepare_merge_test()`、`command_coding_merge_test()` 和 prepare status update helper 改为薄 wrapper。
 - [x] 文档：同步 Task 34 第十九切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 merge-test executor focused、merge-test basic/blocked/QA/readiness 相邻回归、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 217：Task 34 background run executor 第二十切片
+- [x] 定域：只迁 Gateway 后台 plan/implementation/QA/merge-test run 启动与 completion notification 接线；`start_run()`、后台等待完成、失败状态收敛、merge-test pending action、runner/workspace/git/checkpoint 继续通过既有 host wrapper/service 调用。
+- [x] TDD：新增 `tests/test_coding_background_run_executor.py`，覆盖四种 `_start_background_*` mode 委托、plan-only 等待完成通知、implementation stale completion 文案、QA 文案、merge-test pending action after_success 和失败通知记录。
+- [x] RED：先运行 focused test，确认因 `coding_background_run_executor` 缺失失败。
+- [x] 实现：新增 `coding_background_run_executor.py`；`CodingOrchestrator._start_background_*()` 和 `_run_*_and_notify()` 改为薄 wrapper。
+- [x] 文档：同步 Task 34 第二十切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 background executor focused、background notifier / run background orchestration / plan / command / QA / merge-test / Gateway executor 相邻回归、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片

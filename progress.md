@@ -4,6 +4,29 @@
 
 ## 会话：2026-06-22
 
+### 阶段 217：Task 34 background run executor 第二十切片
+- **状态：** complete
+- 背景：
+  - 阶段 216 已把普通 `prepare-merge-test` / `merge-test` command host shell 迁入 `coding_merge_test_command_executor.py`。
+  - `orchestrator.py` 仍直接承接 Gateway 后台 plan-only / implementation / QA / merge-test 的 mode-specific 启动与通知接线；这些只负责选择 `RunMode`、串接 `start_run()`、等待后台完成、completion message、失败处理和 notification callback，可迁为独立 host shell。
+  - 本轮不迁 `start_run()`、后台等待完成实现、失败状态收敛、merge-test pending action、runner/workspace/git/checkpoint 或 run lifecycle。
+- 执行的操作：
+  - 新增 `tests/test_coding_background_run_executor.py`，覆盖四种后台 start wrapper、plan-only 等待完成通知、implementation stale completion 文案、QA completion 文案、merge-test pending action after_success 和失败通知记录。
+  - RED 已确认：`coding_background_run_executor` 缺失导致测试失败。
+  - 新增 `coding_orchestration/coding_background_run_executor.py`，承接后台 run mode-specific host shell；`CodingOrchestrator._start_background_*()` 和 `_run_*_and_notify()` 改为薄 wrapper。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_coding_background_run_executor -v` 先失败于 missing import。
+  - GREEN：同一测试通过，6 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_coding_background_run_executor tests.test_background_run_notifier tests.test_run_background_orchestration tests.test_plan_run_flow tests.test_command_run_flow tests.test_qa_flow tests.test_merge_test_qa_gate_flow tests.test_gateway_command_executor -v`：50 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/coding_background_run_executor.py coding_orchestration/orchestrator.py tests/test_coding_background_run_executor.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 3258 lines`。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：938 tests passed。
+- 剩余风险：
+  - `orchestrator.py` 当前 3258 行，仍是 architecture guard legacy large-file watch；Task 34 还未达到 3000 行以内退出信号。
+  - `start_run()`、active run reconcile、workspace/git/checkpoint 和完成态写回前置观测仍在既有边界，后续切片继续选择低风险 façade 降载点。
+
 ### 阶段 216：Task 34 merge-test command executor 第十九切片
 - **状态：** complete
 - 背景：

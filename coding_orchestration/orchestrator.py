@@ -57,6 +57,7 @@ from .ports import KnowledgePort
 from .prompt_builder import PromptBuilder
 from . import (
     background_run_notifier,
+    coding_background_run_executor,
     coding_feedback_command_executor,
     coding_help_command_executor,
     coding_diagnostics_command_executor,
@@ -3124,141 +3125,32 @@ class CodingOrchestrator:
         return RunService.task_phase_for_run_result(mode, status, details=details)
 
     def _start_background_plan_only(self, task_id: str, gateway: Any, event: Any) -> None:
-        background_run_notifier.start_background_run(
-            task_id,
-            gateway,
-            event,
-            mode=RunMode.PLAN_ONLY,
-            target=self._run_plan_only_and_notify,
-        )
+        coding_background_run_executor.start_background_plan_only(self, task_id, gateway, event)
 
     def _run_plan_only_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
-        mode = RunMode.PLAN_ONLY
-        background_run_notifier.run_and_notify(
-            task_id,
-            gateway,
-            event,
-            loop,
-            mode=mode,
-            execute=lambda: self._wait_for_background_run_completion(
-                task_id,
-                self.start_run(task_id, mode=mode),
-                mode=mode,
-            ),
-            format_success_message=lambda result: self._format_run_completion_message(task_id, result),
-            mark_failed=lambda exc: self._mark_background_run_failed(task_id, exc, mode=mode),
-            record_notification=lambda result, reply: self._record_completion_notification(
-                task_id,
-                mode=mode,
-                result=result,
-                reply=reply,
-            ),
-        )
+        coding_background_run_executor.run_plan_only_and_notify(self, task_id, gateway, event, loop)
 
     def _start_background_implementation(self, task_id: str, gateway: Any, event: Any) -> None:
-        background_run_notifier.start_background_run(
-            task_id,
-            gateway,
-            event,
-            mode=RunMode.IMPLEMENTATION,
-            target=self._run_implementation_and_notify,
-        )
+        coding_background_run_executor.start_background_implementation(self, task_id, gateway, event)
 
     def _run_implementation_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
-        mode = RunMode.IMPLEMENTATION
-        background_run_notifier.run_and_notify(
-            task_id,
-            gateway,
-            event,
-            loop,
-            mode=mode,
-            execute=lambda: self._wait_for_background_run_completion(
-                task_id,
-                self.start_run(task_id, mode=mode),
-                mode=mode,
-            ),
-            format_success_message=lambda result: (
-                self._format_stale_run_completion_message(task_id, result)
-                if result.get("stale_completion")
-                else self._format_implementation_completion_message(task_id, result)
-            ),
-            mark_failed=lambda exc: self._mark_background_run_failed(task_id, exc, mode=mode),
-            record_notification=lambda result, reply: self._record_completion_notification(
-                task_id,
-                mode=mode,
-                result=result,
-                reply=reply,
-            ),
-        )
+        coding_background_run_executor.run_implementation_and_notify(self, task_id, gateway, event, loop)
 
     @staticmethod
     def _execution_policy_from_run_result(result: dict[str, Any]) -> dict[str, Any]:
         return run_context_artifact_service.read_run_execution_policy_artifact(result=result)
 
     def _start_background_qa(self, task_id: str, gateway: Any, event: Any) -> None:
-        background_run_notifier.start_background_run(
-            task_id,
-            gateway,
-            event,
-            mode=RunMode.QA,
-            target=self._run_qa_and_notify,
-        )
+        coding_background_run_executor.start_background_qa(self, task_id, gateway, event)
 
     def _run_qa_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
-        mode = RunMode.QA
-        background_run_notifier.run_and_notify(
-            task_id,
-            gateway,
-            event,
-            loop,
-            mode=mode,
-            execute=lambda: self._wait_for_background_run_completion(
-                task_id,
-                self.start_run(task_id, mode=mode),
-                mode=mode,
-            ),
-            format_success_message=lambda result: self._format_qa_completion_message(task_id, result),
-            mark_failed=lambda exc: self._mark_background_run_failed(task_id, exc, mode=mode),
-            record_notification=lambda result, reply: self._record_completion_notification(
-                task_id,
-                mode=mode,
-                result=result,
-                reply=reply,
-            ),
-        )
+        coding_background_run_executor.run_qa_and_notify(self, task_id, gateway, event, loop)
 
     def _start_background_merge_test(self, task_id: str, gateway: Any, event: Any) -> None:
-        background_run_notifier.start_background_run(
-            task_id,
-            gateway,
-            event,
-            mode=RunMode.MERGE_TEST,
-            target=self._run_merge_test_and_notify,
-        )
+        coding_background_run_executor.start_background_merge_test(self, task_id, gateway, event)
 
     def _run_merge_test_and_notify(self, task_id: str, gateway: Any, event: Any, loop: Any | None) -> None:
-        mode = RunMode.MERGE_TEST
-        background_run_notifier.run_and_notify(
-            task_id,
-            gateway,
-            event,
-            loop,
-            mode=mode,
-            execute=lambda: self._wait_for_background_run_completion(
-                task_id,
-                self.start_run(task_id, mode=mode),
-                mode=mode,
-            ),
-            after_success=lambda result: self._store_pending_action_from_merge_test_result(event, task_id, result),
-            format_success_message=lambda result: self._format_merge_test_completion_message(task_id, result),
-            mark_failed=lambda exc: self._mark_background_run_failed(task_id, exc, mode=mode),
-            record_notification=lambda result, reply: self._record_completion_notification(
-                task_id,
-                mode=mode,
-                result=result,
-                reply=reply,
-            ),
-        )
+        coding_background_run_executor.run_merge_test_and_notify(self, task_id, gateway, event, loop)
 
     def _wait_for_background_run_completion(
         self,
