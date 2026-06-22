@@ -4,6 +4,29 @@
 
 ## 会话：2026-06-22
 
+### 阶段 218：Task 34 source context repair service 第二十一切片
+- **状态：** complete
+- 背景：
+  - 阶段 217 已把 Gateway 后台 run mode-specific 启动与通知接线迁入 `coding_background_run_executor.py`。
+  - `orchestrator.py` 仍直接承接 source context 读取、deferred source pre-run enrichment 和既有 task context 修复；这些是 host helper 接线，可迁出但仍复用既有 source reader、ledger、resolver 和 transition callback。
+  - 本轮不改 legacy `source_context` schema、不改 source reader、不迁 `start_run()`、runner/workspace/git 或 run lifecycle。
+- 执行的操作：
+  - 新增 `tests/test_source_context_repair_service.py`，覆盖外部来源索引不预读、deferred source 成功刷新后清理恢复字段、既有 needs_human task 修复 source summary/project/status。
+  - RED 已确认：`source_context_repair_service` 缺失导致测试失败。
+  - 新增 `coding_orchestration/source_context_repair_service.py`，承接 source context 读取、deferred source pre-run enrichment 和既有 task context 修复；`CodingOrchestrator._read_source_context()`、`_repair_task_context_from_existing_task()` 和 `_enrich_deferred_source_context_before_run()` 改为薄 wrapper。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_source_context_repair_service -v` 先失败于 missing import。
+  - GREEN：同一测试通过，3 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_source_context_repair_service tests.test_source_flow tests.test_source_plan_flow tests.test_source_projection tests.test_task_service tests.test_gateway_project_task_flow tests.test_run_manifest_service -v`：53 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/source_context_repair_service.py coding_orchestration/orchestrator.py tests/test_source_context_repair_service.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 3134 lines`。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整回归：`rtk proxy python3 -m unittest discover -s tests -v`：941 tests passed。
+- 剩余风险：
+  - `orchestrator.py` 当前 3134 行，仍是 architecture guard legacy large-file watch；Task 34 还未达到 3000 行以内退出信号。
+  - source reader、legacy source_context 持久化、run lifecycle 和 source 权限策略仍在既有边界。
+
 ### 阶段 217：Task 34 background run executor 第二十切片
 - **状态：** complete
 - 背景：

@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 217：Task 34 background run executor 第二十切片（complete）
+阶段 218：Task 34 source context repair service 第二十一切片（complete）
 
 ## 各阶段
 
@@ -1674,6 +1674,15 @@
 - [x] 实现：新增 `coding_background_run_executor.py`；`CodingOrchestrator._start_background_*()` 和 `_run_*_and_notify()` 改为薄 wrapper。
 - [x] 文档：同步 Task 34 第二十切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 background executor focused、background notifier / run background orchestration / plan / command / QA / merge-test / Gateway executor 相邻回归、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 218：Task 34 source context repair service 第二十一切片
+- [x] 定域：只迁 source context 读取、deferred source pre-run enrichment 和既有 task context 修复 host helper；不改 legacy `source_context` schema、不改 source reader、不改 `start_run()`、runner/workspace/git 或 run lifecycle。
+- [x] TDD：新增 `tests/test_source_context_repair_service.py`，覆盖外部来源索引不预读、deferred source 成功刷新后清理恢复字段、既有 needs_human task 修复 source summary/project/status。
+- [x] RED：先运行 focused test，确认因 `source_context_repair_service` 缺失失败。
+- [x] 实现：新增 `source_context_repair_service.py`；`CodingOrchestrator._read_source_context()`、`_repair_task_context_from_existing_task()` 和 `_enrich_deferred_source_context_before_run()` 改为薄 wrapper。
+- [x] 文档：同步 Task 34 第二十一切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 source context repair focused、source/source-plan/projection/task-service/Gateway project/run manifest 相邻回归、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片
