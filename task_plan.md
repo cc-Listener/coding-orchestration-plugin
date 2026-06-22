@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 215：Task 34 help command executor 第十八切片（complete）
+阶段 216：Task 34 merge-test command executor 第十九切片（complete）
 
 ## 各阶段
 
@@ -1656,6 +1656,15 @@
 - [x] 实现：新增 `coding_help_command_executor.py`；`CodingOrchestrator.command_coding_help()`、`command_commands_listing()` 和 `_hermes_gateway_command_lines()` 改为薄 wrapper。
 - [x] 文档：同步 Task 34 第十八切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 help executor focused、Gateway command group/command catalog 相邻回归、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 216：Task 34 merge-test command executor 第十九切片
+- [x] 定域：只迁普通 `prepare-merge-test` / `merge-test` command host shell、blocked release 接线和 QA 风险确认接线；workspace/git 观测、checkpoint、runner 调度和 `start_run()` 实现继续通过 host wrapper 调用。
+- [x] TDD：新增 `tests/test_coding_merge_test_command_executor.py`，覆盖 prepare ready task、blocked risk confirmation、merge-test QA 风险确认和成功启动 run。
+- [x] RED：先运行 focused test，确认因 `coding_merge_test_command_executor` 缺失失败。
+- [x] 实现：新增 `coding_merge_test_command_executor.py`；`CodingOrchestrator.command_prepare_merge_test()`、`command_coding_merge_test()` 和 prepare status update helper 改为薄 wrapper。
+- [x] 文档：同步 Task 34 第十九切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 merge-test executor focused、merge-test basic/blocked/QA/readiness 相邻回归、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片

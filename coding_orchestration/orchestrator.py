@@ -60,6 +60,7 @@ from . import (
     coding_feedback_command_executor,
     coding_help_command_executor,
     coding_diagnostics_command_executor,
+    coding_merge_test_command_executor,
     coding_run_command_executor,
     coding_status_command_executor,
     coding_task_list_command_executor,
@@ -815,45 +816,7 @@ class CodingOrchestrator:
         return coding_run_command_executor.command_coding_qa(self, raw_args)
 
     def command_prepare_merge_test(self, raw_args: str) -> str:
-        task_id = raw_args.strip()
-        if not task_id:
-            return "请提供任务 ID。"
-        task = self.ledger.get_task(task_id)
-        if not task:
-            return f"未找到任务：{task_id}"
-        if self._task_is_cancelled(task):
-            return self._cancelled_task_message(task)
-        blocked_assessment = None
-        if task["status"] == TaskStatus.BLOCKED.value:
-            blocked_assessment = self._blocked_task_merge_test_assessment(task)
-            if blocked_assessment.get("mergeable") and blocked_assessment.get("requires_acceptance"):
-                return self._blocked_merge_test_risk_confirmation_message(task_id, blocked_assessment)
-        status_update = self._status_update_for_prepare_merge_test(task, assessment=blocked_assessment)
-        if task["status"] not in {
-            TaskStatus.READY_FOR_MERGE_TEST.value,
-        } and status_update is None:
-            return merge_test_presenter.prepare_merge_test_invalid_status_message(task_id, task)
-        if status_update is not None:
-            self._transition_task_status(
-                task_id,
-                status_update,
-                phase=TaskPhase.READY_TO_MERGE_TEST,
-                reason="prepare merge-test from blocked task",
-            )
-        else:
-            self.ledger.update_phase(task_id, TaskPhase.READY_TO_MERGE_TEST.value)
-        known_gaps = bool(status_update is not None)
-        self.ledger.append_merge_record(
-            task_id,
-            {
-                "type": "merge_test_prepared",
-                "status": "ready",
-                "target_branch": "test",
-                "known_gaps": known_gaps,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            },
-        )
-        return merge_test_presenter.prepare_merge_test_ready_message(task_id, task)
+        return coding_merge_test_command_executor.command_prepare_merge_test(self, raw_args)
 
     def _status_update_for_prepare_merge_test(
         self,
@@ -861,53 +824,14 @@ class CodingOrchestrator:
         *,
         assessment: dict[str, Any] | None = None,
     ) -> TaskStatus | None:
-        status = str(task.get("status") or "")
-        if status != TaskStatus.BLOCKED.value:
-            return None
-        assessment = assessment if assessment is not None else self._blocked_task_merge_test_assessment(task)
-        return TaskStatus.READY_FOR_MERGE_TEST if assessment.get("mergeable") else None
+        return coding_merge_test_command_executor.status_update_for_prepare_merge_test(
+            self,
+            task,
+            assessment=assessment,
+        )
 
     def command_coding_merge_test(self, raw_args: str) -> str:
-        parsed_args = gateway_command_controller.parse_merge_test_command_args(raw_args)
-        accept_risk = parsed_args.accept_risk
-        confirm_qa_risk = parsed_args.confirm_qa_risk
-        task_id = parsed_args.task_id
-        if not task_id:
-            return "请提供任务 ID。"
-        task = self.ledger.get_task(task_id)
-        if not task:
-            return f"未找到任务：{task_id}"
-        assessment = self._blocked_task_merge_test_assessment(task)
-        if assessment.get("requires_acceptance") and not accept_risk:
-            return self._blocked_merge_test_risk_confirmation_message(task_id, assessment)
-        release = self._release_blocked_task_for_merge_test_if_allowed(task, accept_risk=accept_risk)
-        if release:
-            task = self.ledger.get_task(task_id) or task
-        blocked = self._merge_test_blocker(task)
-        if blocked:
-            return blocked
-        qa_evidence = self._qa_evidence_for_merge_test(task)
-        if qa_evidence.get("requires_confirmation") == "true" and not confirm_qa_risk:
-            return self._merge_test_qa_risk_confirmation_message(task_id, qa_evidence, include_reply_hint=False)
-        self.ledger.update_phase(task_id, TaskPhase.READY_TO_MERGE_TEST.value)
-        self.ledger.append_merge_record(
-            task_id,
-            {
-                "type": "merge_test_requested",
-                "status": "running",
-                "target_branch": "test",
-                "qa_evidence": qa_evidence,
-                "blocked_release": release,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-            },
-        )
-        result = self.start_run(task_id, mode=RunMode.MERGE_TEST)
-        message = self._format_merge_test_completion_message(task_id, result)
-        if release:
-            message = f"{message}\n\n{self._blocked_merge_test_release_note(release)}"
-        if qa_evidence.get("message"):
-            message = f"{message}\n\nQA 证据：{qa_evidence['message']}"
-        return message
+        return coding_merge_test_command_executor.command_coding_merge_test(self, raw_args)
 
     def command_coding_complete(self, raw_args: str) -> str:
         return coding_task_control_command_executor.command_coding_complete(self, raw_args)

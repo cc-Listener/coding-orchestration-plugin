@@ -4,6 +4,28 @@
 
 ## 会话：2026-06-22
 
+### 阶段 216：Task 34 merge-test command executor 第十九切片
+- **状态：** complete
+- 背景：
+  - 阶段 215 已把普通 help、Gateway commands listing 和 Hermes built-in command list 拼接迁入 `coding_help_command_executor.py`。
+  - `orchestrator.py` 仍直接承接普通 `prepare-merge-test` / `merge-test` command host shell、blocked release 接线、QA 风险确认和 merge-test run 启动 callback；这些可先迁出，不接管 workspace/git/checkpoint 或 `start_run()` 实现。
+- 执行的操作：
+  - 新增 `tests/test_coding_merge_test_command_executor.py`，覆盖 prepare ready task、blocked risk confirmation、QA 风险确认和 merge-test 成功启动 run。
+  - RED 已确认：`coding_merge_test_command_executor` 缺失导致测试失败。
+  - 新增 `coding_orchestration/coding_merge_test_command_executor.py`，承接 prepare/merge-test command host shell；`CodingOrchestrator.command_prepare_merge_test()`、`command_coding_merge_test()` 和 prepare status update helper 改为薄 wrapper。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_coding_merge_test_command_executor -v` 先失败于 missing import。
+  - GREEN：同一测试通过，4 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_coding_merge_test_command_executor tests.test_merge_test_basic_flow tests.test_merge_test_blocked_flow tests.test_merge_test_qa_gate_flow tests.test_merge_test_readiness_flow tests.test_gateway_natural_language_command_flow -v`：36 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/coding_merge_test_command_executor.py coding_orchestration/orchestrator.py tests/test_coding_merge_test_command_executor.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 3366 lines`。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：932 tests passed。
+- 剩余风险：
+  - `orchestrator.py` 当前 3366 行，仍是 architecture guard legacy large-file watch；Task 34 还未达到 3000 行以内退出信号。
+  - blocked readiness 评估、QA evidence 观测、workspace/git/checkpoint 和 `start_run()` 实现仍在既有边界。
+
 ### 阶段 215：Task 34 help command executor 第十八切片
 - **状态：** complete
 - 背景：
