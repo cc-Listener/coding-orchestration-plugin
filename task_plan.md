@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 213：Task 34 task control executor 第十六切片（complete）
+阶段 214：Task 34 gateway coding mode executor 第十七切片（complete）
 
 ## 各阶段
 
@@ -1638,6 +1638,15 @@
 - [x] 实现：新增 `coding_task_control_command_executor.py`；`CodingOrchestrator.command_coding_use/exit/cancel/restore/delete/complete()`、`_select_active_task_for_event()`、`_clear_active_task_for_event()` 和 `_delete_task_from_args()` 改为薄 wrapper。
 - [x] 文档：同步 Task 34 第十六切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
 - [x] 验证：运行 task control executor、cancel/restore/completion/gateway task-control 聚焦回归、py_compile、architecture guard、diff check 和完整单测。
+- **状态：** complete
+
+### 阶段 214：Task 34 gateway coding mode executor 第十七切片
+- [x] 定域：只迁 Gateway coding mode 自然语言 host shell、rewrite/handoff 接线、pending rewrite 确认和 rewrite context 装配；不迁 Gateway route/controller、runner/workspace/git、task 创建实现、pending action executor 或 run lifecycle。
+- [x] TDD：新增 `tests/test_gateway_coding_mode_executor.py`，覆盖 enter/exit、未开启 passthrough、高置信度 direct execute、destructive pending confirmation、低置信度 handoff 和 rewriter 异常 fallback。
+- [x] RED：确认新 executor 缺失或未接线时测试失败。
+- [x] 实现：新增 `gateway_coding_mode_executor.py`；`CodingOrchestrator._handle_coding_mode_gateway_message()` 及 rewrite helper 改为薄 wrapper 或迁出。
+- [x] 文档：同步 Task 34 第十七切片进度、技术方案、项目地图、组件合同、约定、machine-readable context 和发现。
+- [x] 验证：运行 gateway coding mode executor、rewrite/natural-language/pending confirmation 聚焦回归、py_compile、architecture guard、diff check 和完整单测。
 - **状态：** complete
 
 ### 阶段 196：Task 31 SourceProjection prompt source block 第一切片

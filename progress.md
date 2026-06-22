@@ -4,6 +4,30 @@
 
 ## 会话：2026-06-22
 
+### 阶段 214：Task 34 gateway coding mode executor 第十七切片
+- **状态：** complete
+- 背景：
+  - 阶段 213 已把普通 use/exit/cancel/restore/delete/complete task control host shell 和 Gateway use/exit task binding shell 迁入 `coding_task_control_command_executor.py`。
+  - `orchestrator.py` 仍直接承接 Gateway coding mode enter/exit、pending rewrite 确认/取消、高置信度 rewrite direct execute、低置信度 handoff 和 rewrite context 装配；这些属于 Gateway coding mode host shell，可通过 host callback 迁出。
+  - 本轮不迁 Gateway route/controller、pending action executor、task 创建实现、runner/workspace/git 或 run lifecycle。
+- 执行的操作：
+  - 新增 `tests/test_gateway_coding_mode_executor.py`，覆盖 coding mode enter/exit、未开启 passthrough、高置信度 rewrite direct execute、destructive pending confirmation、低置信度 handoff 和 rewriter exception fallback。
+  - RED 已确认：`gateway_coding_mode_executor` 缺失导致测试失败。
+  - 新增 `coding_orchestration/gateway_coding_mode_executor.py`，承接 Gateway coding mode host shell、rewrite context 装配调用、rewrite 校验、确认文案和低置信度 handoff。
+  - `CodingOrchestrator._handle_coding_mode_gateway_message()` 和 rewrite helper 改为薄 wrapper；保留兼容 façade 供既有测试和外部调用委托到新 executor。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_gateway_coding_mode_executor -v` 先失败于 missing import。
+  - GREEN：`rtk proxy python3 -m unittest tests.test_gateway_coding_mode_executor tests.test_gateway_rewrite_flow tests.test_gateway_natural_language_command_flow tests.test_gateway_pending_confirmation_flow tests.test_gateway_command_group_flow -v`：34 tests passed。
+  - 兼容回归：`rtk proxy python3 -m unittest tests.test_command_catalog tests.test_gateway_command_controller -v`：27 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/gateway_coding_mode_executor.py coding_orchestration/orchestrator.py tests/test_gateway_coding_mode_executor.py`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 3496 lines`。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：924 tests passed。
+- 剩余风险：
+  - `orchestrator.py` 当前 3496 行，仍是 architecture guard legacy large-file watch；Task 34 还未达到 3000 行以内退出信号。
+  - 下一轮 Task 34 需要继续选择 prepare/merge-test command host shell、Gateway 执行副作用或其它不触碰 runner/workspace/git 的 façade 降载点。
+
 ### 阶段 213：Task 34 task control executor 第十六切片
 - **状态：** complete
 - 背景：
