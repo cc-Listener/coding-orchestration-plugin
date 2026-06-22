@@ -96,7 +96,7 @@ project_map:
     - path: coding_orchestration/gateway_command_controller.py
       reason: "Gateway command controller 纯规则层，维护显式 /coding / /commands 解析、命令归一化、route metadata、handler key、reply mode、task id 来源、merge-test 参数、rewrite canonical command、确认/取消词、dedupe 和授权探测；Task 29 完成后不得承载 ledger、runner、消息发送、状态推进或 run lifecycle。"
     - path: coding_orchestration/gateway_command_executor.py
-      reason: "Gateway custom route host shell，维护 task/run/delivery/implementation/QA/prepare-merge-test/merge-test route metadata 到 host action 的分发；不承载 controller 纯解析规则，不拥有 runner/workspace/git/run lifecycle。"
+      reason: "Gateway custom route host shell，维护 task/run/delivery/implementation/QA/prepare-merge-test/merge-test route metadata 到 host action 的分发，并 direct 调用 run_start_presenter.py 与 merge_test_presenter.py 渲染对应用户可见文案；不承载 controller 纯解析规则，不拥有 runner/workspace/git/run lifecycle。"
     - path: coding_orchestration/gateway_pending_action_executor.py
       reason: "Gateway pending action host shell，维护确认/取消、latest human_required fallback、取消任务 gate 和确认后显式命令续接；不拥有 controller 纯解析规则、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/gateway_active_context.py
@@ -112,7 +112,7 @@ project_map:
     - path: coding_orchestration/coding_run_command_executor.py
       reason: "Coding run command executor host shell，维护普通 /coding run <task_id>、/coding implement <task_id> 和 /coding qa <task_id> 的同步 command-mode task gate、human decision、QA request、start_run callback 接线和 run_completion_presenter direct call；不拥有 /coding run <parent> --next、Gateway 异步启动、start_run 实现、active run reconcile、workspace/checkpoint/git、merge-test gates、delete/cancel/restore 或 run lifecycle。"
     - path: coding_orchestration/coding_merge_test_command_executor.py
-      reason: "Coding merge-test command executor host shell，维护普通 prepare-merge-test / merge-test command 分支、blocked risk release 接线、QA 风险确认、merge-test run 启动 callback 和 run_completion_presenter direct call；不拥有 workspace/git/checkpoint 实现、blocked readiness 纯评估、QA evidence 观测、start_run 实现或 run lifecycle。"
+      reason: "Coding merge-test command executor host shell，维护普通 prepare-merge-test / merge-test command 分支、blocked risk release 接线、QA 风险确认、merge-test run 启动 callback、merge_test_presenter direct call 和 run_completion_presenter direct call；不拥有 workspace/git/checkpoint 实现、blocked readiness 纯评估、QA evidence 观测、start_run 实现或 run lifecycle。"
     - path: coding_orchestration/coding_background_run_executor.py
       reason: "Coding background run executor host shell，维护 Gateway 后台 plan-only / implementation / QA / merge-test mode-specific 启动、run_completion_presenter direct message 选择、失败通知和 completion notification callback 接线；不拥有 start_run、后台等待完成、失败状态收敛、merge-test pending action、runner/workspace/git/checkpoint 或 run lifecycle。"
     - path: coding_orchestration/source_context_repair_service.py
@@ -308,6 +308,10 @@ component_contract:
       path: coding_orchestration/feedback_presenter.py
       preferred: true
       note: "/coding continue/change/bugfix 反馈、需求变更、图片未捕获和人工澄清文案的 owner；coding_feedback_command_executor.py 直接调用，不经 CodingOrchestrator 私有代理。"
+    - name: merge_test_presenter
+      path: coding_orchestration/merge_test_presenter.py
+      preferred: true
+      note: "prepare/merge-test 状态提示、blocked/QA 风险确认、风险放行说明和 merge-test 启动 ACK 文案的 owner；coding_merge_test_command_executor.py 与 gateway_command_executor.py 直接调用，不经 CodingOrchestrator 私有代理。"
     - name: run_artifact_paths
       path: coding_orchestration/run_artifact_paths.py
       preferred: true
@@ -557,6 +561,7 @@ component_contract:
       use_instead_of:
         - "在 orchestrator 中继续新增普通 prepare-merge-test / merge-test command host shell、blocked risk release 接线、QA 风险确认或 merge-test run 启动 callback。"
         - "通过 CodingOrchestrator._format_merge_test_completion_message 私有代理渲染 merge-test completion 文案。"
+        - "通过 CodingOrchestrator._blocked_merge_test_risk_confirmation_message、_merge_test_qa_risk_confirmation_message、_blocked_merge_test_release_note、_fallback_evidence_user_line 或 _merge_test_started_message 私有代理渲染 merge-test 用户可见文案。"
     - name: coding_feedback_command_executor
       path: coding_orchestration/coding_feedback_command_executor.py
       use_instead_of:
@@ -583,6 +588,7 @@ component_contract:
       path: coding_orchestration/gateway_command_executor.py
       use_instead_of:
         - "在 orchestrator 中继续新增 task/run/delivery/implementation/QA/prepare-merge-test/merge-test Gateway custom route 分发。"
+        - "通过 CodingOrchestrator 私有 merge-test presenter 代理渲染 Gateway merge-test 风险确认、QA 风险确认、启动 ACK 或风险放行说明。"
     - name: gateway_pending_action_executor
       path: coding_orchestration/gateway_pending_action_executor.py
       use_instead_of:

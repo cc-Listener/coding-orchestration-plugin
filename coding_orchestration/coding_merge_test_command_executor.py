@@ -20,7 +20,7 @@ def command_prepare_merge_test(host: Any, raw_args: str) -> str:
     if task["status"] == TaskStatus.BLOCKED.value:
         blocked_assessment = host._blocked_task_merge_test_assessment(task)
         if blocked_assessment.get("mergeable") and blocked_assessment.get("requires_acceptance"):
-            return host._blocked_merge_test_risk_confirmation_message(task_id, blocked_assessment)
+            return merge_test_presenter.blocked_merge_test_risk_confirmation_message(task_id, blocked_assessment)
     status_update = status_update_for_prepare_merge_test(host, task, assessment=blocked_assessment)
     if task["status"] not in {
         TaskStatus.READY_FOR_MERGE_TEST.value,
@@ -74,7 +74,7 @@ def command_coding_merge_test(host: Any, raw_args: str) -> str:
         return f"未找到任务：{task_id}"
     assessment = host._blocked_task_merge_test_assessment(task)
     if assessment.get("requires_acceptance") and not accept_risk:
-        return host._blocked_merge_test_risk_confirmation_message(task_id, assessment)
+        return merge_test_presenter.blocked_merge_test_risk_confirmation_message(task_id, assessment)
     release = host._release_blocked_task_for_merge_test_if_allowed(task, accept_risk=accept_risk)
     if release:
         task = host.ledger.get_task(task_id) or task
@@ -83,7 +83,11 @@ def command_coding_merge_test(host: Any, raw_args: str) -> str:
         return blocked
     qa_evidence = host._qa_evidence_for_merge_test(task)
     if qa_evidence.get("requires_confirmation") == "true" and not confirm_qa_risk:
-        return host._merge_test_qa_risk_confirmation_message(task_id, qa_evidence, include_reply_hint=False)
+        return merge_test_presenter.merge_test_qa_risk_confirmation_message(
+            task_id,
+            qa_evidence,
+            include_reply_hint=False,
+        )
     host.ledger.update_phase(task_id, TaskPhase.READY_TO_MERGE_TEST.value)
     host.ledger.append_merge_record(
         task_id,
@@ -99,7 +103,7 @@ def command_coding_merge_test(host: Any, raw_args: str) -> str:
     result = host.start_run(task_id, mode=RunMode.MERGE_TEST)
     message = run_completion_presenter.format_merge_test_completion_message(task_id, result)
     if release:
-        message = f"{message}\n\n{host._blocked_merge_test_release_note(release)}"
+        message = f"{message}\n\n{merge_test_presenter.blocked_merge_test_release_note(release)}"
     if qa_evidence.get("message"):
         message = f"{message}\n\nQA 证据：{qa_evidence['message']}"
     return message

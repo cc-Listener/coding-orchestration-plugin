@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from . import gateway_command_controller, run_start_presenter
+from . import gateway_command_controller, merge_test_presenter, run_start_presenter
 from .models import RunMode, TaskPhase, TaskStatus
 
 
@@ -191,7 +191,12 @@ def _handle_merge_test(
             reason=str(assessment.get("impact") or "blocked task merge-test 需要人工接受风险"),
             mode=RunMode.MERGE_TEST.value,
         )
-        return _reply(host, gateway, event, host._blocked_merge_test_risk_confirmation_message(task_id, assessment))
+        return _reply(
+            host,
+            gateway,
+            event,
+            merge_test_presenter.blocked_merge_test_risk_confirmation_message(task_id, assessment),
+        )
     release = host._release_blocked_task_for_merge_test_if_allowed(task, accept_risk=parsed_args.accept_risk)
     if release:
         task = host.ledger.get_task(task_id) or task
@@ -208,7 +213,12 @@ def _handle_merge_test(
             reason=str(qa_evidence.get("impact") or "merge-test 存在 QA 风险，需要人工确认"),
             mode=RunMode.MERGE_TEST.value,
         )
-        return _reply(host, gateway, event, host._merge_test_qa_risk_confirmation_message(task_id, qa_evidence))
+        return _reply(
+            host,
+            gateway,
+            event,
+            merge_test_presenter.merge_test_qa_risk_confirmation_message(task_id, qa_evidence),
+        )
     host.ledger.update_phase(task_id, TaskPhase.READY_TO_MERGE_TEST.value)
     host.ledger.append_merge_record(
         task_id,
@@ -222,9 +232,12 @@ def _handle_merge_test(
             "created_at": datetime.now(timezone.utc).isoformat(),
         },
     )
-    started_message = host._merge_test_started_message(task)
+    started_message = merge_test_presenter.merge_test_started_message(task)
     if release:
-        started_message = f"{started_message}\n{host._blocked_merge_test_release_note(release)}"
+        started_message = (
+            f"{started_message}\n"
+            f"{merge_test_presenter.blocked_merge_test_release_note(release)}"
+        )
     host._reply_if_possible(gateway, event, started_message)
     host._start_background_merge_test(task_id, gateway, event)
     return dict(HANDLED_BY_CODING_ORCHESTRATION)

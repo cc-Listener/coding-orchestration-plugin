@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 from coding_orchestration import coding_merge_test_command_executor
+from coding_orchestration import merge_test_presenter
 from coding_orchestration.models import RunMode, TaskPhase, TaskStatus
 
 
@@ -43,19 +45,6 @@ class FakeHost:
     def _blocked_task_merge_test_assessment(self, task: dict) -> dict:
         return dict(self.assessment)
 
-    @staticmethod
-    def _blocked_merge_test_risk_confirmation_message(task_id: str, assessment: dict) -> str:
-        return f"风险确认 {task_id}: {assessment.get('reason') or ''} --accept-risk"
-
-    @staticmethod
-    def _merge_test_qa_risk_confirmation_message(
-        task_id: str,
-        qa_evidence: dict[str, str],
-        *,
-        include_reply_hint: bool = True,
-    ) -> str:
-        return f"QA 风险 {task_id}: {qa_evidence.get('status')} --confirm-qa-risk"
-
     def _transition_task_status(
         self,
         task_id: str,
@@ -81,10 +70,6 @@ class FakeHost:
         self.start_calls.append((task_id, mode))
         return {"status": "success"}
 
-    @staticmethod
-    def _blocked_merge_test_release_note(release: dict) -> str:
-        return f"已按风险确认继续：{release.get('reason')}"
-
 
 class CodingMergeTestCommandExecutorTest(unittest.TestCase):
     def test_prepare_merge_test_marks_ready_task_and_records_preparation(self):
@@ -107,10 +92,16 @@ class CodingMergeTestCommandExecutorTest(unittest.TestCase):
         host = FakeHost({"task_id": "task_1", "status": TaskStatus.BLOCKED.value})
         host.assessment = {"mergeable": True, "requires_acceptance": True, "reason": "missing_report"}
 
-        message = coding_merge_test_command_executor.command_prepare_merge_test(host, "task_1")
+        with mock.patch.object(
+            merge_test_presenter,
+            "blocked_merge_test_risk_confirmation_message",
+            side_effect=lambda task_id, assessment: f"风险确认 {task_id}: {assessment.get('reason') or ''} --accept-risk",
+        ) as presenter:
+            message = coding_merge_test_command_executor.command_prepare_merge_test(host, "task_1")
 
         self.assertIn("风险确认 task_1", message)
         self.assertIn("--accept-risk", message)
+        self.assertEqual(presenter.call_count, 1)
         self.assertEqual(host.ledger.task.get("merge_records"), None)
 
     def test_merge_test_requires_qa_confirmation_before_starting_run(self):
@@ -122,23 +113,44 @@ class CodingMergeTestCommandExecutorTest(unittest.TestCase):
             "recovery_action": "重新 QA",
         }
 
-        message = coding_merge_test_command_executor.command_coding_merge_test(host, "task_1")
+        with mock.patch.object(
+            merge_test_presenter,
+            "merge_test_qa_risk_confirmation_message",
+            side_effect=lambda task_id, qa_evidence, include_reply_hint=True: (
+                f"QA 风险 {task_id}: {qa_evidence.get('status')} --confirm-qa-risk"
+            ),
+        ) as presenter:
+            message = coding_merge_test_command_executor.command_coding_merge_test(host, "task_1")
 
         self.assertIn("--confirm-qa-risk", message)
+        self.assertEqual(presenter.call_count, 1)
         self.assertEqual(host.start_calls, [])
 
     def test_merge_test_records_request_and_starts_merge_run(self):
         host = FakeHost({"task_id": "task_1", "status": TaskStatus.READY_FOR_MERGE_TEST.value})
+        host.release = {"accepted_risk": True, "reason": "人工接受风险"}
 
-        with unittest.mock.patch.object(
+        with (
+            mock.patch.object(
             coding_merge_test_command_executor.run_completion_presenter,
             "format_merge_test_completion_message",
             side_effect=lambda task_id, result: f"merge-test 已处理：{task_id}",
-        ) as presenter:
-            message = coding_merge_test_command_executor.command_coding_merge_test(host, "task_1 --confirm-qa-risk")
+            ) as presenter,
+            mock.patch.object(
+                merge_test_presenter,
+                "blocked_merge_test_release_note",
+                side_effect=lambda release: f"已按风险确认继续：{release.get('reason')}",
+            ) as release_presenter,
+        ):
+            message = coding_merge_test_command_executor.command_coding_merge_test(
+                host,
+                "task_1 --accept-risk --confirm-qa-risk",
+            )
 
         self.assertIn("merge-test 已处理：task_1", message)
+        self.assertIn("已按风险确认继续：人工接受风险", message)
         self.assertEqual(presenter.call_count, 1)
+        self.assertEqual(release_presenter.call_count, 1)
         self.assertEqual(host.ledger.task["phase"], TaskPhase.READY_TO_MERGE_TEST.value)
         self.assertEqual(host.ledger.task["merge_records"][-1]["type"], "merge_test_requested")
         self.assertEqual(host.start_calls, [("task_1", RunMode.MERGE_TEST)])

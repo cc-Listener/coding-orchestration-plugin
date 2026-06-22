@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 230：Task 37 Orchestrator 500 行治理第三切片（complete）
+阶段 231：Task 37 Orchestrator 500 行治理第四切片（complete）
 
 ## 各阶段
 
@@ -1540,6 +1540,14 @@
 - [x] TDD：扩展 `tests/test_coding_feedback_command_executor.py`，要求 FakeHost 不再提供 `CodingOrchestrator._*feedback*` / `_human_clarification_*` 私有文案代理，executor 直接消费 `feedback_presenter.py`。
 - [x] RED：focused tests 先失败于 executor 仍调用 host 私有 feedback wrapper。
 - [x] 实现：`coding_feedback_command_executor.py` 直接调用 `feedback_presenter.py`，删除 `CodingOrchestrator` 内 feedback 文案代理和无用 import。
+- [x] 验证：运行 focused tests、相邻回归、py_compile、文档/架构测试、YAML 解析、architecture guard、diff check 和 release readiness no-smoke。
+- **状态：** complete
+
+### 阶段 231：Task 37 Orchestrator 500 行治理第四切片
+- [x] 定域：只清理 merge-test presenter 私有代理；不触碰 `start_run()`、workspace/git/checkpoint、blocked readiness 评估、QA evidence 观测、Gateway route 规则或状态机。
+- [x] TDD：扩展 `tests/test_coding_merge_test_command_executor.py` 和 `tests/test_gateway_command_executor.py`，要求 executor 在 host 不提供 merge-test 文案私有代理时直接消费 `merge_test_presenter.py`。
+- [x] RED：focused tests 先失败于 executor 仍调用 host 私有 merge-test presenter wrapper。
+- [x] 实现：executor 直接调用 `merge_test_presenter.py`，删除 `CodingOrchestrator` 内 merge-test 文案代理和无用 import。
 - [x] 验证：运行 focused tests、相邻回归、py_compile、文档/架构测试、YAML 解析、architecture guard、diff check 和 release readiness no-smoke。
 - **状态：** complete
 

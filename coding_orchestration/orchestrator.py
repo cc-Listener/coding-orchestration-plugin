@@ -2278,31 +2278,6 @@ class CodingOrchestrator:
         return merge_test_readiness_service.disallowed_blocked_merge_test_reason(run)
 
     @staticmethod
-    def _blocked_merge_test_risk_confirmation_message(task_id: str, assessment: dict[str, Any]) -> str:
-        return merge_test_presenter.blocked_merge_test_risk_confirmation_message(task_id, assessment)
-
-    @staticmethod
-    def _blocked_merge_test_release_note(release: dict[str, Any]) -> str:
-        return merge_test_presenter.blocked_merge_test_release_note(release)
-
-    @staticmethod
-    def _fallback_evidence_user_line() -> str:
-        return merge_test_presenter.fallback_evidence_user_line()
-
-    @staticmethod
-    def _merge_test_qa_risk_confirmation_message(
-        task_id: str,
-        qa_evidence: dict[str, str],
-        *,
-        include_reply_hint: bool = True,
-    ) -> str:
-        return merge_test_presenter.merge_test_qa_risk_confirmation_message(
-            task_id,
-            qa_evidence,
-            include_reply_hint=include_reply_hint,
-        )
-
-    @staticmethod
     def _qa_evidence_for_merge_test(task: dict[str, Any]) -> dict[str, str]:
         qa_run = CodingOrchestrator._latest_qa_run(task)
         if not qa_run:
@@ -2856,10 +2831,6 @@ class CodingOrchestrator:
             task_id,
             result,
         )
-
-    @staticmethod
-    def _merge_test_started_message(task: dict[str, Any]) -> str:
-        return merge_test_presenter.merge_test_started_message(task)
 
     @staticmethod
     async def _call_sender(sender: Any, *args: Any) -> None:

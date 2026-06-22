@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from coding_orchestration import merge_test_presenter
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import AgentRunStatus, ArtifactSet, RunMode, TaskPhase, TaskStatus
@@ -112,7 +113,7 @@ class MergeTestQaGateFlowTest(unittest.TestCase):
             self.assertEqual(fake_runner.calls[-1]["mode"], RunMode.MERGE_TEST)
             self.assertIn("merge-test 已处理", confirmed_message)
     def test_merge_test_qa_risk_confirmation_message_is_user_facing(self):
-        message = CodingOrchestrator._merge_test_qa_risk_confirmation_message(
+        message = merge_test_presenter.merge_test_qa_risk_confirmation_message(
             "task_1",
             {
                 "status": "failed",

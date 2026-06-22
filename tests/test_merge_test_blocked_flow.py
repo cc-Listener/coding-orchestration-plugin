@@ -7,6 +7,7 @@ from pathlib import Path
 
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
+from coding_orchestration import merge_test_presenter
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
@@ -100,7 +101,7 @@ class MergeTestBlockedFlowTest(unittest.TestCase):
             self.assertEqual(fake_runner.calls, [])
             self.assertEqual(task["status"], TaskStatus.BLOCKED.value)
     def test_blocked_merge_test_risk_confirmation_message_is_user_facing(self):
-        message = CodingOrchestrator._blocked_merge_test_risk_confirmation_message(
+        message = merge_test_presenter.blocked_merge_test_risk_confirmation_message(
             "task_1",
             {
                 "impact": "只跑了定点测试。",
