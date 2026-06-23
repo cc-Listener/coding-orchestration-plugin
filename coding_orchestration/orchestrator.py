@@ -28,12 +28,11 @@ from .context_assembler import ContextAssembler
 from .orchestrator_command_facade import OrchestratorCommandFacadeMixin
 from .orchestrator_diagnostics_facade import OrchestratorDiagnosticsFacadeMixin
 from .orchestrator_gateway_facade import OrchestratorGatewayFacadeMixin
+from .orchestrator_project_facade import OrchestratorProjectFacadeMixin
 from .orchestrator_tool_facade import OrchestratorToolFacadeMixin
 from .models import (
     AgentRunStatus,
     ArtifactSet,
-    MatchEvidence,
-    ProjectResolveResult,
     RunManifest,
     RunMode,
     RunnerName,
@@ -50,11 +49,8 @@ from . import (
     coding_feedback_command_executor,
     coding_status_command_executor,
     coding_task_list_command_executor,
-    gateway_active_context,
-    gateway_project_context,
     merge_test_presenter,
     merge_test_readiness_service,
-    project_profile_catalog,
     run_background_orchestration,
     run_artifact_paths,
     run_checkpoint_preparation_service,
@@ -87,9 +83,8 @@ from . import (
     task_lifecycle_guard_service,
 )
 from . import task_status_presenter
-from .project_knowledge_initializer import ProjectKnowledgeInitializer
 from .project_knowledge_resolver import ProjectKnowledgeResolver
-from .project_resolver import Project, ProjectRegistry, ProjectResolver
+from .project_resolver import ProjectRegistry, ProjectResolver
 from .project_resolver import normalize_text as normalize_project_text
 from .run_summary_writer import RunSummaryWriter
 from .runner_router import RunnerRouter
@@ -111,6 +106,7 @@ class CodingOrchestrator(
     OrchestratorToolFacadeMixin,
     OrchestratorDiagnosticsFacadeMixin,
     OrchestratorGatewayFacadeMixin,
+    OrchestratorProjectFacadeMixin,
 ):
     ledger: TaskLedger
     resolver: ProjectResolver
@@ -499,42 +495,6 @@ class CodingOrchestrator(
     ) -> list[dict[str, str]]:
         return self.task_service.draft_knowledge_source_refs(task_id, source_context, event)
 
-    def _format_project_list(self, *, active_project: dict[str, Any] | None) -> str:
-        return self._project_profile_catalog().format_list(active_project=active_project)
-
-    def _format_project_status(self, project: dict[str, Any]) -> str:
-        return self._project_profile_catalog().format_status(project)
-
-    def _known_project_profiles(self, limit: int | None = None) -> list[dict[str, Any]]:
-        return self._project_profile_catalog().known_profiles(limit=limit)
-
-    def _find_project_profile(self, project_name_or_alias: str) -> dict[str, Any] | None:
-        return self._project_profile_catalog().find(project_name_or_alias)
-
-    def _project_profile_from_doc(self, doc: dict[str, Any]) -> dict[str, Any]:
-        return self._project_profile_catalog().profile_from_doc(doc)
-
-    def _dynamic_source_count_for_project(self, project_name: str) -> int:
-        return self._project_profile_catalog().dynamic_source_count(project_name)
-
-    def _project_profile_catalog(self) -> project_profile_catalog.ProjectProfileCatalog:
-        return project_profile_catalog.ProjectProfileCatalog(
-            wiki=self.wiki,
-            registry_projects=lambda: self.resolver.registry.projects,
-        )
-
-    def _bind_active_project_for_event(self, project: dict[str, Any], event: Any | None) -> bool:
-        return self.gateway_binding_service.bind_active_project_for_event(project, event)
-
-    def _active_project_for_event(self, event: Any | None) -> dict[str, Any] | None:
-        return self.gateway_binding_service.active_project_for_event(
-            event,
-            find_project_profile=self._find_project_profile,
-        )
-
-    def _active_project_binding_key_for_event(self, event: Any | None) -> str | None:
-        return self.gateway_binding_service.active_project_binding_key_for_event(event)
-
     def _format_task_list_for_event(self, event: Any) -> str:
         return coding_task_list_command_executor.task_list_for_event(self, event)
 
@@ -657,42 +617,6 @@ class CodingOrchestrator(
     def _task_is_plan_ready_for_implementation(task: dict[str, Any]) -> bool:
         return RunService.task_is_plan_ready_for_implementation(task)
 
-    def _apply_project_clarification(self, task: dict[str, Any], text: str) -> ProjectResolveResult | None:
-        if task.get("project_path"):
-            return None
-        combined_text = "\n".join(
-            part
-            for part in [
-                str(task.get("requirement_summary") or ""),
-                normalize_project_text(text),
-            ]
-            if part
-        )
-        resolved = self.resolver.resolve(combined_text)
-        if not resolved.project_path:
-            resolved = self._resolve_local_project_from_human_text(combined_text)
-        if not resolved or not resolved.project_path or not resolved.project_name:
-            return None
-
-        evidence = [
-            {"source": item.source, "value": item.value, "score": item.score}
-            for item in resolved.match_evidence
-        ]
-        self.ledger.update_project_context(
-            task["task_id"],
-            project_name=resolved.project_name,
-            project_path=resolved.project_path,
-            confidence=resolved.confidence,
-            match_evidence=evidence,
-        )
-        self._transition_task_status(
-            task["task_id"],
-            TaskStatus.PLANNED,
-            phase=TaskPhase.PLANNING,
-            reason="project context resolved",
-        )
-        return resolved
-
     def _repair_task_context_from_existing_task(self, task: dict[str, Any]) -> dict[str, Any]:
         return source_context_repair_service.repair_task_context_from_existing_task(self, task)
 
@@ -742,107 +666,6 @@ class CodingOrchestrator(
         return projection.status in {"missing", "failed", "auth_needed", "permission_missing", "deferred"} or bool(
             projection.deferred_source_resolution
         )
-
-    def _resolve_local_project_from_human_text(
-        self,
-        text: str,
-        *,
-        extra_candidates: tuple[str, ...] | list[str] = (),
-    ) -> ProjectResolveResult | None:
-        for candidate in self._unique_project_candidates([*extra_candidates, *self._project_folder_candidates_from_text(text)]):
-            resolved = self._resolve_local_project_candidate(candidate, text)
-            if resolved is not None:
-                return resolved
-        return None
-
-    def _resolve_local_project_candidate(self, candidate: str, text: str) -> ProjectResolveResult | None:
-        project_path = self._local_project_path_for_candidate(candidate)
-        if project_path is None:
-            return None
-        project_name = project_path.name
-        aliases = self._project_aliases_from_human_text(text, project_name)
-        normalized_candidate = normalize_project_text(candidate).strip()
-        if normalized_candidate and normalized_candidate not in aliases:
-            aliases.append(normalized_candidate)
-        self._upsert_human_project_profile(
-            project_name=project_name,
-            project_path=project_path,
-            aliases=aliases,
-            body=text,
-        )
-        return ProjectResolveResult(
-            project_name=project_name,
-            project_path=str(project_path),
-            confidence=1.0,
-            match_evidence=[MatchEvidence("human_project_folder", candidate, 1.0)],
-            candidates=[],
-            needs_human=False,
-        )
-
-    @staticmethod
-    def _unique_project_candidates(candidates: list[str]) -> list[str]:
-        return gateway_project_context.unique_project_candidates(candidates)
-
-    def _apply_active_project_to_task_if_missing(self, task: dict[str, Any], event: Any | None) -> dict[str, Any]:
-        return gateway_active_context.apply_active_project_to_task_if_missing(self, task, event)
-
-    @staticmethod
-    def _project_folder_candidates_from_text(text: str) -> list[str]:
-        return gateway_project_context.project_folder_candidates_from_text(text)
-
-    def _local_project_path_for_candidate(self, candidate: str) -> Path | None:
-        return gateway_project_context.local_project_path_for_candidate(
-            candidate,
-            search_roots=self._local_project_search_roots(),
-        )
-
-    def _local_project_search_roots(self) -> list[Path]:
-        return gateway_project_context.local_project_search_roots(
-            registry_project_paths=[project.path for project in self.resolver.registry.projects],
-            extra_roots=self.local_project_search_roots or [Path.home() / "Desktop" / "project"],
-        )
-
-    @staticmethod
-    def _project_aliases_from_human_text(text: str, project_name: str) -> list[str]:
-        return gateway_project_context.project_aliases_from_human_text(text, project_name)
-
-    def _upsert_human_project_profile(
-        self,
-        *,
-        project_name: str,
-        project_path: Path,
-        aliases: list[str],
-        body: str,
-    ) -> None:
-        try:
-            ProjectKnowledgeInitializer().bootstrap_project(
-                self.wiki,
-                Project(
-                    name=project_name,
-                    path=str(project_path),
-                    aliases=tuple(aliases),
-                    keywords=tuple(aliases),
-                ),
-            )
-            return
-        except Exception:
-            self.wiki.upsert(
-                {
-                    "kind": "project_profile",
-                    "title": f"{project_name} 项目画像",
-                    "body": body,
-                    "project": project_name,
-                    "project_id": project_name,
-                    "name": project_name,
-                    "aliases": aliases,
-                    "local_paths": [str(project_path)],
-                    "keywords": aliases,
-                    "source_refs": [{"type": "human_clarification", "project_path": str(project_path)}],
-                    "confidence": "high",
-                    "status": "verified",
-                },
-                options={"dedupe_key": f"project:{project_name}"},
-            )
 
     @staticmethod
     def _task_has_active_run(task: dict[str, Any]) -> bool:

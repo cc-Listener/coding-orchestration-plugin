@@ -263,6 +263,35 @@ class ArchitectureGuardTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
+    def test_orchestrator_does_not_keep_project_facade_methods(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def _format_project_list(",
+            "def _format_project_status(",
+            "def _known_project_profiles(",
+            "def _find_project_profile(",
+            "def _project_profile_from_doc(",
+            "def _dynamic_source_count_for_project(",
+            "def _project_profile_catalog(",
+            "def _bind_active_project_for_event(",
+            "def _active_project_for_event(",
+            "def _active_project_binding_key_for_event(",
+            "def _apply_project_clarification(",
+            "def _resolve_local_project_from_human_text(",
+            "def _resolve_local_project_candidate(",
+            "def _unique_project_candidates(",
+            "def _apply_active_project_to_task_if_missing(",
+            "def _project_folder_candidates_from_text(",
+            "def _local_project_path_for_candidate(",
+            "def _local_project_search_roots(",
+            "def _project_aliases_from_human_text(",
+            "def _upsert_human_project_profile(",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()
