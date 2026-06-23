@@ -4,6 +4,35 @@
 
 ## 会话：2026-06-23
 
+### 阶段 266：Run summary writer knowledge integration 子包治理
+- **状态：** complete
+- 背景：
+  - `RunSummaryWriter` 只负责把 run summary 写入请求委托给注入的 `KnowledgePort.write_run_summary()`，不拼接 LLM Wiki 文档、不读取 run artifact、不写 ledger、不推进状态。
+  - 该职责更接近 knowledge integration 端口委托，不应继续散落在 `coding_orchestration/` 包根；`knowledge_adapter.py` 和 `llm_wiki_adapter.py` 引用面更大，留给后续独立切片。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 `run_summary_writer.py` 位于 `coding_orchestration/integrations/knowledge/`。
+  - RED 已确认：focused test 先失败，失败点为包根仍存在 `run_summary_writer.py`。
+  - 新增 `coding_orchestration/integrations/__init__.py` 和 `coding_orchestration/integrations/knowledge/__init__.py`。
+  - 将 `RunSummaryWriter` 移动到 `coding_orchestration/integrations/knowledge/run_summary_writer.py`，相对 import 改为 `...ports`。
+  - 更新 `orchestrator_bootstrap_facade.py` 和 `tests/test_router_prompt_summary.py` 的 import 到新包路径。
+  - 同步项目地图、组件合同、约定、machine-readable context、技术方案、发现和目录治理计划。
+- 当前边界：
+  - `coding_orchestration/integrations/knowledge/run_summary_writer.py`：run summary writer 的 KnowledgePort 端口委托。
+  - `coding_orchestration/knowledge_adapter.py`：本地 LLM Wiki 的 KnowledgePort 实现，仍留待后续 integration 目录切片。
+  - `coding_orchestration/llm_wiki_adapter.py`：本地 LLM Wiki Markdown layout 实现，仍留待后续 integration 目录切片。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为 `['run_summary_writer.py']` 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Summary writer / knowledge 相邻回归：`rtk python3 -m unittest tests.test_router_prompt_summary tests.test_knowledge_adapter -v`：19 tests passed。
+  - 相邻回归：`rtk python3 -m unittest tests.test_architecture_module_layout tests.test_router_prompt_summary tests.test_knowledge_adapter tests.test_orchestrator_run_flow tests.test_run_summary_writeback_service tests.test_run_completion_writeback_service tests.test_run_reconcile_writeback_service -v`：32 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/orchestrator_facades/orchestrator_bootstrap_facade.py coding_orchestration/integrations/__init__.py coding_orchestration/integrations/knowledge/__init__.py coding_orchestration/integrations/knowledge/run_summary_writer.py tests/test_architecture_module_layout.py tests/test_router_prompt_summary.py`：passed。
+  - YAML 解析：`rtk python3 -c "import yaml; yaml.safe_load(open('contracts/project-context.yaml', encoding='utf-8')); print('yaml ok')"`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 本阶段不迁 `knowledge_adapter.py`、`llm_wiki_adapter.py`、`hermes_runtime.py`、`kanban_*` 或 `install.py`；后续 integration 包治理继续按引用面拆分独立切片。
+
 ### 阶段 265：Run background orchestration service 子包治理
 - **状态：** complete
 - 背景：

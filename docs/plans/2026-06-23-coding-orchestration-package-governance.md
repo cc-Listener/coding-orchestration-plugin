@@ -287,7 +287,7 @@ rtk git commit -m "feat: 收拢 presenter 模块目录"
 - Move: `kanban_sync_service.py`
 - Move: `knowledge_adapter.py`
 - Move: `llm_wiki_adapter.py`
-- Move: `run_summary_writer.py`
+- Move: `run_summary_writer.py`（阶段 266 已先行收拢到 `coding_orchestration/integrations/knowledge/`）
 - Move: `install.py`
 
 **Step 1:** Add architecture test requiring integration modules to live under `integrations/`.

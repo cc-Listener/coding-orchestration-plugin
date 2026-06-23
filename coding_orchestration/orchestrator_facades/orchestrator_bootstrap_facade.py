@@ -14,13 +14,13 @@ from ..feishu.feishu_project_mcp import (
 from ..feishu.feishu_project_reader import FeishuProjectReader
 from ..gateway.gateway_binding_service import GatewayBindingService
 from ..hermes_runtime import HermesRuntime
+from ..integrations.knowledge.run_summary_writer import RunSummaryWriter
 from ..kanban_bridge import KanbanBridge
 from ..knowledge_adapter import LocalKnowledgeAdapter
 from ..ledger import TaskLedger
 from ..project_knowledge_resolver import ProjectKnowledgeResolver
 from ..project_resolver import ProjectRegistry
 from ..run_manifest_service import RunManifestService
-from ..run_summary_writer import RunSummaryWriter
 from ..runner_router import RunnerRouter
 from ..services import DeliveryService, RunService, TaskService, WorkItemService
 from ..source_resolver import SourceResolver

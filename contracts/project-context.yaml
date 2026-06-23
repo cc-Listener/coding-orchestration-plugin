@@ -197,6 +197,8 @@ project_map:
       reason: "Run ledger writeback host service，维护 completed run 与 active run reconcile 的 ledger callback 调用；只消费 projection records 并调用注入 callback，不直接持有 TaskLedger 或 storage repository。"
     - path: coding_orchestration/run/services/run_summary_writeback_service.py
       reason: "Run summary writeback host service，维护 completed run 与 active run reconcile 的 summary writer callback 调用；消费 summary projection 并调用注入 writer，不直接持有 Knowledge adapter。"
+    - path: coding_orchestration/integrations/knowledge/run_summary_writer.py
+      reason: "Run summary writer knowledge integration helper，只委托注入的 KnowledgePort.write_run_summary，不拼接 LLM Wiki 文档、不读写 artifact/ledger、不启动 runner 或推进状态。"
     - path: coding_orchestration/run/services/run_background_orchestration.py
       reason: "后台 run 等待完成、后台启动失败状态收敛和 merge-test human_required pending action host orchestration helper。"
     - path: coding_orchestration/run_manifest_service.py
@@ -583,6 +585,10 @@ component_contract:
       path: coding_orchestration/run/services/run_summary_writeback_service.py
       use_instead_of:
         - "在 orchestrator 中继续新增 completed run 或 active run reconcile 的 summary writer callback 调用逻辑。"
+    - name: run_summary_writer
+      path: coding_orchestration/integrations/knowledge/run_summary_writer.py
+      use_instead_of:
+        - "在包根继续新增或恢复 run summary writer 端口委托逻辑。"
     - name: run_artifact_paths
       path: coding_orchestration/run/artifacts/run_artifact_paths.py
       use_instead_of:
