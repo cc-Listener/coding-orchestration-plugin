@@ -4,6 +4,30 @@
 
 ## 会话：2026-06-23
 
+### 阶段 300：AGENTS 最小路由包根收尾治理
+- **状态：** complete
+- 背景：
+  - 源码层 `coding_orchestration/` 包根应用 `.py` 已在阶段 299 清零，但 `AGENTS.md` 的最小路由仍指向旧包根模块：`orchestrator.py`、`models.py`、`state_machine.py`、`ledger.py`、`runner_router.py` 和 `install.py`。
+  - `AGENTS.md` 是新 session 第一入口；这里的旧路径会继续把后续治理引回已迁出的包根文件。
+- 执行的操作：
+  - 扩展 `tests/test_docs_and_install_entry.py`，新增 `test_agents_navigation_uses_current_package_layout`，要求 `AGENTS.md` 不再包含旧包根路径，并包含当前 canonical package layout。
+  - RED 已确认：focused test 先失败于旧路径仍存在且新路径缺失。
+  - 最小更新 `AGENTS.md` 的“最小路由”，改为指向 `coding_orchestration/orchestrator/facade.py`、`models/contracts.py`、`state_machine/machine.py`、`ledger/facade.py`、`runners/router.py` 和 `integrations/install/install.py`；未扩写治理内容。
+- 当前边界：
+  - 本阶段只修正文档导航残留；不迁业务代码、不改 `.codex/agents/*`、不触碰运行根或敏感配置。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_docs_and_install_entry.DocsAndInstallEntryTest.test_agents_navigation_uses_current_package_layout -v` 先失败，失败点为旧包根路径仍存在。
+  - Focused GREEN：同一命令复跑通过，1 test OK。
+  - 文档/布局相邻回归：`rtk python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_module_layout -v`：28 tests OK。
+  - 编译检查：`rtk python3 -m compileall coding_orchestration tests`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed，输出 `yaml ok`。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Canonical docs 旧路径搜索：`rtk rg -n ... AGENTS.md docs/project-map.md docs/conventions.md docs/component-contract.md contracts/project-context.yaml README.md PLUGIN_USAGE.md PLUGIN_PREREQUISITES.md PLUGIN_TECHNICAL_SOLUTION.md`：无命中。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 1007 tests OK，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 历史 `docs/plans/` 和旧进度记录仍会保留当时的旧路径描述；这些是历史事实，不作为当前 canonical 路由。当前 canonical 导航以 `AGENTS.md`、`docs/` 和 `contracts/project-context.yaml` 顶层事实为准。
+
 ### 阶段 299：Orchestrator façade 包根收尾治理
 - **状态：** complete
 - 背景：

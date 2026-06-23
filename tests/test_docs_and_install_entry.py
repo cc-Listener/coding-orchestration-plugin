@@ -106,6 +106,33 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         self.assertNotIn("FEISHU_DOC" + "_LARK_CLI", readme)
         self.assertIn("rtk git pull --ff-only", readme)
 
+    def test_agents_navigation_uses_current_package_layout(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        agents = (repo_root / "AGENTS.md").read_text(encoding="utf-8")
+
+        stale_paths = [
+            "coding_orchestration/orchestrator.py",
+            "coding_orchestration/models.py",
+            "coding_orchestration/state_machine.py",
+            "coding_orchestration/ledger.py",
+            "coding_orchestration/runner_router.py",
+            "coding_orchestration/install.py",
+        ]
+        for path in stale_paths:
+            with self.subTest(path=path):
+                self.assertNotIn(path, agents)
+
+        for path in (
+            "coding_orchestration/orchestrator/facade.py",
+            "coding_orchestration/models/contracts.py",
+            "coding_orchestration/state_machine/machine.py",
+            "coding_orchestration/ledger/facade.py",
+            "coding_orchestration/runners/router.py",
+            "coding_orchestration/integrations/install/install.py",
+        ):
+            with self.subTest(path=path):
+                self.assertIn(path, agents)
+
     def test_requirement_delivery_flow_doc_exists_and_mentions_admission_gate(self):
         doc = Path("docs/coding-requirement-delivery-flow-20260613.md")
 

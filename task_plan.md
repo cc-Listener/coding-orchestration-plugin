@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 299：Orchestrator façade 包根收尾治理（complete）
+阶段 300：AGENTS 最小路由包根收尾治理（complete）
 
 ## 各阶段
+
+### 阶段 300：AGENTS 最小路由包根收尾治理
+- [x] 定域：只更新 `AGENTS.md` 最小路由中的旧包根路径，指向当前 canonical package layout；不扩写 AGENTS 治理内容，不改 `.codex/agents/*`，不迁业务代码。
+- [x] TDD：扩展 `tests/test_docs_and_install_entry.py`，要求 `AGENTS.md` 不再引用已迁出的包根应用模块，并包含当前 canonical 路径。
+- [x] RED：确认新增 focused test 先失败于 `AGENTS.md` 仍引用 `orchestrator.py`、`models.py`、`state_machine.py`、`ledger.py`、`runner_router.py` 和 `install.py` 旧路径。
+- [x] 实现：将最小路由更新为 `orchestrator/facade.py`、`models/contracts.py`、`state_machine/machine.py`、`ledger/facade.py`、`runners/router.py` 和 `integrations/install/install.py`。
+- [x] 验证：运行 focused GREEN、文档相邻回归、模块布局、py_compile、YAML、architecture guard、diff check、canonical docs 旧路径残留搜索和 release readiness no-smoke。
+- [x] 文档：同步进度、发现和治理计划。
+- **状态：** complete
 
 ### 阶段 299：Orchestrator façade 包根收尾治理
 - [x] 定域：只收拢 `orchestrator.py` 到 `coding_orchestration/orchestrator/facade.py`，通过 `coding_orchestration/orchestrator/__init__.py` 保留 `from coding_orchestration.orchestrator import CodingOrchestrator` 稳定导出；保持 `handle_gateway_event()`、`pre_llm_call()`、`start_run()`、mixin 组合和 run lifecycle 行为不变；不迁 runner/workspace/git、artifact/service 副作用或 Gateway/run 业务实现。

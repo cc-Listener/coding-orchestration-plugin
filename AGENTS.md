@@ -12,10 +12,10 @@
 ## 最小路由
 
 - 插件入口：`coding_orchestration/__init__.py`
-- Hermes 编排主线：`coding_orchestration/orchestrator.py`
-- 状态与数据模型：`coding_orchestration/models.py`、`coding_orchestration/state_machine.py`、`coding_orchestration/ledger.py`
-- Runner 入口：`coding_orchestration/runner_router.py`、`coding_orchestration/runners/`
-- 安装与卸载：`scripts/install_symlink.py`、`scripts/uninstall_legacy.py`、`coding_orchestration/install.py`
+- Hermes 编排主线：`coding_orchestration/orchestrator/facade.py`、`coding_orchestration/orchestrator/__init__.py`
+- 状态与数据模型：`coding_orchestration/models/contracts.py`、`coding_orchestration/state_machine/machine.py`、`coding_orchestration/ledger/facade.py`
+- Runner 入口：`coding_orchestration/runners/router.py`、`coding_orchestration/runners/`
+- 安装与卸载：`scripts/install_symlink.py`、`scripts/uninstall_legacy.py`、`coding_orchestration/integrations/install/install.py`
 - 测试入口：`tests/`
 
 ## Hard Stops
