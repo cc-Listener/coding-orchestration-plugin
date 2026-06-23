@@ -6,42 +6,42 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .policies.diff_guard import DiffGuard
-from .policies.execution_policy import control_policy_for_mode
-from .ledger import TaskLedger
-from .orchestrator_facades.orchestrator_active_run_facade import OrchestratorActiveRunFacadeMixin
-from .orchestrator_facades.orchestrator_background_facade import OrchestratorBackgroundFacadeMixin
-from .orchestrator_facades.orchestrator_bootstrap_facade import OrchestratorBootstrapFacadeMixin
-from .orchestrator_facades.orchestrator_command_facade import OrchestratorCommandFacadeMixin
-from .orchestrator_facades.orchestrator_diagnostics_facade import OrchestratorDiagnosticsFacadeMixin
-from .orchestrator_facades.orchestrator_gateway_facade import OrchestratorGatewayFacadeMixin
-from .orchestrator_facades.orchestrator_manifest_facade import OrchestratorManifestFacadeMixin
-from .orchestrator_facades.orchestrator_merge_test_facade import OrchestratorMergeTestFacadeMixin
-from .orchestrator_facades.orchestrator_prompt_context_facade import OrchestratorPromptContextFacadeMixin
-from .orchestrator_facades.orchestrator_project_facade import OrchestratorProjectFacadeMixin
-from .orchestrator_facades.orchestrator_runtime_facade import OrchestratorRuntimeFacadeMixin
-from .orchestrator_facades.orchestrator_status_policy_facade import OrchestratorStatusPolicyFacadeMixin
-from .orchestrator_facades.orchestrator_task_runtime_facade import OrchestratorTaskRuntimeFacadeMixin
-from .orchestrator_facades.orchestrator_task_source_facade import OrchestratorTaskSourceFacadeMixin
-from .orchestrator_facades.orchestrator_tool_facade import OrchestratorToolFacadeMixin
-from .orchestrator_facades.orchestrator_workspace_facade import OrchestratorWorkspaceFacadeMixin
-from .models import (
+from ..policies.diff_guard import DiffGuard
+from ..policies.execution_policy import control_policy_for_mode
+from ..ledger import TaskLedger
+from ..orchestrator_facades.orchestrator_active_run_facade import OrchestratorActiveRunFacadeMixin
+from ..orchestrator_facades.orchestrator_background_facade import OrchestratorBackgroundFacadeMixin
+from ..orchestrator_facades.orchestrator_bootstrap_facade import OrchestratorBootstrapFacadeMixin
+from ..orchestrator_facades.orchestrator_command_facade import OrchestratorCommandFacadeMixin
+from ..orchestrator_facades.orchestrator_diagnostics_facade import OrchestratorDiagnosticsFacadeMixin
+from ..orchestrator_facades.orchestrator_gateway_facade import OrchestratorGatewayFacadeMixin
+from ..orchestrator_facades.orchestrator_manifest_facade import OrchestratorManifestFacadeMixin
+from ..orchestrator_facades.orchestrator_merge_test_facade import OrchestratorMergeTestFacadeMixin
+from ..orchestrator_facades.orchestrator_prompt_context_facade import OrchestratorPromptContextFacadeMixin
+from ..orchestrator_facades.orchestrator_project_facade import OrchestratorProjectFacadeMixin
+from ..orchestrator_facades.orchestrator_runtime_facade import OrchestratorRuntimeFacadeMixin
+from ..orchestrator_facades.orchestrator_status_policy_facade import OrchestratorStatusPolicyFacadeMixin
+from ..orchestrator_facades.orchestrator_task_runtime_facade import OrchestratorTaskRuntimeFacadeMixin
+from ..orchestrator_facades.orchestrator_task_source_facade import OrchestratorTaskSourceFacadeMixin
+from ..orchestrator_facades.orchestrator_tool_facade import OrchestratorToolFacadeMixin
+from ..orchestrator_facades.orchestrator_workspace_facade import OrchestratorWorkspaceFacadeMixin
+from ..models import (
     RunMode,
     normalize_agent_run_status,
 )
-from .ports import KnowledgePort
-from .prompting.context_assembler import ContextAssembler
-from .prompting.pre_llm_context import build_pre_llm_context
-from .prompting.prompt_builder import PromptBuilder
-from .run.artifacts import (
+from ..ports import KnowledgePort
+from ..prompting.context_assembler import ContextAssembler
+from ..prompting.pre_llm_context import build_pre_llm_context
+from ..prompting.prompt_builder import PromptBuilder
+from ..run.artifacts import (
     run_context_artifact_service,
     run_manifest_artifact_service,
     run_report_artifact_service,
     run_start_artifact_service,
     run_summary_artifact_service,
 )
-from .run.projections import run_ledger_projection
-from .run.services import (
+from ..run.projections import run_ledger_projection
+from ..run.services import (
     run_checkpoint_preparation_service,
     run_completion_writeback_service,
     run_diff_guard_service,
@@ -57,13 +57,13 @@ from .run.services import (
     run_status_transition_service,
     run_summary_writeback_service,
 )
-from . import (
+from .. import (
     run_orchestration_service,
 )
-from .source import source_projection
-from .project.project_resolver import ProjectResolver
-from .tools.tool_operation_dispatcher import ToolOperationDispatcher
-from .symphony_compat.workflow_loader import WorkflowLoader
+from ..source import source_projection
+from ..project.project_resolver import ProjectResolver
+from ..tools.tool_operation_dispatcher import ToolOperationDispatcher
+from ..symphony_compat.workflow_loader import WorkflowLoader
 
 @dataclass
 class CodingOrchestrator(

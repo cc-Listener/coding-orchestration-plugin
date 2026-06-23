@@ -1,0 +1,30 @@
+from . import facade as _facade
+
+CodingOrchestrator = _facade.CodingOrchestrator
+source_projection = _facade.source_projection
+
+# Compatibility attributes for existing patch targets that imported the old
+# module-level service handles from coding_orchestration.orchestrator.
+run_checkpoint_preparation_service = _facade.run_checkpoint_preparation_service
+run_completion_writeback_service = _facade.run_completion_writeback_service
+run_context_artifact_service = _facade.run_context_artifact_service
+run_diff_guard_service = _facade.run_diff_guard_service
+run_dispatch_service = _facade.run_dispatch_service
+run_evidence_observation_service = _facade.run_evidence_observation_service
+run_implementation_checkpoint_service = _facade.run_implementation_checkpoint_service
+run_ledger_projection = _facade.run_ledger_projection
+run_ledger_writeback_service = _facade.run_ledger_writeback_service
+run_manifest_artifact_service = _facade.run_manifest_artifact_service
+run_manifest_service = _facade.run_manifest_service
+run_manifest_session_writeback_service = _facade.run_manifest_session_writeback_service
+run_orchestration_service = _facade.run_orchestration_service
+run_project_writeback_service = _facade.run_project_writeback_service
+run_reconcile_writeback_service = _facade.run_reconcile_writeback_service
+run_report_artifact_service = _facade.run_report_artifact_service
+run_session_writeback_service = _facade.run_session_writeback_service
+run_start_artifact_service = _facade.run_start_artifact_service
+run_status_transition_service = _facade.run_status_transition_service
+run_summary_artifact_service = _facade.run_summary_artifact_service
+run_summary_writeback_service = _facade.run_summary_writeback_service
+
+__all__ = ["CodingOrchestrator", "source_projection"]

@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 298：Run orchestration helper 子包治理（complete）
+阶段 299：Orchestrator façade 包根收尾治理（complete）
 
 ## 各阶段
+
+### 阶段 299：Orchestrator façade 包根收尾治理
+- [x] 定域：只收拢 `orchestrator.py` 到 `coding_orchestration/orchestrator/facade.py`，通过 `coding_orchestration/orchestrator/__init__.py` 保留 `from coding_orchestration.orchestrator import CodingOrchestrator` 稳定导出；保持 `handle_gateway_event()`、`pre_llm_call()`、`start_run()`、mixin 组合和 run lifecycle 行为不变；不迁 runner/workspace/git、artifact/service 副作用或 Gateway/run 业务实现。
+- [x] TDD：扩展模块布局架构测试，要求 `coding_orchestration/` 包根不再保留应用 `.py` 模块，并要求 orchestrator façade lives in package。
+- [x] RED：确认新增 focused test 在当前包根文件存在时失败。
+- [x] 实现：移动 façade 并更新相对 import / 文档路径。
+- [x] 验证：运行 focused GREEN、orchestrator/plugin/dashboard 相邻回归、py_compile、YAML、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步进度、发现、技术方案、项目地图、组件合同、约定、machine-readable context 和治理计划。
+- **状态：** complete
 
 ### 阶段 298：Run orchestration helper 子包治理
 - [x] 定域：只收拢 `run_orchestration_service.py` 到 `coding_orchestration/run/orchestration_service.py`，通过 `coding_orchestration/run_orchestration_service/__init__.py` 保留 `from coding_orchestration import run_orchestration_service` 和 `from coding_orchestration.run_orchestration_service import ...` 稳定导出；保持 observed report、stale completion、completion payload、agent run record、existing run mode/changed files、project writeback payload 和兼容 re-export 行为不变；不迁 runner/workspace/git、artifact 写入、状态 transition 或 run lifecycle。

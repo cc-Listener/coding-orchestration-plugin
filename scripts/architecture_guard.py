@@ -12,9 +12,7 @@ from typing import Iterable
 LINE_WATCH_LIMIT = 600
 LINE_FAIL_LIMIT = 1000
 
-LINE_EXEMPTIONS = {
-    "coding_orchestration/orchestrator.py": "legacy orchestration facade; tracked by Task 18/20",
-}
+LINE_EXEMPTIONS = {}
 
 BOUNDARY_DEBT: set[tuple[str, str]] = set()
 

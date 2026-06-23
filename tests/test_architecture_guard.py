@@ -5,6 +5,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_ROOT = REPO_ROOT / "scripts"
+ORCHESTRATOR_FACADE_PATH = REPO_ROOT / "coding_orchestration" / "orchestrator" / "facade.py"
 if str(SCRIPTS_ROOT) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_ROOT))
 
@@ -23,19 +24,19 @@ class ArchitectureGuardTest(unittest.TestCase):
 
         self.assertTrue(any(item.code == "large_file" and item.is_failure for item in findings))
 
-    def test_legacy_large_file_exemption_is_watch_by_default(self):
+    def test_resolved_orchestrator_large_file_exemption_is_removed(self):
+        self.assertNotIn("coding_orchestration/orchestrator.py", LINE_EXEMPTIONS)
+        self.assertNotIn("coding_orchestration/orchestrator/facade.py", LINE_EXEMPTIONS)
+
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            target = root / "coding_orchestration" / "orchestrator.py"
+            target = root / "coding_orchestration" / "orchestrator" / "facade.py"
             target.parent.mkdir(parents=True)
             target.write_text("\n".join("x = 1" for _ in range(1001)), encoding="utf-8")
 
             findings = scan_paths(root, [target])
-            strict_findings = scan_paths(root, [target], strict_known_debt=True)
 
-        self.assertTrue(any(item.code == "legacy_large_file" and item.severity == "watch" for item in findings))
-        self.assertFalse(any(item.is_failure for item in findings))
-        self.assertTrue(any(item.code == "large_file" and item.is_failure for item in strict_findings))
+        self.assertTrue(any(item.code == "large_file" and item.is_failure for item in findings))
 
     def test_new_service_boundary_hard_code_fails(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -86,7 +87,7 @@ class ArchitectureGuardTest(unittest.TestCase):
         self.assertNotIn("tests/test_orchestrator_run_flow.py", LINE_EXEMPTIONS)
 
     def test_orchestrator_does_not_keep_doctor_presenter_private_proxies(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _doctor_lark_summary",
@@ -103,7 +104,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_rewrite_presenter_private_proxies(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _rewrite_confirmation_message",
@@ -116,7 +117,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_task_list_presenter_private_proxies(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _format_task_list(",
@@ -128,7 +129,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_task_status_presenter_private_proxies(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _format_task_status_details(",
@@ -142,7 +143,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_command_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def command_coding(",
@@ -162,7 +163,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_tool_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _build_tool_operation_dispatcher(",
@@ -200,7 +201,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_diagnostics_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def command_coding_cli(",
@@ -219,7 +220,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_gateway_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _handle_gateway_immediate_route(",
@@ -263,7 +264,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_project_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _format_project_list(",
@@ -292,7 +293,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_task_source_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def command_coding_task(",
@@ -334,7 +335,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_task_runtime_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _sync_task_to_kanban(",
@@ -377,7 +378,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_workspace_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _implementation_workspace(",
@@ -399,7 +400,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_background_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _start_background_plan_only(",
@@ -424,7 +425,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_status_policy_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _status_requires_verification_limitations(",
@@ -444,7 +445,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_manifest_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _artifact_set_for_existing_run(",
@@ -465,7 +466,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_prompt_context_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _incremental_context_for_resumed_session(",
@@ -484,7 +485,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_merge_test_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _merge_test_blocker(",
@@ -500,7 +501,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_runtime_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _extract_flag(",
@@ -520,7 +521,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_active_run_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def _reconcile_completed_active_run(",
@@ -531,7 +532,7 @@ class ArchitectureGuardTest(unittest.TestCase):
                 self.assertNotIn(name, source)
 
     def test_orchestrator_does_not_keep_bootstrap_facade_methods(self):
-        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+        source = ORCHESTRATOR_FACADE_PATH.read_text(encoding="utf-8")
 
         forbidden = [
             "def __post_init__(",

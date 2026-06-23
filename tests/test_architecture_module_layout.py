@@ -11,6 +11,11 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
         self.assertEqual([], sorted(path.name for path in package_root.glob(glob_pattern)))
         self.assertEqual(expected, sorted(path.name for path in (package_root / package).glob(glob_pattern)))
 
+    def test_package_root_has_no_application_modules(self):
+        package_root = REPO_ROOT / "coding_orchestration"
+
+        self.assertEqual(["__init__.py"], sorted(path.name for path in package_root.glob("*.py")))
+
     def test_repository_module_families_live_in_dedicated_packages(self):
         cases = [
             (
@@ -190,6 +195,13 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
         self.assertFalse((package_root / "run_orchestration_service.py").exists())
         self.assertTrue((package_root / "run" / "orchestration_service.py").is_file())
         self.assertTrue((package_root / "run_orchestration_service" / "__init__.py").is_file())
+
+    def test_orchestrator_facade_lives_in_orchestrator_package(self):
+        package_root = REPO_ROOT / "coding_orchestration"
+
+        self.assertFalse((package_root / "orchestrator.py").exists())
+        self.assertTrue((package_root / "orchestrator" / "__init__.py").is_file())
+        self.assertTrue((package_root / "orchestrator" / "facade.py").is_file())
 
 
 if __name__ == "__main__":

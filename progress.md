@@ -4,6 +4,37 @@
 
 ## 会话：2026-06-23
 
+### 阶段 299：Orchestrator façade 包根收尾治理
+- **状态：** complete
+- 背景：
+  - `orchestrator.py` 是最后一个包根应用 `.py`，同时是 `CodingOrchestrator` 兼容 façade、Gateway 事件入口、pre-LLM context、`start_run()` 主体和 façade mixin 组合点。
+  - 本切片只做同名包化和包根收尾：canonical owner 改为 `coding_orchestration/orchestrator/facade.py`，并通过 `coding_orchestration/orchestrator/__init__.py` 保留 `from coding_orchestration.orchestrator import CodingOrchestrator`、`source_projection` 和既有 patch target 使用的 module-level service handle 稳定导出；runner/workspace/git、artifact/service 副作用、Gateway/run 业务实现和 run lifecycle 不属于本切片。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 `coding_orchestration/` 包根不再保留应用 `.py` 模块，并要求 `coding_orchestration/orchestrator/__init__.py` 与 `coding_orchestration/orchestrator/facade.py` 存在。
+  - RED 已确认：focused layout test 先失败，失败点为包根旧文件 `orchestrator.py` 仍存在。
+  - 将 `CodingOrchestrator` façade 移入 `coding_orchestration/orchestrator/facade.py`，新增 `coding_orchestration/orchestrator/__init__.py`，并更新相对 import。
+  - 修复 release readiness 暴露的兼容点：`tests/test_architecture_guard.py` 改读新 façade 路径，`scripts/architecture_guard.py` 移除旧 `orchestrator.py` large-file 豁免，包入口 re-export 既有 module-level service handle 以保留旧 patch target。
+  - 更新技术方案、项目地图、组件合同、约定、machine-readable context 和发现中的 canonical path。
+- 当前边界：
+  - `coding_orchestration/orchestrator/facade.py`：只保留 Gateway 事件入口、pre-LLM context、`start_run()` 主体和 façade mixin 组合。
+  - `coding_orchestration/orchestrator/__init__.py`：只做稳定导出和旧 module-level patch target 兼容，不承载业务逻辑。
+  - runner/workspace/git、artifact/service 副作用、Gateway/run 业务实现和 run lifecycle 均未迁移。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为包根旧文件 `orchestrator.py`。
+  - Focused / adjacent GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout tests.test_plugin_registration tests.test_gateway_trigger tests.test_orchestrator_run_flow tests.test_orchestrator_tools tests.test_dashboard_api_contract tests.test_coding_cli -v`：59 tests passed。
+  - Release readiness 初跑暴露旧 patch target / guard path 后，补兼容并运行失败组：`rtk python3 -m unittest tests.test_architecture_guard tests.test_run_checkpoint_preparation_service tests.test_run_completion_writeback_service tests.test_run_context_artifact_service tests.test_run_diff_guard_service tests.test_run_dispatch_service tests.test_run_evidence_observation_service tests.test_run_implementation_checkpoint_service tests.test_run_ledger_writeback_service tests.test_run_manifest_session_writeback_service tests.test_run_project_writeback_service tests.test_run_reconcile_writeback_service tests.test_run_session_writeback_service tests.test_run_status_transition_service tests.test_run_summary_writeback_service -v`：89 tests passed。
+  - 编译检查：`rtk python3 -m compileall coding_orchestration tests`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed，输出 `yaml ok`。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 1006 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 当前包根：
+  - `coding_orchestration/` 包根应用 `.py` 数量：0（不含 `__init__.py`）。
+  - `coding_orchestration/orchestrator/facade.py`：471 行；`coding_orchestration/orchestrator/__init__.py`：30 行。
+  - `scripts/architecture_guard.py` 不再保留旧 `orchestrator.py` large-file 豁免。
+- 剩余风险：
+  - 包根应用 `.py` 已清零；后续治理应继续防止新 helper 回流包根。更深层 run lifecycle、runner/workspace/git、artifact service 副作用和 host bootstrap 解耦应作为新独立切片推进，不在本切片顺手搬迁。
+
 ### 阶段 298：Run orchestration helper 子包治理
 - **状态：** complete
 - 背景：

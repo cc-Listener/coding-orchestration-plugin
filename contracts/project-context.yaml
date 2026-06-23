@@ -59,7 +59,7 @@ project_map:
       role: ignored local presentation/demo materials; not canonical project facts
   core_entrypoints:
     plugin_registration: coding_orchestration/__init__.py
-    orchestrator: coding_orchestration/orchestrator.py
+    orchestrator: coding_orchestration/orchestrator/facade.py
     cli_registration: coding_orchestration/cli/registration.py
     tool_registration: coding_orchestration/tools/plugin_tools.py
     tool_operation_dispatcher: coding_orchestration/tools/tool_operation_dispatcher.py
@@ -79,7 +79,7 @@ project_map:
       reason: "standalone Codex CLI 凭据，不得复制到 Hermes。"
     - path: "~/.hermes/coding-orchestration/"
       reason: "运行期 ledger、runs、workspaces、LLM Wiki，不是源码事实。"
-    - path: coding_orchestration/orchestrator.py
+    - path: coding_orchestration/orchestrator/facade.py
       reason: "任务状态推进、人工门禁和 runner 调度中心。"
     - path: coding_orchestration/orchestrator_facades/orchestrator_bootstrap_facade.py
       reason: "Orchestrator bootstrap façade mixin，维护 __post_init__、set_dispatch_tool、from_default_config 和默认运行根 helper；CodingOrchestrator 只继承 mixin 保留兼容入口，不承载 handle_gateway_event、pre_llm_call、start_run、runner dispatch、workspace/git/checkpoint 或 run lifecycle。"
@@ -281,7 +281,7 @@ component_contract:
       kind: canonical_component_contract
     - path: coding_orchestration/__init__.py
       kind: plugin_entrypoint
-    - path: coding_orchestration/orchestrator.py
+    - path: coding_orchestration/orchestrator/facade.py
       kind: orchestration_core
     - path: coding_orchestration/runners/
       kind: runner_adapters
@@ -296,7 +296,7 @@ component_contract:
       path: coding_orchestration/__init__.py
       preferred: true
     - name: orchestration
-      path: coding_orchestration/orchestrator.py
+      path: coding_orchestration/orchestrator/facade.py
       preferred: true
     - name: run_orchestration_helper
       path: coding_orchestration/run/orchestration_service.py
@@ -445,55 +445,55 @@ component_contract:
     - name: orchestrator_bootstrap_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_bootstrap_facade.py
       preferred: true
-      note: "Bootstrap façade、__post_init__、set_dispatch_tool、from_default_config 和默认运行根 helper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+      note: "Bootstrap façade、__post_init__、set_dispatch_tool、from_default_config 和默认运行根 helper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator/facade.py 主实现直接定义这些方法。"
     - name: orchestrator_command_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_command_facade.py
       preferred: true
-      note: "普通 /coding ... command façade 分发表、command-level wrapper、delivery rollup/materialize helper、artifact purge callback 和 prepare-merge-test status callback owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+      note: "普通 /coding ... command façade 分发表、command-level wrapper、delivery rollup/materialize helper、artifact purge callback 和 prepare-merge-test status callback owner；CodingOrchestrator 只继承 mixin，不在 orchestrator/facade.py 主实现直接定义这些方法。"
     - name: orchestrator_tool_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_tool_facade.py
       preferred: true
-      note: "Tool operation dispatcher façade、tool_* 入口、tool run/source preflight adapter 和 Project MCP / WorkItem 小包装 owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+      note: "Tool operation dispatcher façade、tool_* 入口、tool run/source preflight adapter 和 Project MCP / WorkItem 小包装 owner；CodingOrchestrator 只继承 mixin，不在 orchestrator/facade.py 主实现直接定义这些方法。"
     - name: orchestrator_diagnostics_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_diagnostics_facade.py
       preferred: true
-      note: "Diagnostics / dashboard façade、doctor/CLI wrapper、Meegle preflight fallback、dashboard status payload 和 preflight/source-resolve formatter wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+      note: "Diagnostics / dashboard façade、doctor/CLI wrapper、Meegle preflight fallback、dashboard status payload 和 preflight/source-resolve formatter wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator/facade.py 主实现直接定义这些方法。"
     - name: orchestrator_gateway_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_gateway_facade.py
       preferred: true
-      note: "Gateway route façade、immediate/custom route dispatch、Coding Mode rewrite wrapper、pending action/rewrite binding wrapper、确认/取消词 wrapper、commands listing route、dedupe/授权/looks-like-task wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+      note: "Gateway route façade、immediate/custom route dispatch、Coding Mode rewrite wrapper、pending action/rewrite binding wrapper、确认/取消词 wrapper、commands listing route、dedupe/授权/looks-like-task wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator/facade.py 主实现直接定义这些方法。"
     - name: orchestrator_project_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_project_facade.py
       preferred: true
-      note: "Project/profile façade、project profile catalog wrapper、active project binding wrapper、本地项目候选/路径/别名 wrapper、active project 回填 wrapper、人工项目画像 upsert 和项目澄清 host callback owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+      note: "Project/profile façade、project profile catalog wrapper、active project binding wrapper、本地项目候选/路径/别名 wrapper、active project 回填 wrapper、人工项目画像 upsert 和项目澄清 host callback owner；CodingOrchestrator 只继承 mixin，不在 orchestrator/facade.py 主实现直接定义这些方法。"
     - name: orchestrator_task_source_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_task_source_facade.py
       preferred: true
-      note: "Task/source façade、task create command wrapper、TaskService source/status payload wrapper、source context 读取/修复/enrich wrapper、event/media ledger helper 和 draft knowledge source refs wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+      note: "Task/source façade、task create command wrapper、TaskService source/status payload wrapper、source context 读取/修复/enrich wrapper、event/media ledger helper 和 draft knowledge source refs wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator/facade.py 主实现直接定义这些方法。"
     - name: orchestrator_status_policy_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_status_policy_facade.py
       preferred: true
-      note: "Status/report policy façade、report status details、implementation status normalize、verification limitations 补齐和 run result 到 task status/phase 映射 wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+      note: "Status/report policy façade、report status details、implementation status normalize、verification limitations 补齐和 run result 到 task status/phase 映射 wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator/facade.py 主实现直接定义这些方法。"
     - name: orchestrator_manifest_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_manifest_facade.py
       preferred: true
-      note: "Manifest/artifact/session façade、existing/fresh artifact set、run manifest 构造、Codex attach/resume 命令、session id 读取、runner manifest name 和 manifest session metadata 写回 wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+      note: "Manifest/artifact/session façade、existing/fresh artifact set、run manifest 构造、Codex attach/resume 命令、session id 读取、runner manifest name 和 manifest session metadata 写回 wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator/facade.py 主实现直接定义这些方法。"
     - name: orchestrator_prompt_context_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_prompt_context_facade.py
       preferred: true
-      note: "Prompt/context façade、resumed session 增量上下文、wiki docs/refs、context artifacts、dependency/sibling task context、confirmed plan / merge-test context、report summary markdown 和 wiki ref 投影 wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+      note: "Prompt/context façade、resumed session 增量上下文、wiki docs/refs、context artifacts、dependency/sibling task context、confirmed plan / merge-test context、report summary markdown 和 wiki ref 投影 wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator/facade.py 主实现直接定义这些方法。"
     - name: orchestrator_merge_test_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_merge_test_facade.py
       preferred: true
-      note: "Merge-test façade、merge-test blocker、blocked task 风险放行 host 写回、blocked assessment fact collection、latest implementation run/source branch/disallowed reason wrapper 和 QA evidence wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+      note: "Merge-test façade、merge-test blocker、blocked task 风险放行 host 写回、blocked assessment fact collection、latest implementation run/source branch/disallowed reason wrapper 和 QA evidence wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator/facade.py 主实现直接定义这些方法。"
     - name: orchestrator_runtime_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_runtime_facade.py
       preferred: true
-      note: "Runtime/failure façade、flag helper、project/workflow wrapper、plan report session/execution policy/timeout wrapper、runner failed result 和 checkpoint failed result owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+      note: "Runtime/failure façade、flag helper、project/workflow wrapper、plan report session/execution policy/timeout wrapper、runner failed result 和 checkpoint failed result owner；CodingOrchestrator 只继承 mixin，不在 orchestrator/facade.py 主实现直接定义这些方法。"
     - name: orchestrator_active_run_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_active_run_facade.py
       preferred: true
-      note: "Active run façade、completed active run reconcile host shell 和 agent run lookup helper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+      note: "Active run façade、completed active run reconcile host shell 和 agent run lookup helper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator/facade.py 主实现直接定义这些方法。"
     - name: coding_diagnostics_command_executor
       path: coding_orchestration/coding_commands/coding_diagnostics_command_executor.py
       preferred: true
@@ -577,7 +577,7 @@ component_contract:
       preferred: true
   preferred_abstractions:
     - name: CodingOrchestrator
-      path: coding_orchestration/orchestrator.py
+      path: coding_orchestration/orchestrator/facade.py
       use_instead_of:
         - "在外部直接改 Task Ledger 状态。"
         - "绕过 command/task flow 手动推进 phase。"
@@ -708,7 +708,7 @@ component_contract:
     - name: workspace_checkpoint_service
       path: coding_orchestration/workspace/checkpoint_service.py
       use_instead_of:
-        - "在 coding_orchestration/ 包根继续放置 workspace_checkpoint_service.py，或把 implementation workspace 复用/创建、source branch/base branch、QA artifact 收集、clean-tree checkpoint、git HEAD、diff guard QA artifact 过滤写回 orchestrator.py。"
+        - "在 coding_orchestration/ 包根继续放置 workspace_checkpoint_service.py，或把 implementation workspace 复用/创建、source branch/base branch、QA artifact 收集、clean-tree checkpoint、git HEAD、diff guard QA artifact 过滤写回 orchestrator/facade.py。"
     - name: run_manifest_session_writeback_service
       path: coding_orchestration/run/services/run_manifest_session_writeback_service.py
       use_instead_of:
@@ -769,55 +769,55 @@ component_contract:
     - name: orchestrator_bootstrap_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_bootstrap_facade.py
       use_instead_of:
-        - "在 orchestrator.py 主文件中继续新增或恢复 __post_init__、set_dispatch_tool、from_default_config 或默认运行根 helper。"
+        - "在 orchestrator/facade.py 主实现中继续新增或恢复 __post_init__、set_dispatch_tool、from_default_config 或默认运行根 helper。"
     - name: orchestrator_command_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_command_facade.py
       use_instead_of:
-        - "在 orchestrator.py 主文件中继续新增或恢复普通 /coding ... command façade 分发表、command-level wrapper、delivery rollup/materialize helper、artifact purge callback 或 prepare-merge-test status callback。"
+        - "在 orchestrator/facade.py 主实现中继续新增或恢复普通 /coding ... command façade 分发表、command-level wrapper、delivery rollup/materialize helper、artifact purge callback 或 prepare-merge-test status callback。"
     - name: orchestrator_tool_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_tool_facade.py
       use_instead_of:
-        - "在 orchestrator.py 主文件中继续新增或恢复 tool operation dispatcher façade、tool_* 入口、tool run/source preflight adapter 或 Project MCP / WorkItem 小包装。"
+        - "在 orchestrator/facade.py 主实现中继续新增或恢复 tool operation dispatcher façade、tool_* 入口、tool run/source preflight adapter 或 Project MCP / WorkItem 小包装。"
     - name: orchestrator_diagnostics_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_diagnostics_facade.py
       use_instead_of:
-        - "在 orchestrator.py 主文件中继续新增或恢复 diagnostics / dashboard façade、doctor/CLI wrapper、Meegle preflight fallback、dashboard status payload 或 preflight/source-resolve formatter wrapper。"
+        - "在 orchestrator/facade.py 主实现中继续新增或恢复 diagnostics / dashboard façade、doctor/CLI wrapper、Meegle preflight fallback、dashboard status payload 或 preflight/source-resolve formatter wrapper。"
     - name: orchestrator_gateway_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_gateway_facade.py
       use_instead_of:
-        - "在 orchestrator.py 主文件中继续新增或恢复 Gateway immediate/custom route dispatch、Coding Mode rewrite wrapper、pending action/rewrite binding wrapper、确认/取消词 wrapper、commands listing route、dedupe/授权/looks-like-task wrapper。"
+        - "在 orchestrator/facade.py 主实现中继续新增或恢复 Gateway immediate/custom route dispatch、Coding Mode rewrite wrapper、pending action/rewrite binding wrapper、确认/取消词 wrapper、commands listing route、dedupe/授权/looks-like-task wrapper。"
     - name: orchestrator_project_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_project_facade.py
       use_instead_of:
-        - "在 orchestrator.py 主文件中继续新增或恢复 project profile catalog wrapper、active project binding wrapper、本地项目候选/路径/别名 wrapper、active project 回填 wrapper、人工项目画像 upsert 或项目澄清 host callback。"
+        - "在 orchestrator/facade.py 主实现中继续新增或恢复 project profile catalog wrapper、active project binding wrapper、本地项目候选/路径/别名 wrapper、active project 回填 wrapper、人工项目画像 upsert 或项目澄清 host callback。"
     - name: orchestrator_task_source_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_task_source_facade.py
       use_instead_of:
-        - "在 orchestrator.py 主文件中继续新增或恢复 task create command wrapper、TaskService source/status payload wrapper、source context 读取/修复/enrich wrapper、event/media ledger helper 或 draft knowledge source refs wrapper。"
+        - "在 orchestrator/facade.py 主实现中继续新增或恢复 task create command wrapper、TaskService source/status payload wrapper、source context 读取/修复/enrich wrapper、event/media ledger helper 或 draft knowledge source refs wrapper。"
     - name: orchestrator_status_policy_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_status_policy_facade.py
       use_instead_of:
-        - "在 orchestrator.py 主文件中继续新增或恢复 report status details、implementation status normalize、verification limitations 补齐或 run result 到 task status/phase 映射 wrapper。"
+        - "在 orchestrator/facade.py 主实现中继续新增或恢复 report status details、implementation status normalize、verification limitations 补齐或 run result 到 task status/phase 映射 wrapper。"
     - name: orchestrator_manifest_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_manifest_facade.py
       use_instead_of:
-        - "在 orchestrator.py 主文件中继续新增或恢复 existing/fresh artifact set、run manifest 构造、Codex attach/resume 命令、session id 读取、runner manifest name 或 manifest session metadata 写回 wrapper。"
+        - "在 orchestrator/facade.py 主实现中继续新增或恢复 existing/fresh artifact set、run manifest 构造、Codex attach/resume 命令、session id 读取、runner manifest name 或 manifest session metadata 写回 wrapper。"
     - name: orchestrator_prompt_context_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_prompt_context_facade.py
       use_instead_of:
-        - "在 orchestrator.py 主文件中继续新增或恢复 resumed session 增量上下文、wiki docs/refs、context artifacts、dependency/sibling task context、confirmed plan / merge-test context、report summary markdown 或 wiki ref 投影 wrapper。"
+        - "在 orchestrator/facade.py 主实现中继续新增或恢复 resumed session 增量上下文、wiki docs/refs、context artifacts、dependency/sibling task context、confirmed plan / merge-test context、report summary markdown 或 wiki ref 投影 wrapper。"
     - name: orchestrator_merge_test_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_merge_test_facade.py
       use_instead_of:
-        - "在 orchestrator.py 主文件中继续新增或恢复 merge-test blocker、blocked task 风险放行 host 写回、blocked assessment fact collection、latest implementation run/source branch/disallowed reason wrapper 或 QA evidence wrapper。"
+        - "在 orchestrator/facade.py 主实现中继续新增或恢复 merge-test blocker、blocked task 风险放行 host 写回、blocked assessment fact collection、latest implementation run/source branch/disallowed reason wrapper 或 QA evidence wrapper。"
     - name: orchestrator_runtime_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_runtime_facade.py
       use_instead_of:
-        - "在 orchestrator.py 主文件中继续新增或恢复 flag helper、project/workflow wrapper、plan report session/execution policy/timeout wrapper、runner failed result 或 checkpoint failed result。"
+        - "在 orchestrator/facade.py 主实现中继续新增或恢复 flag helper、project/workflow wrapper、plan report session/execution policy/timeout wrapper、runner failed result 或 checkpoint failed result。"
     - name: orchestrator_active_run_facade
       path: coding_orchestration/orchestrator_facades/orchestrator_active_run_facade.py
       use_instead_of:
-        - "在 orchestrator.py 主文件中继续新增或恢复 completed active run reconcile host shell 或 agent run lookup helper。"
+        - "在 orchestrator/facade.py 主实现中继续新增或恢复 completed active run reconcile host shell 或 agent run lookup helper。"
     - name: task_status_presenter
       path: coding_orchestration/presenters/task_status_presenter.py
       use_instead_of:
