@@ -121,15 +121,15 @@ project_map:
       reason: "Project command executor host shell，维护 /coding project list/init/use/status/clear 命令模式提示和 Gateway immediate project context 分支，调用注入的 profile upsert、active project binding、project formatter 与路径解析 callback；不拥有 Gateway route、不创建任务、不启动 runner、不推进状态、不实现 project profile catalog 纯规则。"
     - path: coding_orchestration/coding_help_command_executor.py
       reason: "Coding help command executor host shell，维护普通 /coding help、Gateway /commands listing、分页和 Hermes built-in command list 拼接；不拥有 command catalog 纯数据、Gateway route/controller、runner/workspace/git 或 run lifecycle。"
-    - path: coding_orchestration/gateway_command_controller.py
+    - path: coding_orchestration/gateway/gateway_command_controller.py
       reason: "Gateway command controller 纯规则层，维护显式 /coding / /commands 解析、命令归一化、route metadata、handler key、reply mode、task id 来源、merge-test 参数、rewrite canonical command、确认/取消词、dedupe 和授权探测；Task 29 完成后不得承载 ledger、runner、消息发送、状态推进或 run lifecycle。"
-    - path: coding_orchestration/gateway_command_executor.py
+    - path: coding_orchestration/gateway/gateway_command_executor.py
       reason: "Gateway custom route host shell，维护 task/run/delivery/implementation/QA/prepare-merge-test/merge-test route metadata 到 host action 的分发，并 direct 调用 run_start_presenter.py 与 merge_test_presenter.py 渲染对应用户可见文案；不承载 controller 纯解析规则，不拥有 runner/workspace/git/run lifecycle。"
-    - path: coding_orchestration/gateway_pending_action_executor.py
+    - path: coding_orchestration/gateway/gateway_pending_action_executor.py
       reason: "Gateway pending action host shell，维护确认/取消、latest human_required fallback、取消任务 gate 和确认后显式命令续接；不拥有 controller 纯解析规则、runner/workspace/git 或 run lifecycle。"
-    - path: coding_orchestration/gateway_active_context.py
+    - path: coding_orchestration/gateway/gateway_active_context.py
       reason: "Gateway active context host helper，维护 active project 回填缺项目 task 和 human decision 记录；不负责 active binding 存取、项目初始化、项目画像或 runner/workspace/git/run lifecycle。"
-    - path: coding_orchestration/gateway_coding_mode_executor.py
+    - path: coding_orchestration/gateway/gateway_coding_mode_executor.py
       reason: "Gateway coding mode host shell，维护 coding mode enter/exit、pending rewrite 确认/取消、高置信度 rewrite direct execute、低置信度 handoff、rewrite context 装配、gateway_rewrite_presenter.py direct 文案调用和 task_list_presenter.py direct task label 调用；不拥有 Gateway route/controller、pending action executor、task 创建实现、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_diagnostics_command_executor.py
       reason: "Coding diagnostics command executor host shell，维护 doctor / lark-preflight / project-mcp-preflight / source-resolve command-mode dispatch、Project MCP config/stdio readiness gate、Hermes runtime availability probe、Gateway immediate diagnostic 分支和 doctor_presenter.py direct 文案调用；不拥有 Gateway route、不实现 CLI direct dispatcher、不迁普通 status/list presentation、不触碰 runner/workspace/git 或 run lifecycle。"
@@ -153,7 +153,7 @@ project_map:
       reason: "Coding feedback command executor host shell，维护普通 /coding continue/change/bugfix 命令模式占位、Gateway active task feedback 分流、feedback human decision / draft knowledge 记录 helper 和 bugfix replan 选择规则；direct 调用 feedback_presenter.py 渲染用户可见反馈文案，并通过 host callback 调用 Project clarification、后台 plan/implementation 启动和 merged-test reopen，不拥有 Gateway route/controller、后台 runner 实现、start_run、workspace/checkpoint/git、merge-test gates、source enrichment 或 Project MCP 写回。"
     - path: coding_orchestration/coding_task_control_command_executor.py
       reason: "Coding task control command executor host shell，维护普通 /coding use/exit/cancel/restore/delete/complete command-mode 分支和 Gateway use/exit task binding shell；delete artifact 清理通过 host callback，不拥有 Gateway route/controller、文件系统清理实现、runner/workspace/git、merge-test gates 或 run lifecycle。"
-    - path: coding_orchestration/gateway_rewrite_context.py
+    - path: coding_orchestration/gateway/gateway_rewrite_context.py
       reason: "Gateway rewrite context 纯投影 helper，只消费已采集的 task/project/media/catalog 事实并返回 LLM rewrite context 与 next-step hint；不读 ledger、不持有 Gateway event、不调用 command_rewriter、不发送回复。"
     - path: coding_orchestration/delivery_command_executor.py
       reason: "Delivery command executor host shell，维护 /coding breakdown、/coding analyze、/coding approve-breakdown、/coding materialize、/coding run <parent> --next、/coding status <parent> --delivery/--tree 用户可见分支和 decomposition / human decision / ledger / rollup callback 绑定；不承载 DeliveryService 纯规则、不实现 runner、不触碰 Gateway route 或 workspace/git 副作用。"
@@ -281,10 +281,10 @@ component_contract:
       path: coding_orchestration/project_profile_catalog.py
       preferred: true
     - name: gateway_rewrite_context
-      path: coding_orchestration/gateway_rewrite_context.py
+      path: coding_orchestration/gateway/gateway_rewrite_context.py
       preferred: true
     - name: gateway_rewrite_presenter
-      path: coding_orchestration/gateway_rewrite_presenter.py
+      path: coding_orchestration/gateway/gateway_rewrite_presenter.py
       preferred: true
       note: "Coding Mode rewrite 确认、低置信度补充和 handoff 文案 owner；gateway_coding_mode_executor.py direct 调用，不经 orchestrator `_rewrite_*` 私有代理。"
     - name: run_summary_writeback_service
@@ -461,16 +461,16 @@ component_contract:
       path: coding_orchestration/coding_background_run_executor.py
       preferred: true
     - name: gateway_command_controller
-      path: coding_orchestration/gateway_command_controller.py
+      path: coding_orchestration/gateway/gateway_command_controller.py
       preferred: true
     - name: gateway_command_executor
-      path: coding_orchestration/gateway_command_executor.py
+      path: coding_orchestration/gateway/gateway_command_executor.py
       preferred: true
     - name: gateway_pending_action_executor
-      path: coding_orchestration/gateway_pending_action_executor.py
+      path: coding_orchestration/gateway/gateway_pending_action_executor.py
       preferred: true
     - name: gateway_active_context
-      path: coding_orchestration/gateway_active_context.py
+      path: coding_orchestration/gateway/gateway_active_context.py
       preferred: true
     - name: source_context_repair_service
       path: coding_orchestration/source_context_repair_service.py
@@ -482,7 +482,7 @@ component_contract:
       path: coding_orchestration/task_lifecycle_guard_service.py
       preferred: true
     - name: gateway_coding_mode_executor
-      path: coding_orchestration/gateway_coding_mode_executor.py
+      path: coding_orchestration/gateway/gateway_coding_mode_executor.py
       preferred: true
     - name: source_projection
       path: coding_orchestration/source_projection.py
@@ -624,11 +624,11 @@ component_contract:
       use_instead_of:
         - "在 orchestrator 中继续新增 run manifest 基础字段、启动期 manifest update projection、session metadata 字段投影、Codex attach/resume 展示命令或权限 profile 规则。"
     - name: gateway_rewrite_context
-      path: coding_orchestration/gateway_rewrite_context.py
+      path: coding_orchestration/gateway/gateway_rewrite_context.py
       use_instead_of:
         - "在 orchestrator 中继续新增 Coding Mode rewrite context 白名单投影、active/known task 轻量投影、media type 投影或 task next-step hint 规则。"
     - name: gateway_rewrite_presenter
-      path: coding_orchestration/gateway_rewrite_presenter.py
+      path: coding_orchestration/gateway/gateway_rewrite_presenter.py
       use_instead_of:
         - "在 orchestrator 中继续新增或恢复 _rewrite_confirmation_message、_rewrite_needs_human_confirmation_message、_rewrite_rejection_user_text 或 _rewrite_handoff_to_hermes_message 等 rewrite 文案私有代理。"
     - name: delivery_command_executor
@@ -742,20 +742,20 @@ component_contract:
         - "在 orchestrator 中继续新增 Gateway 后台 run mode-specific 启动、completion message 选择、失败通知接线或 completion notification callback。"
         - "通过 CodingOrchestrator._format_*completion_message 私有代理渲染后台 completion 文案。"
     - name: gateway_command_controller
-      path: coding_orchestration/gateway_command_controller.py
+      path: coding_orchestration/gateway/gateway_command_controller.py
       use_instead_of:
         - "在 orchestrator 中继续新增显式 /coding / /commands 解析、命令归一化、route metadata、handler key、reply mode、task id 来源、merge-test 参数、rewrite canonical command、确认/取消词、dedupe 或授权探测。"
     - name: gateway_command_executor
-      path: coding_orchestration/gateway_command_executor.py
+      path: coding_orchestration/gateway/gateway_command_executor.py
       use_instead_of:
         - "在 orchestrator 中继续新增 task/run/delivery/implementation/QA/prepare-merge-test/merge-test Gateway custom route 分发。"
         - "通过 CodingOrchestrator 私有 merge-test presenter 代理渲染 Gateway merge-test 风险确认、QA 风险确认、启动 ACK 或风险放行说明。"
     - name: gateway_pending_action_executor
-      path: coding_orchestration/gateway_pending_action_executor.py
+      path: coding_orchestration/gateway/gateway_pending_action_executor.py
       use_instead_of:
         - "在 orchestrator 中继续新增 pending action 确认/取消、latest human_required fallback、取消任务 gate 或确认后显式命令续接。"
     - name: gateway_active_context
-      path: coding_orchestration/gateway_active_context.py
+      path: coding_orchestration/gateway/gateway_active_context.py
       use_instead_of:
         - "在 orchestrator 中继续新增 active project 回填缺项目 task 或对应 human decision 记录。"
     - name: source_context_repair_service
@@ -771,7 +771,7 @@ component_contract:
       use_instead_of:
         - "在 orchestrator 中继续新增 active coding status 列表、取消态保护文案、cancelled task 恢复状态选择或 merged_test bugfix reopen 写回。"
     - name: gateway_coding_mode_executor
-      path: coding_orchestration/gateway_coding_mode_executor.py
+      path: coding_orchestration/gateway/gateway_coding_mode_executor.py
       use_instead_of:
         - "在 orchestrator 中继续新增 Gateway coding mode enter/exit、pending rewrite 确认/取消、高置信度 rewrite direct execute、低置信度 handoff 或 rewrite context 装配。"
         - "通过 CodingOrchestrator._rewrite_* 私有代理渲染 Coding Mode rewrite 确认、补充或 handoff 文案。"

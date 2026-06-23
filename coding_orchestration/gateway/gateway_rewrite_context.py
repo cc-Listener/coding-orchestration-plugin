@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable
 
-from .models import TaskPhase, TaskStatus, canonical_task_status, task_status_display
+from ..models import TaskPhase, TaskStatus, canonical_task_status, task_status_display
 
 
 TaskLabeler = Callable[[dict[str, Any]], str]

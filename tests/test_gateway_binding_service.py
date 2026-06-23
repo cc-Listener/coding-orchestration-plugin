@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.gateway_binding_service import GatewayBindingService
+from coding_orchestration.gateway.gateway_binding_service import GatewayBindingService
 from coding_orchestration.ledger import TaskLedger
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from coding_orchestration import gateway_active_context
+from coding_orchestration.gateway import gateway_active_context
 
 
 class FakeLedger:

@@ -410,6 +410,7 @@
 - Task 37 第二十三切片确认：active run reconcile façade wrapper 可以迁入 `orchestrator_active_run_facade.py`。mixin 承接 completed active run reconcile host shell 和 agent run lookup helper；`orchestrator.py` 从 661 行降到 585 行，已低于 600 行 watch 阈值。`start_run()` 主体、fresh completion writeback、runner dispatch、workspace/git/checkpoint 实现和 run lifecycle 仍留在既有边界；主模块级 `run_reconcile_writeback_service` import 仅为兼容 monkeypatch。
 - Task 37 第二十四切片确认：bootstrap/runtime binding façade wrapper 可以迁入 `orchestrator_bootstrap_facade.py`。mixin 承接 `__post_init__`、`set_dispatch_tool`、`from_default_config` 和默认运行根 helper；`orchestrator.py` 从 585 行降到 467 行，已达到 500 行以内目标。`handle_gateway_event()`、`pre_llm_call()`、`start_run()` 主体、runner dispatch、workspace/git/checkpoint 实现和 run lifecycle 仍留在既有边界。
 - 包根目录治理第一切片确认：仓库根目录没有 `.py` 文件，实际散落点是 `coding_orchestration/` 包根下 16 个 `orchestrator_*_facade.py`。这些 host façade mixin 适合按行业常见 package-by-responsibility 方式收拢到 `coding_orchestration/orchestrator_facades/`，保持文件名与职责不变、只调整 import 层级；架构测试已锁定包根不得再新增 `orchestrator_*_facade.py`。
+- Gateway 模块目录治理第一切片确认：`gateway_command_controller.py`、`gateway_command_executor.py`、`gateway_pending_action_executor.py`、`gateway_binding_service.py`、`gateway_active_context.py`、`gateway_coding_mode_executor.py`、`gateway_project_context.py`、`gateway_rewrite_context.py` 和 `gateway_rewrite_presenter.py` 同属 Gateway host shell / 纯规则 / presentation 边界，适合收拢到 `coding_orchestration/gateway/`；包根不再保留 `gateway_*.py`，架构测试已锁定该目录约束。后续 Feishu / coding command executor 目录治理应独立切片，不与 Gateway 迁移混改。
 
 ## 视觉/浏览器发现
 - 本轮没有新增浏览器或图片验证。

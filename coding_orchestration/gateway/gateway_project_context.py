@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 from typing import Iterable
 
-from .project_resolver import normalize_text as normalize_project_text
+from ..project_resolver import normalize_text as normalize_project_text
 
 
 def project_folder_candidates_from_text(text: str) -> list[str]:

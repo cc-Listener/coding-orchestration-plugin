@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import task_status_display
-from .project_resolver import normalize_text as normalize_project_text
+from ..models import task_status_display
+from ..project_resolver import normalize_text as normalize_project_text
 
 
 def format_rewrite_confirmation_message(command_text: str, rewrite: dict[str, Any]) -> str:

@@ -12,7 +12,7 @@ from ..feishu_project_mcp import (
     build_stdio_client_factory,
 )
 from ..feishu_project_reader import FeishuProjectReader
-from ..gateway_binding_service import GatewayBindingService
+from ..gateway.gateway_binding_service import GatewayBindingService
 from ..hermes_runtime import HermesRuntime
 from ..kanban_bridge import KanbanBridge
 from ..knowledge_adapter import LocalKnowledgeAdapter

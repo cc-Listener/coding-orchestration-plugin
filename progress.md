@@ -4,6 +4,34 @@
 
 ## 会话：2026-06-23
 
+### 阶段 253：Gateway 模块目录治理第一切片
+- **状态：** complete
+- 背景：
+  - 阶段 252 已把 `orchestrator_*_facade.py` 收拢到 `coding_orchestration/orchestrator_facades/`。
+  - 本阶段继续处理 `coding_orchestration/` 包根下的 Gateway 专属模块，只做目录治理，不改变 Gateway 命令解析、Coding Mode、pending action、active project 回填或 runner/workspace/git/run lifecycle 行为。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_guard.py`，新增 `test_gateway_modules_live_in_dedicated_package`，锁定包根不得保留 `gateway_*.py`。
+  - RED 已确认：focused architecture test 先失败，失败点为包根仍存在 9 个 `gateway_*.py`。
+  - 新增 `coding_orchestration/gateway/__init__.py`，迁移 Gateway controller、executor、binding、coding mode、pending action、active context、project context、rewrite context 和 rewrite presenter 9 个模块。
+  - 更新 orchestrator façade、merge-test executor 和 Gateway 相关测试 import，保持原模块职责和公开函数名不变。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前目录边界：
+  - `coding_orchestration/gateway/`：9 个 Gateway 专属模块和 `__init__.py`。
+  - `coding_orchestration/` 包根：不再保留 `gateway_*.py`。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_gateway_modules_live_in_dedicated_package -v` 先失败，失败点为 root gateway list 包含 9 个旧路径文件。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/gateway/*.py coding_orchestration/orchestrator_facades/*.py coding_orchestration/coding_merge_test_command_executor.py tests/test_architecture_guard.py`：passed。
+  - Gateway 相邻回归：`rtk proxy python3 -m unittest tests.test_gateway_command_controller tests.test_gateway_command_executor tests.test_gateway_pending_action_executor tests.test_gateway_binding_service tests.test_gateway_active_context tests.test_gateway_project_context tests.test_gateway_rewrite_context tests.test_gateway_rewrite_presenter tests.test_gateway_coding_mode_executor tests.test_gateway_command_group_flow tests.test_gateway_rewrite_flow tests.test_gateway_pending_confirmation_flow tests.test_gateway_natural_language_command_flow tests.test_gateway_project_task_flow tests.test_gateway_task_control_flow tests.test_gateway_feedback_flow tests.test_gateway_change_continue_flow tests.test_gateway_safety_lifecycle_flow tests.test_coding_cli tests.test_plugin_registration tests.test_architecture_guard -v`：167 tests passed。
+  - 架构测试：`rtk proxy python3 -m unittest tests.test_architecture_guard -v`：29 tests passed。
+  - YAML 解析：`rtk proxy python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 旧引用扫描：`rtk rg -n 'from coding_orchestration import gateway_|from coding_orchestration\\.gateway_[a-z_]+|coding_orchestration/gateway_[^/ ]*\\.py' coding_orchestration tests docs/project-map.md docs/component-contract.md docs/conventions.md contracts/project-context.yaml PLUGIN_TECHNICAL_SOLUTION.md`：no matches。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 本阶段只处理 Gateway 模块目录，不迁移 `feishu_*`、`coding_*_command_executor.py`、runner/workspace/git 或 run lifecycle；后续应继续按 coding command executor、Feishu source adapter 等独立切片治理。
+
 ### 阶段 252：包根 façade 文件目录治理第一切片
 - **状态：** complete
 - 背景：

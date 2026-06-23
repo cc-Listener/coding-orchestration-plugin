@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from coding_orchestration import gateway_rewrite_presenter
+from coding_orchestration.gateway import gateway_rewrite_presenter
 from coding_orchestration.models import TaskStatus
 
 

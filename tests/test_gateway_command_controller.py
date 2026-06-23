@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from coding_orchestration import gateway_command_controller as controller
+from coding_orchestration.gateway import gateway_command_controller as controller
 from coding_orchestration.orchestrator import CodingOrchestrator
 
 

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.gateway_project_context import (
+from coding_orchestration.gateway.gateway_project_context import (
     local_project_path_for_candidate,
     local_project_search_roots,
     project_aliases_from_human_text,

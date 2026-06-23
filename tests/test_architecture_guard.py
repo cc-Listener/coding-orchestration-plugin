@@ -113,6 +113,27 @@ class ArchitectureGuardTest(unittest.TestCase):
         self.assertEqual([], root_facades)
         self.assertEqual(expected_facades, nested_facades)
 
+    def test_gateway_modules_live_in_dedicated_package(self):
+        package_root = REPO_ROOT / "coding_orchestration"
+        gateway_root = package_root / "gateway"
+        expected_gateway_modules = [
+            "gateway_active_context.py",
+            "gateway_binding_service.py",
+            "gateway_coding_mode_executor.py",
+            "gateway_command_controller.py",
+            "gateway_command_executor.py",
+            "gateway_pending_action_executor.py",
+            "gateway_project_context.py",
+            "gateway_rewrite_context.py",
+            "gateway_rewrite_presenter.py",
+        ]
+
+        root_modules = sorted(path.name for path in package_root.glob("gateway_*.py"))
+        nested_modules = sorted(path.name for path in gateway_root.glob("gateway_*.py"))
+
+        self.assertEqual([], root_modules)
+        self.assertEqual(expected_gateway_modules, nested_modules)
+
     def test_orchestrator_does_not_keep_doctor_presenter_private_proxies(self):
         source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
 

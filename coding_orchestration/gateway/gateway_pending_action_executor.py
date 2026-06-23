@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import RunMode
-from .project_resolver import normalize_text as normalize_project_text
+from ..models import RunMode
+from ..project_resolver import normalize_text as normalize_project_text
 
 
 def handle_pending_action_gateway_message(

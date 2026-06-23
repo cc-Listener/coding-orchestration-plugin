@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from . import gateway_command_controller, merge_test_presenter, run_completion_presenter
+from . import merge_test_presenter, run_completion_presenter
+from .gateway import gateway_command_controller
 from .models import RunMode, TaskPhase, TaskStatus
 
 

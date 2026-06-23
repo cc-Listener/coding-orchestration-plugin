@@ -3,8 +3,8 @@ from __future__ import annotations
 import unittest
 from unittest import mock
 
-from coding_orchestration import gateway_command_controller as controller
-from coding_orchestration import gateway_command_executor as executor
+from coding_orchestration.gateway import gateway_command_controller as controller
+from coding_orchestration.gateway import gateway_command_executor as executor
 from coding_orchestration import merge_test_presenter
 from coding_orchestration import run_start_presenter
 from coding_orchestration.models import TaskPhase, TaskStatus

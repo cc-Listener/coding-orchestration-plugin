@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from coding_orchestration import gateway_pending_action_executor as executor
-from coding_orchestration import gateway_command_controller
+from coding_orchestration.gateway import gateway_pending_action_executor as executor
+from coding_orchestration.gateway import gateway_command_controller
 from coding_orchestration.models import RunMode, TaskStatus
 
 
