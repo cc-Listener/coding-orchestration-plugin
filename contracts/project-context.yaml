@@ -41,7 +41,7 @@ project_map:
       role: Hermes plugin source, orchestration logic, runners, source adapters, ledger, dashboard API
     - name: tests
       path: tests/
-      role: unittest coverage for orchestration, runners, source resolution, install scripts, dashboard, state machine; legacy flow cleanup is locked by tests/test_architecture_guard.py, with tests/test_orchestrator_run_flow.py limited to smoke/transition/sandbox and old private-helper coverage moved to service/policy/presenter/adapter contracts
+      role: unittest coverage for orchestration, runners, source resolution, install scripts, dashboard, state machine; legacy flow cleanup and scanner/boundary drift coverage are locked by tests/test_architecture_guard.py, module-family package layout is locked by tests/test_architecture_module_layout.py, architecture guard test growth buffer is locked by tests/test_architecture_guard_test_governance.py, with tests/test_orchestrator_run_flow.py limited to smoke/transition/sandbox and old private-helper coverage moved to service/policy/presenter/adapter contracts
     - name: scripts
       path: scripts/
       role: user-facing install, uninstall, architecture guard, and release readiness entry scripts; scripts/release_readiness.py runs full unittest, architecture guard, git diff --check, sensitive scan, and minimal Hermes smoke

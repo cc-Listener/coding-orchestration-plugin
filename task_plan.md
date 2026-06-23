@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 263：Run status transition service 子包治理第一切片（complete）
+阶段 264：Architecture guard 测试文件拆分治理（complete）
 
 ## 各阶段
+
+### 阶段 264：Architecture guard 测试文件拆分治理
+- [x] 定域：只拆分 `tests/test_architecture_guard.py` 中的模块目录布局测试到独立测试文件，降低 600 行临界风险；不改变 `scripts/architecture_guard.py` 行为或生产代码目录规则。
+- [x] TDD：新增行数治理测试，要求 `tests/test_architecture_guard.py` 低于 580 行。
+- [x] RED：确认新增 focused test 在当前 600 行状态下失败。
+- [x] 实现：新建模块布局架构测试文件，迁移 module family table 和 helper。
+- [x] 验证：运行 focused RED/GREEN、architecture guard tests、py_compile、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步进度、发现、技术方案、项目地图、组件合同、约定、machine-readable context 和治理计划。
+- **状态：** complete
 
 ### 阶段 263：Run status transition service 子包治理第一切片
 - [x] 定域：只收拢 `run_status_transition_service.py` 到 `coding_orchestration/run/services/`，保持状态 canonicalization、TaskStateMachine、Kanban callback、run start/completion/reconcile transition 和 active run cleanup 语义不变。

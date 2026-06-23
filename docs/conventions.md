@@ -81,6 +81,7 @@
 - 测试使用标准库 `unittest`，测试文件位于 `tests/test_*.py`。
 - 新增状态、命令、runner、source resolver、report gate 或用户可见文案时，应补充相邻测试。
 - 旧私有 helper / 旧文件形态测试已完成最终清理：`tests/test_orchestrator_run_flow.py` 只保留端到端 smoke、kanban transition 和 plan-only resume sandbox；新增或迁移覆盖优先落到 service/policy/presenter/adapter contract tests 或行为域小文件，`tests/test_architecture_guard.py` 锁定 resolved legacy flow suite 不再保留 large-file 豁免。
+- Architecture guard 测试治理分层：scanner、large-file、hard code、boundary drift、legacy exemption 和 orchestrator façade 回流守卫继续扩展 `tests/test_architecture_guard.py`；包根模块族目录归位表优先扩展 `tests/test_architecture_module_layout.py`；主 guard 测试文件行数缓冲由 `tests/test_architecture_guard_test_governance.py` 锁定，避免把目录治理表项继续塞回主文件。
 - 变更父级需求拆解、materialize、delivery status 或 run --next 行为时优先扩展 `tests/test_delivery_service.py`、`tests/test_delivery_command_executor.py` 和 `tests/test_delivery_flow.py`。
 - 变更飞书 Project/Docx/Wiki 来源索引、deferred source、source context 修复或 plan 阶段来源读取权限时，优先扩展 `tests/test_source_flow.py`、`tests/test_source_plan_flow.py` 和相邻 source contract tests。
 - 变更 `SourcePort`、`SourceResult`、`SourceResolver.resolve_source_result()` 或 source 状态归一化时，优先扩展 `tests/test_ports_contract.py`、`tests/test_source_resolver.py` 和 `tests/test_orchestrator_tools.py`。

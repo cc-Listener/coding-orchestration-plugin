@@ -312,6 +312,8 @@ rtk git commit -m "feat: 收拢 presenter 模块目录"
 
 **Step 1:** Add an allowlist test for `coding_orchestration/` package root Python files.
 
+阶段 264 后，包根模块族目录归位表已迁到 `tests/test_architecture_module_layout.py`；后续新增 module family case 应扩展该文件，不再扩展 `tests/test_architecture_guard.py` 主文件。
+
 **Step 2:** Confirm RED if unexpected root modules remain.
 
 **Step 3:** Either move remaining modules into clear packages or explicitly document why they stay at root.

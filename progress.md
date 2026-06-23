@@ -4,6 +4,32 @@
 
 ## 会话：2026-06-23
 
+### 阶段 264：Architecture guard 测试文件拆分治理
+- **状态：** complete
+- 背景：
+  - 阶段 263 后 `tests/test_architecture_guard.py` 已到 600 行，后续继续新增目录守卫会触发 large-file watch 风险。
+  - 本阶段只拆分测试文件，不改变 `scripts/architecture_guard.py` 扫描逻辑、不改变生产模块目录规则。
+- 执行的操作：
+  - 新增 `tests/test_architecture_guard_test_governance.py`，要求 `tests/test_architecture_guard.py` 低于 580 行。
+  - RED 已确认：focused test 先失败，失败点为当前文件 600 行。
+  - 新增 `tests/test_architecture_module_layout.py`，迁移 module family table 和 `_assert_modules_live_in_dedicated_package()` helper。
+  - 从 `tests/test_architecture_guard.py` 删除模块目录布局测试，保留 large-file、boundary、secret 和 orchestrator façade 回流守卫。
+  - 同步项目地图、组件合同、约定、machine-readable context、技术方案和目录治理计划，明确后续目录表项扩展 owner。
+- 当前测试边界：
+  - `tests/test_architecture_guard.py`：architecture guard scanner 与 orchestrator façade 回流守卫，548 行。
+  - `tests/test_architecture_module_layout.py`：包根模块族目录归位守卫，97 行。
+  - `tests/test_architecture_guard_test_governance.py`：architecture guard 测试文件增长缓冲守卫，16 行。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_guard_test_governance -v` 先失败，失败点为 `600 not less than 580`。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_guard_test_governance tests.test_architecture_module_layout -v`：2 tests passed。
+  - 架构测试组：`rtk python3 -m unittest tests.test_architecture_guard tests.test_architecture_module_layout tests.test_architecture_guard_test_governance -v`：29 tests passed。
+  - 编译检查：`rtk python3 -m py_compile tests/test_architecture_guard.py tests/test_architecture_module_layout.py tests/test_architecture_guard_test_governance.py`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 本阶段不继续迁 run completion/reconcile/background/manifest/orchestration helper；下一片可继续按 run service、source、project 或 integration 目录治理拆分。
+
 ### 阶段 263：Run status transition service 子包治理第一切片
 - **状态：** complete
 - 背景：
