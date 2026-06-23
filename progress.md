@@ -4,6 +4,33 @@
 
 ## 会话：2026-06-23
 
+### 阶段 233：Task 37 Orchestrator 500 行治理第六切片
+- **状态：** complete
+- 背景：
+  - 阶段 228-232 已分别清理 run completion、run start、feedback、merge-test 和 doctor presenter 私有代理；`orchestrator.py` 仍保留 Gateway rewrite presenter 私有代理 wrapper。
+  - 本阶段继续选择已有明确 owner 的 presentation 代理清理，不触碰 LLM rewrite 调用、Gateway route、pending action、task 创建、runner/workspace/git、run lifecycle 或状态机。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_guard.py`，要求 `orchestrator.py` 不再定义 `_rewrite_confirmation_message`、`_rewrite_needs_human_confirmation_message`、`_rewrite_rejection_user_text`、`_rewrite_handoff_to_hermes_message`。
+  - RED 已确认：focused test 先失败于 `CodingOrchestrator` 仍保留 4 个 rewrite presenter wrapper。
+  - 删除 `CodingOrchestrator` 内 rewrite presenter 文案私有代理；保留 `gateway_coding_mode_executor.py` 直接消费 `gateway_rewrite_presenter.py`。
+  - 将旧 flow 测试中直接调用私有 wrapper 的低置信度文案断言迁到 `gateway_rewrite_presenter.py` owner。
+  - 同步 `PLUGIN_TECHNICAL_SOLUTION.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：2772 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_orchestrator_does_not_keep_rewrite_presenter_private_proxies -v` 先失败 4 个 subTest，失败点为 rewrite presenter wrapper 仍存在。
+  - Focused GREEN：`rtk proxy python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_orchestrator_does_not_keep_rewrite_presenter_private_proxies -v`：1 test passed。
+  - Presenter/flow focused GREEN：`rtk proxy python3 -m unittest tests.test_gateway_rewrite_flow.GatewayRewriteFlowTest.test_low_confidence_rewrite_needs_human_message_uses_user_language tests.test_gateway_rewrite_flow.GatewayRewriteFlowTest.test_low_confidence_rewrite_needs_human_message_sanitizes_internal_rejection tests.test_gateway_rewrite_presenter -v`：5 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_architecture_guard tests.test_gateway_rewrite_flow tests.test_gateway_rewrite_presenter tests.test_gateway_pending_confirmation_flow tests.test_gateway_natural_language_command_flow -v`：32 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py tests/test_architecture_guard.py tests/test_gateway_rewrite_flow.py`：passed。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：25 tests passed。
+  - YAML 解析：`rtk proxy python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 2772 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 975 tests passed，敏感扫描 no findings。
+- 剩余风险：
+  - 500 行是长期目标；本阶段未迁 LLM rewrite 调用、Gateway route、pending action、task 创建、runner/workspace/git、`start_run()`、active run reconcile、run lifecycle 或状态机核心。
+
 ### 阶段 232：Task 37 Orchestrator 500 行治理第五切片
 - **状态：** complete
 - 背景：

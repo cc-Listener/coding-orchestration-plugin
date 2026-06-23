@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 232：Task 37 Orchestrator 500 行治理第五切片（complete）
+阶段 233：Task 37 Orchestrator 500 行治理第六切片（complete）
 
 ## 各阶段
 
@@ -1556,6 +1556,14 @@
 - [x] TDD：扩展架构测试，要求 `orchestrator.py` 不再保留 `_doctor_*` 文案私有代理。
 - [x] RED：focused test 先失败于 `orchestrator.py` 仍定义 doctor presenter wrapper。
 - [x] 实现：删除 `CodingOrchestrator` 内 doctor presenter 文案代理和无用 import，保留 diagnostic executor / doctor presenter 的真实 owner。
+- [x] 验证：运行 focused tests、相邻回归、py_compile、文档/架构测试、YAML 解析、architecture guard、diff check 和 release readiness no-smoke。
+- **状态：** complete
+
+### 阶段 233：Task 37 Orchestrator 500 行治理第六切片
+- [x] 定域：只清理 Gateway rewrite presenter 私有代理；不触碰 LLM rewrite 调用、Gateway route、pending action、task 创建、runner/workspace/git、run lifecycle 或状态机。
+- [x] TDD：扩展架构测试，要求 `orchestrator.py` 不再保留 `_rewrite_*` 文案私有代理，并把旧私有文案断言迁到 `gateway_rewrite_presenter.py` owner。
+- [x] RED：focused test 先失败于 `orchestrator.py` 仍定义 rewrite presenter wrapper。
+- [x] 实现：删除 `CodingOrchestrator` 内 rewrite presenter 文案代理，保留 `gateway_coding_mode_executor.py` / `gateway_rewrite_presenter.py` 的真实 owner。
 - [x] 验证：运行 focused tests、相邻回归、py_compile、文档/架构测试、YAML 解析、architecture guard、diff check 和 release readiness no-smoke。
 - **状态：** complete
 

@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from coding_orchestration.command_rewriter import HermesCommandRewriter
+from coding_orchestration import gateway_rewrite_presenter
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import TaskPhase, TaskStatus
@@ -37,7 +38,7 @@ class GatewayRewriteFlowTest(unittest.TestCase):
         self.assertIn("intent=unknown", prompt)
         self.assertIn("Hermes 主 agent", prompt)
     def test_low_confidence_rewrite_needs_human_message_uses_user_language(self):
-        message = CodingOrchestrator._rewrite_needs_human_confirmation_message(
+        message = gateway_rewrite_presenter.format_rewrite_needs_human_confirmation_message(
             "帮我处理一下",
             {"canonical_command": None, "confidence": 0.12, "reason": "缺少项目和任务目标。"},
             "缺少项目",
@@ -48,7 +49,7 @@ class GatewayRewriteFlowTest(unittest.TestCase):
         self.assertNotIn("置信度", message)
         self.assertNotIn("LLM 理由", message)
     def test_low_confidence_rewrite_needs_human_message_sanitizes_internal_rejection(self):
-        message = CodingOrchestrator._rewrite_needs_human_confirmation_message(
+        message = gateway_rewrite_presenter.format_rewrite_needs_human_confirmation_message(
             "帮我处理一下",
             {"canonical_command": None, "confidence": 0.12, "reason": "缺少项目和任务目标。"},
             "置信度 0.12 低于阈值 0.85。",

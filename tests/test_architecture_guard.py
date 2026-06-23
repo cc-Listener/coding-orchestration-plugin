@@ -103,6 +103,19 @@ class ArchitectureGuardTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
+    def test_orchestrator_does_not_keep_rewrite_presenter_private_proxies(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def _rewrite_confirmation_message",
+            "def _rewrite_needs_human_confirmation_message",
+            "def _rewrite_rejection_user_text",
+            "def _rewrite_handoff_to_hermes_message",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()

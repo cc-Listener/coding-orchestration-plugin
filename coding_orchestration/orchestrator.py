@@ -1098,33 +1098,6 @@ class CodingOrchestrator:
         candidate = self_or_value if value is None else value
         return gateway_coding_mode_executor.canonical_rewrite_command(candidate)
 
-    @staticmethod
-    def _rewrite_confirmation_message(command_text: str, rewrite: dict[str, Any]) -> str:
-        return gateway_coding_mode_executor.rewrite_confirmation_message(command_text, rewrite)
-
-    @staticmethod
-    def _rewrite_needs_human_confirmation_message(text: str, rewrite: dict[str, Any], rejection: str) -> str:
-        return gateway_coding_mode_executor.rewrite_needs_human_confirmation_message(text, rewrite, rejection)
-
-    @staticmethod
-    def _rewrite_rejection_user_text(rejection: str) -> str:
-        return gateway_coding_mode_executor.rewrite_rejection_user_text(rejection)
-
-    def _rewrite_handoff_to_hermes_message(
-        self,
-        text: str,
-        rewrite: dict[str, Any],
-        rejection: str,
-        event: Any,
-    ) -> str:
-        return gateway_coding_mode_executor.rewrite_handoff_to_hermes_message(
-            self,
-            text,
-            rewrite,
-            rejection,
-            event,
-        )
-
     def _handle_pending_action_gateway_message(
         self,
         text: str,
