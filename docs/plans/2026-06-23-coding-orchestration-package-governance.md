@@ -200,7 +200,7 @@ rtk git commit -m "feat: 收拢 presenter 模块目录"
 - Moved: `run_ledger_writeback_service.py` -> `run/services/run_ledger_writeback_service.py`
 - Moved in stage 261: `run_manifest_session_writeback_service.py` -> `run/services/run_manifest_session_writeback_service.py`
 - Moved in stage 261: `run_project_writeback_service.py` -> `run/services/run_project_writeback_service.py`
-- Move: `run_reconcile_writeback_service.py`
+- Moved in stage 277: `run_reconcile_writeback_service.py` -> `run/services/run_reconcile_writeback_service.py`
 - Moved: `run_session_writeback_service.py` -> `run/services/run_session_writeback_service.py`
 - Moved in stage 263: `run_status_transition_service.py` -> `run/services/run_status_transition_service.py`
 - Moved: `run_summary_writeback_service.py` -> `run/services/run_summary_writeback_service.py`

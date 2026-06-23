@@ -185,7 +185,7 @@ project_map:
       reason: "Run manifest session metadata writeback host service，维护 runner session metadata 到 run manifest 的 callback 接线；只消费已解析 session id，复用 manifest session 字段投影，不写 ledger/report/summary、不启动 runner、不推进状态。"
     - path: coding_orchestration/run/services/run_completion_writeback_service.py
       reason: "Completed run writeback coordinator host service，维护 fresh completed run 的 completion projection、stale observation、状态 transition、ledger/session/summary/project writeback 和 final result payload；只通过注入 callback 工作，不启动 runner、不执行 diff guard、不收集 QA evidence、不判断 dirty 或准备 checkpoint。"
-    - path: coding_orchestration/run_reconcile_writeback_service.py
+    - path: coding_orchestration/run/services/run_reconcile_writeback_service.py
       reason: "Active run reconcile writeback coordinator host service，维护 active run reconcile 完成态的 completion projection、最终 report 写回、状态 transition、ledger upsert、runner session update、summary writer callback 和 result payload；只消费已归一化 report 与注入 callback，不读取 workspace、不启动 runner、不执行 diff guard、不收集 QA evidence、不判断 dirty 或准备 checkpoint。"
     - path: coding_orchestration/run/projections/run_start_selection_projection.py
       reason: "Run start selection projection helper，维护 context source、checkpoint selection、QA evidence observation、source branch recording、project path requirement、workspace selection 和 manifest checkpoint preparation selection 纯规则，不读取 workspace、不准备 checkpoint、不写 manifest 或 ledger。"
@@ -333,7 +333,7 @@ component_contract:
       path: coding_orchestration/run/services/run_completion_writeback_service.py
       preferred: true
     - name: run_reconcile_writeback_service
-      path: coding_orchestration/run_reconcile_writeback_service.py
+      path: coding_orchestration/run/services/run_reconcile_writeback_service.py
       preferred: true
     - name: run_start_selection_projection
       path: coding_orchestration/run/projections/run_start_selection_projection.py
@@ -659,7 +659,7 @@ component_contract:
       use_instead_of:
         - "在 orchestrator 中继续新增 fresh completed run 的 completion projection、stale observation、状态 transition、ledger/session/summary/project writeback 或 final result payload 协调。"
     - name: run_reconcile_writeback_service
-      path: coding_orchestration/run_reconcile_writeback_service.py
+      path: coding_orchestration/run/services/run_reconcile_writeback_service.py
       use_instead_of:
         - "在 orchestrator 中继续新增 active run reconcile 的 completion projection、最终 report 写回、状态 transition、ledger upsert、runner session update、summary writer callback 或 result payload 协调。"
     - name: run_background_orchestration

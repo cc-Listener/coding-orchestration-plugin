@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 276：Run completion writeback service 子包治理（complete）
+阶段 277：Run reconcile writeback service 子包治理（complete）
 
 ## 各阶段
+
+### 阶段 277：Run reconcile writeback service 子包治理
+- [x] 定域：只收拢 `run_reconcile_writeback_service.py` 到 `coding_orchestration/run/services/`，保持 active run reconcile 完成态的 completion projection、report finalization、状态 transition、ledger upsert、runner session update、summary writer callback 和 result payload 协调行为不变；不迁 fresh completion、run manifest、run orchestration projection、runner/workspace/git 或 run lifecycle。
+- [x] TDD：扩展模块布局架构测试，要求 run reconcile writeback service 不再散落在 `coding_orchestration/` 包根。
+- [x] RED：确认新增 focused test 在当前包根文件存在时失败。
+- [x] 实现：移动模块并更新 import / 文档路径。
+- [x] 验证：运行 focused GREEN、reconcile/status/run flow 相邻回归、py_compile、YAML、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步进度、发现、技术方案、项目地图、组件合同、约定、machine-readable context 和治理计划。
+- **状态：** complete
 
 ### 阶段 276：Run completion writeback service 子包治理
 - [x] 定域：只收拢 `run_completion_writeback_service.py` 到 `coding_orchestration/run/services/`，保持 fresh completed run 的 completion projection、stale observation、状态 transition、ledger/session/summary/project writeback 和 final result payload 协调行为不变；不迁 active reconcile、run manifest、run orchestration projection、runner/workspace/git 或 run lifecycle。

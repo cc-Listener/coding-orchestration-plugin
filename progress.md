@@ -4,6 +4,34 @@
 
 ## 会话：2026-06-23
 
+### 阶段 277：Run reconcile writeback service 子包治理
+- **状态：** complete
+- 背景：
+  - `run_reconcile_writeback_service.py` 维护 active run reconcile 完成态的 completion projection、report finalization、状态 transition、ledger upsert、runner session update、summary writer callback 和 result payload 协调。
+  - Completion writeback coordinator 已收拢到 `run/services/`；active reconcile writeback 属于同一 run host service 边界，也不应继续散落在包根。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 `run_reconcile_writeback_service.py` 位于 `coding_orchestration/run/services/`。
+  - RED 已确认：focused test 先失败，失败点为包根仍存在 `run_reconcile_writeback_service.py`。
+  - 将 `coding_orchestration/run_reconcile_writeback_service.py` 移动到 `coding_orchestration/run/services/run_reconcile_writeback_service.py`，并修正相对 import。
+  - 更新 `orchestrator.py` 和 `orchestrator_facades/orchestrator_active_run_facade.py` 从 `run.services` 导入该模块，继续让 monkeypatch 指向同一 module object。
+  - 更新 run reconcile writeback 测试 import，并同步项目地图、组件合同、约定、machine-readable context、技术方案、发现和目录治理计划。
+- 当前边界：
+  - `coding_orchestration/run/services/run_reconcile_writeback_service.py`：只协调 active run reconcile 完成态的 report artifact、状态 transition、ledger/session/summary writeback 和 result payload。
+  - 本切片未迁 fresh completion、run manifest、run orchestration projection、runner/workspace/git 或 run lifecycle。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为 `run_reconcile_writeback_service.py` 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Run reconcile writeback contract：`rtk python3 -m unittest tests.test_run_reconcile_writeback_service -v`：2 tests passed。
+  - Reconcile/status/writeback 相邻回归：`rtk python3 -m unittest tests.test_run_reconcile_writeback_service tests.test_status_reconcile_flow tests.test_run_completion_writeback_service tests.test_run_status_transition_service tests.test_run_ledger_writeback_service tests.test_run_session_writeback_service tests.test_run_summary_writeback_service tests.test_run_orchestration_reconcile_rules -v`：34 tests passed。
+  - 文档合同回归：`rtk python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_module_layout -v`：17 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/run/services/run_reconcile_writeback_service.py coding_orchestration/orchestrator.py coding_orchestration/orchestrator_facades/orchestrator_active_run_facade.py tests/test_run_reconcile_writeback_service.py tests/test_architecture_module_layout.py`：passed。
+  - YAML 解析：`rtk python3 -c "import yaml; yaml.safe_load(open('contracts/project-context.yaml', encoding='utf-8')); print('yaml ok')"`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - Run 域包根仍保留 `run_manifest_service.py` 和 `run_orchestration_service.py`；两者引用面更广，后续应单独评估是否先移动 manifest helper，或先转向 project 子包治理。
+
 ### 阶段 276：Run completion writeback service 子包治理
 - **状态：** complete
 - 背景：
