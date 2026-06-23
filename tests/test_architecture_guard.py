@@ -219,6 +219,50 @@ class ArchitectureGuardTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
+    def test_orchestrator_does_not_keep_gateway_facade_methods(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def _handle_gateway_immediate_route(",
+            "def _gateway_immediate_route_message(",
+            "def _handle_explicit_gateway_command(",
+            "def _handle_coding_mode_gateway_message(",
+            "def _extract_task_id(",
+            "def _rewrite_coding_command(",
+            "def _coding_rewrite_context(",
+            "def _task_next_step_hint(",
+            "def _coding_rewrite_allowed_commands(",
+            "def _validated_rewrite_command(",
+            "def _rewrite_requires_confirmation(",
+            "def _canonical_rewrite_command(",
+            "def _handle_pending_action_gateway_message(",
+            "def _store_pending_action_for_event(",
+            "def _pending_action_for_event(",
+            "def _pending_action_from_latest_human_required_run(",
+            "def _clear_pending_action_for_event(",
+            "def _pending_action_binding_key_for_event(",
+            "def _record_pending_action_confirmation(",
+            "def _store_pending_rewrite_for_event(",
+            "def _pending_rewrite_for_event(",
+            "def _clear_pending_rewrite_for_event(",
+            "def _pending_rewrite_binding_key_for_event(",
+            "def _is_rewrite_confirmation(",
+            "def _is_rewrite_cancellation(",
+            "def _is_human_confirmation_reply(",
+            "def _is_human_cancellation_reply(",
+            "def _handle_commands_gateway_command(",
+            "def _normalize_coding_gateway_command(",
+            "def _gateway_command_task_id(",
+            "def _looks_like_plugin_generated_message(",
+            "def _looks_like_task(",
+            "def _dedupe_gateway_event(",
+            "def _gateway_event_dedupe_key(",
+            "def _gateway_user_is_authorized(",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()

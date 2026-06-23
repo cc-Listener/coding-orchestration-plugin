@@ -81,6 +81,8 @@ project_map:
       reason: "任务状态推进、人工门禁和 runner 调度中心。"
     - path: coding_orchestration/orchestrator_command_facade.py
       reason: "Orchestrator command façade mixin，维护普通 /coding ... command façade 分发表、command-level wrapper、delivery rollup/materialize helper、artifact purge callback 和 prepare-merge-test status callback；CodingOrchestrator 只继承 mixin 保留兼容方法名，不承载 Gateway route、tool operation dispatcher、task creation/source helper、runner/workspace/git、start_run 或 run lifecycle。"
+    - path: coding_orchestration/orchestrator_gateway_facade.py
+      reason: "Orchestrator Gateway façade mixin，维护 Gateway immediate/custom route dispatch、Coding Mode rewrite wrapper、pending action/rewrite binding wrapper、确认/取消词 wrapper、commands listing route、dedupe/授权/looks-like-task wrapper；CodingOrchestrator 只继承 mixin 保留兼容方法名，不承载 handle_gateway_event 入口、task creation/source helper、active task/project binding 业务、runner/workspace/git、start_run 或 run lifecycle。"
     - path: coding_orchestration/run_orchestration_service.py
       reason: "Observed run report、stale completion 观测、execution policy decision 读取、run-level diff guard violations 组合、verification limitations fallback projection、completion report payload、agent run record、reconciled agent run record、reconcile result payload、existing run mode/changed files 规则、merge-test run record、project writeback payload、start_run result payload 和 run completion 投影 helper；兼容 re-export run report refinement、run start selection、run session 与 run prompt projection。"
     - path: coding_orchestration/run_failure_report_projection.py
@@ -355,6 +357,10 @@ component_contract:
       path: coding_orchestration/orchestrator_diagnostics_facade.py
       preferred: true
       note: "Diagnostics / dashboard façade、doctor/CLI wrapper、Meegle preflight fallback、dashboard status payload 和 preflight/source-resolve formatter wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+    - name: orchestrator_gateway_facade
+      path: coding_orchestration/orchestrator_gateway_facade.py
+      preferred: true
+      note: "Gateway route façade、immediate/custom route dispatch、Coding Mode rewrite wrapper、pending action/rewrite binding wrapper、确认/取消词 wrapper、commands listing route、dedupe/授权/looks-like-task wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
     - name: coding_diagnostics_command_executor
       path: coding_orchestration/coding_diagnostics_command_executor.py
       preferred: true
@@ -602,6 +608,10 @@ component_contract:
       path: coding_orchestration/orchestrator_diagnostics_facade.py
       use_instead_of:
         - "在 orchestrator.py 主文件中继续新增或恢复 diagnostics / dashboard façade、doctor/CLI wrapper、Meegle preflight fallback、dashboard status payload 或 preflight/source-resolve formatter wrapper。"
+    - name: orchestrator_gateway_facade
+      path: coding_orchestration/orchestrator_gateway_facade.py
+      use_instead_of:
+        - "在 orchestrator.py 主文件中继续新增或恢复 Gateway immediate/custom route dispatch、Coding Mode rewrite wrapper、pending action/rewrite binding wrapper、确认/取消词 wrapper、commands listing route、dedupe/授权/looks-like-task wrapper。"
     - name: task_status_presenter
       path: coding_orchestration/task_status_presenter.py
       use_instead_of:

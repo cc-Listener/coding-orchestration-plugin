@@ -4,6 +4,28 @@
 
 ## 会话：2026-06-23
 
+### 阶段 239：Task 37 Orchestrator 500 行治理第十二切片
+- **状态：** complete
+- 背景：
+  - 阶段 238 已把 diagnostics/dashboard façade 迁入 `orchestrator_diagnostics_facade.py`；`orchestrator.py` 仍直接承载 Gateway route façade wrapper，包括 immediate/custom route dispatch、Coding Mode rewrite wrapper、pending action/rewrite binding wrapper、确认/取消词 wrapper、commands listing route、dedupe/授权/looks-like-task wrapper。
+  - 本阶段选择 Gateway route façade 作为高收益 host wrapper 切片；不迁 `handle_gateway_event()` 入口、task creation/source helper、active task/project binding 业务、runner/workspace/git、`start_run()` 或 run lifecycle。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_guard.py`，要求 `orchestrator.py` 不再直接定义 Gateway façade wrapper。
+  - RED 已确认：focused architecture test 先失败于 `orchestrator.py` 仍定义 35 个 Gateway façade wrapper。
+  - 新增 `coding_orchestration/orchestrator_gateway_facade.py`，用 `OrchestratorGatewayFacadeMixin` 承接 Gateway route façade、Coding Mode rewrite wrapper、pending action/rewrite binding wrapper、commands listing route、dedupe/授权/looks-like-task wrapper。
+  - `CodingOrchestrator` 改为继承 `OrchestratorGatewayFacadeMixin`，删除主文件内对应 Gateway façade 实现和迁移后的 Gateway command regex alias。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：2016 行。
+  - `coding_orchestration/orchestrator_gateway_facade.py`：237 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_orchestrator_does_not_keep_gateway_facade_methods -v` 先失败 35 个 subTest，失败点为 Gateway façade wrapper 仍在 `orchestrator.py`。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/orchestrator_gateway_facade.py tests/test_architecture_guard.py`：passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_gateway_command_controller tests.test_gateway_command_group_flow tests.test_gateway_coding_mode_executor tests.test_gateway_coding_mode_lifecycle_flow tests.test_gateway_rewrite_flow tests.test_gateway_pending_action_executor tests.test_gateway_pending_confirmation_flow tests.test_gateway_task_control_flow tests.test_gateway_project_task_flow tests.test_gateway_natural_language_command_flow tests.test_gateway_change_continue_flow tests.test_gateway_feedback_flow tests.test_gateway_safety_lifecycle_flow tests.test_gateway_trigger -v`：passed。
+  - 文档/架构测试、YAML 解析、architecture guard、格式检查和 Release gate no-smoke 已在提交前验证通过。
+- 剩余风险：
+  - 500 行是长期目标；本阶段未迁 `handle_gateway_event()` 入口、task creation/source helper、active run reconcile、active task/project binding 业务、runner/workspace/git、`start_run()`、run lifecycle 或状态机核心。
+
 ### 阶段 238：Task 37 Orchestrator 500 行治理第十一切片
 - **状态：** complete
 - 背景：
