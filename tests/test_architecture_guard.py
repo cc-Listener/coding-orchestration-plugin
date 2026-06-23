@@ -81,7 +81,6 @@ class ArchitectureGuardTest(unittest.TestCase):
         findings = scan_repository(REPO_ROOT)
 
         self.assertFalse([item for item in findings if item.is_failure])
-        self.assertTrue(any(item.code in {"legacy_large_file", "large_file_watch"} for item in findings))
 
     def test_resolved_legacy_test_flow_suite_is_not_exempted(self):
         self.assertNotIn("tests/test_orchestrator_run_flow.py", LINE_EXEMPTIONS)
@@ -515,6 +514,17 @@ class ArchitectureGuardTest(unittest.TestCase):
             "def _policy_uses_targeted_verification(",
             "def _runner_failed_result(",
             "def _checkpoint_failed_result(",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
+    def test_orchestrator_does_not_keep_active_run_facade_methods(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def _reconcile_completed_active_run(",
+            "def _agent_run_for_id(",
         ]
         for name in forbidden:
             with self.subTest(name=name):

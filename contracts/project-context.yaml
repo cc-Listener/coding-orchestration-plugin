@@ -103,6 +103,8 @@ project_map:
       reason: "Orchestrator merge-test façade mixin，维护 merge-test blocker、blocked task 风险放行 host 写回、blocked assessment fact collection、latest implementation run/source branch/disallowed reason wrapper 和 QA evidence wrapper；CodingOrchestrator 只继承 mixin 保留兼容方法名，不承载 merge-test readiness 纯评估规则、workspace/git/checkpoint 实现、runner 调度、start_run 或 run lifecycle。"
     - path: coding_orchestration/orchestrator_runtime_facade.py
       reason: "Orchestrator runtime/failure façade mixin，维护 flag helper、project/workflow wrapper、plan report session/execution policy/timeout wrapper、runner failed result 和 checkpoint failed result；CodingOrchestrator 只继承 mixin 保留兼容方法名，不承载 start_run 主体、runner dispatch、artifact service 纯写入、workspace/git/checkpoint 实现或 run lifecycle。"
+    - path: coding_orchestration/orchestrator_active_run_facade.py
+      reason: "Orchestrator active run façade mixin，维护 completed active run reconcile host shell 和 agent run lookup helper；CodingOrchestrator 只继承 mixin 保留兼容方法名，不承载 start_run 主体、fresh completion writeback、runner dispatch、workspace/git/checkpoint 实现或 run lifecycle。"
     - path: coding_orchestration/run_orchestration_service.py
       reason: "Observed run report、stale completion 观测、execution policy decision 读取、run-level diff guard violations 组合、verification limitations fallback projection、completion report payload、agent run record、reconciled agent run record、reconcile result payload、existing run mode/changed files 规则、merge-test run record、project writeback payload、start_run result payload 和 run completion 投影 helper；兼容 re-export run report refinement、run start selection、run session 与 run prompt projection。"
     - path: coding_orchestration/run_failure_report_projection.py
@@ -409,6 +411,10 @@ component_contract:
       path: coding_orchestration/orchestrator_runtime_facade.py
       preferred: true
       note: "Runtime/failure façade、flag helper、project/workflow wrapper、plan report session/execution policy/timeout wrapper、runner failed result 和 checkpoint failed result owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+    - name: orchestrator_active_run_facade
+      path: coding_orchestration/orchestrator_active_run_facade.py
+      preferred: true
+      note: "Active run façade、completed active run reconcile host shell 和 agent run lookup helper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
     - name: coding_diagnostics_command_executor
       path: coding_orchestration/coding_diagnostics_command_executor.py
       preferred: true
@@ -688,6 +694,10 @@ component_contract:
       path: coding_orchestration/orchestrator_runtime_facade.py
       use_instead_of:
         - "在 orchestrator.py 主文件中继续新增或恢复 flag helper、project/workflow wrapper、plan report session/execution policy/timeout wrapper、runner failed result 或 checkpoint failed result。"
+    - name: orchestrator_active_run_facade
+      path: coding_orchestration/orchestrator_active_run_facade.py
+      use_instead_of:
+        - "在 orchestrator.py 主文件中继续新增或恢复 completed active run reconcile host shell 或 agent run lookup helper。"
     - name: task_status_presenter
       path: coding_orchestration/task_status_presenter.py
       use_instead_of:
