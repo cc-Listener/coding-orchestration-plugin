@@ -4,6 +4,33 @@
 
 ## 会话：2026-06-23
 
+### 阶段 252：包根 façade 文件目录治理第一切片
+- **状态：** complete
+- 背景：
+  - 仓库根目录没有 `.py` 文件；实际散落点是 `coding_orchestration/` 包根下 16 个 `orchestrator_*_facade.py`。
+  - 本阶段只做目录治理：收拢 façade mixin 到专用子包，不改 `handle_gateway_event()`、`pre_llm_call()`、`start_run()`、runner/workspace/git/checkpoint 实现或 run lifecycle。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_guard.py`，新增 `test_orchestrator_facade_modules_live_in_dedicated_package`，锁定 façade 文件必须位于 `coding_orchestration/orchestrator_facades/`。
+  - RED 已确认：focused architecture test 先失败，失败点为包根仍存在 16 个 `orchestrator_*_facade.py`。
+  - 新增 `coding_orchestration/orchestrator_facades/__init__.py`，迁移 16 个 orchestrator façade mixin 文件，并将内部相对 import 从同包调整为父包。
+  - `coding_orchestration/orchestrator.py` 改为从 `coding_orchestration.orchestrator_facades.*` 导入 mixin。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：467 行。
+  - `coding_orchestration/orchestrator_facades/`：16 个 façade 模块，合计 2454 行；`__init__.py` 1 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_orchestrator_facade_modules_live_in_dedicated_package -v` 先失败，失败点为 root façade list 包含 16 个旧路径文件。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/orchestrator_facades/*.py tests/test_architecture_guard.py`：passed。
+  - 架构测试：`rtk proxy python3 -m unittest tests.test_architecture_guard -v`：28 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_orchestrator_run_flow tests.test_gateway_trigger tests.test_gateway_command_group_flow tests.test_coding_cli tests.test_plugin_registration tests.test_docs_and_install_entry tests.test_architecture_guard -v`：80 tests passed。
+  - YAML 解析：`rtk proxy python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 995 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 本阶段没有继续压缩 `orchestrator.py` 行数，也没有迁移 run lifecycle / workspace / runner 核心；后续目录治理可继续评估 presenter、executor、service、projection 等子包分层，但需要独立 TDD 切片。
+
 ### 阶段 251：Task 37 Orchestrator 500 行治理第二十四切片
 - **状态：** complete
 - 背景：

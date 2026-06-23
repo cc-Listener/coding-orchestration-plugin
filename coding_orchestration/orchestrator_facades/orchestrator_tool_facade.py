@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import RunMode
-from .project_workitem_binding import ProjectWorkitemIdentity
-from .services import WorkItemService
-from .tool_operation_dispatcher import ToolOperationDispatcher
+from ..models import RunMode
+from ..project_workitem_binding import ProjectWorkitemIdentity
+from ..services import WorkItemService
+from ..tool_operation_dispatcher import ToolOperationDispatcher
 
 
 class OrchestratorToolFacadeMixin:

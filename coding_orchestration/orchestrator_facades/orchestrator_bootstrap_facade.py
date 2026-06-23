@@ -3,30 +3,30 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .command_rewriter import HermesCommandRewriter
-from .feishu_project_mcp import (
+from ..command_rewriter import HermesCommandRewriter
+from ..feishu_project_mcp import (
     READ_TOOLS,
     WRITE_TOOLS,
     FeishuProjectMcpAdapter,
     FeishuProjectMcpConfig,
     build_stdio_client_factory,
 )
-from .feishu_project_reader import FeishuProjectReader
-from .gateway_binding_service import GatewayBindingService
-from .hermes_runtime import HermesRuntime
-from .kanban_bridge import KanbanBridge
-from .knowledge_adapter import LocalKnowledgeAdapter
-from .ledger import TaskLedger
-from .project_knowledge_resolver import ProjectKnowledgeResolver
-from .project_resolver import ProjectRegistry
-from .run_manifest_service import RunManifestService
-from .run_summary_writer import RunSummaryWriter
-from .runner_router import RunnerRouter
-from .services import DeliveryService, RunService, TaskService, WorkItemService
-from .source_resolver import SourceResolver
-from .symphony_compat.workspace_manager import WorkspaceManager
-from .workspace_checkpoint_service import WorkspaceCheckpointService
-from . import run_start_presenter
+from ..feishu_project_reader import FeishuProjectReader
+from ..gateway_binding_service import GatewayBindingService
+from ..hermes_runtime import HermesRuntime
+from ..kanban_bridge import KanbanBridge
+from ..knowledge_adapter import LocalKnowledgeAdapter
+from ..ledger import TaskLedger
+from ..project_knowledge_resolver import ProjectKnowledgeResolver
+from ..project_resolver import ProjectRegistry
+from ..run_manifest_service import RunManifestService
+from ..run_summary_writer import RunSummaryWriter
+from ..runner_router import RunnerRouter
+from ..services import DeliveryService, RunService, TaskService, WorkItemService
+from ..source_resolver import SourceResolver
+from ..symphony_compat.workspace_manager import WorkspaceManager
+from ..workspace_checkpoint_service import WorkspaceCheckpointService
+from .. import run_start_presenter
 
 
 class OrchestratorBootstrapFacadeMixin:
