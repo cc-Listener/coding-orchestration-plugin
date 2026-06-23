@@ -4,6 +4,27 @@
 
 ## 会话：2026-06-23
 
+### 阶段 246：Task 37 Orchestrator 500 行治理第十九切片
+- **状态：** complete
+- 背景：
+  - 阶段 245 已把 status/report policy façade 迁入 `orchestrator_status_policy_facade.py`；`orchestrator.py` 仍直接承载 manifest/artifact/session façade wrapper，包括 existing/fresh artifact set、run manifest 构造、Codex attach/resume 命令、session id 读取、runner manifest name 和 manifest session metadata 写回 wrapper。
+  - 本阶段选择 manifest/artifact/session façade 作为低风险 host wrapper 切片；不迁 manifest 纯规则、artifact service、`start_run()` 主体、active run reconcile 主体、runner 调度、workspace/git 或 run lifecycle。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_guard.py`，要求 `orchestrator.py` 不再直接定义 manifest/artifact/session façade wrapper。
+  - RED 已确认：focused architecture test 先失败于 `orchestrator.py` 仍定义 12 个 manifest/artifact/session façade wrapper。
+  - 新增 `coding_orchestration/orchestrator_manifest_facade.py`，用 `OrchestratorManifestFacadeMixin` 承接 manifest/artifact/session façade wrapper。
+  - `CodingOrchestrator` 改为继承 `OrchestratorManifestFacadeMixin`，删除主文件内对应 manifest/artifact/session façade 实现和迁移后的无用 import。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：1090 行。
+  - `coding_orchestration/orchestrator_manifest_facade.py`：138 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_orchestrator_does_not_keep_manifest_facade_methods -v` 先失败 12 个 subTest，失败点为 manifest/artifact/session façade wrapper 仍在 `orchestrator.py`。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/orchestrator_manifest_facade.py tests/test_architecture_guard.py`：passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_run_manifest_service tests.test_run_manifest_session_writeback_service tests.test_run_start_artifact_service tests.test_run_manifest_artifact_service tests.test_run_orchestration_start_rules tests.test_implementation_session_flow tests.test_plan_run_flow tests.test_status_reconcile_flow -v`：73 tests passed。
+- 剩余风险：
+  - 500 行是长期目标；本阶段未迁 manifest 纯规则、artifact service、`handle_gateway_event()`、active run reconcile、runner 调度、`start_run()`、run lifecycle 或其他剩余 façade。
+
 ### 阶段 245：Task 37 Orchestrator 500 行治理第十八切片
 - **状态：** complete
 - 背景：

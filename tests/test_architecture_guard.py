@@ -444,6 +444,27 @@ class ArchitectureGuardTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
+    def test_orchestrator_does_not_keep_manifest_facade_methods(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def _artifact_set_for_existing_run(",
+            "def _thread_id_from_artifact(",
+            "def _codex_resume_session_id_for_task(",
+            "def _is_codex_session_runner(",
+            "def _runner_name_for_manifest(",
+            "def _build_manifest(",
+            "def _write_report_schema(",
+            "def _artifact_record(",
+            "def _artifact_set_for_run_dir(",
+            "def _codex_attach_command(",
+            "def _codex_resume_command(",
+            "def _update_manifest_session_metadata(",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()
