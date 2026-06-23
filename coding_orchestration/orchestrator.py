@@ -31,6 +31,7 @@ from .orchestrator_project_facade import OrchestratorProjectFacadeMixin
 from .orchestrator_task_runtime_facade import OrchestratorTaskRuntimeFacadeMixin
 from .orchestrator_task_source_facade import OrchestratorTaskSourceFacadeMixin
 from .orchestrator_tool_facade import OrchestratorToolFacadeMixin
+from .orchestrator_workspace_facade import OrchestratorWorkspaceFacadeMixin
 from .models import (
     AgentRunStatus,
     ArtifactSet,
@@ -92,7 +93,6 @@ from .runners.base import RunResult
 from .runners.codex_report_schema import write_report_schema
 from .symphony_compat.workflow_loader import WorkflowLoader, WorkflowSpec
 from .symphony_compat.workspace_manager import WorkspaceManager
-from . import workspace_checkpoint_service
 from .workspace_checkpoint_service import WorkspaceCheckpointService
 
 @dataclass
@@ -104,6 +104,7 @@ class CodingOrchestrator(
     OrchestratorProjectFacadeMixin,
     OrchestratorTaskSourceFacadeMixin,
     OrchestratorTaskRuntimeFacadeMixin,
+    OrchestratorWorkspaceFacadeMixin,
 ):
     ledger: TaskLedger
     resolver: ProjectResolver
@@ -709,40 +710,6 @@ class CodingOrchestrator(
             notes=loaded.notes,
         )
 
-    def _implementation_workspace(self, task: dict[str, Any], project_path: Path, run_id: str) -> Path:
-        return self.workspace_checkpoint_service.implementation_workspace(task, project_path, run_id)
-
-    def _merge_test_workspace(self, task: dict[str, Any]) -> Path | None:
-        return self.workspace_checkpoint_service.merge_test_workspace(task)
-
-    @staticmethod
-    def _collect_qa_artifacts(workspace_path: Path | None) -> dict[str, str]:
-        return workspace_checkpoint_service.collect_qa_artifacts(workspace_path)
-
-    @staticmethod
-    def _prepare_qa_checkpoint(workspace_path: Path | None, task_id: str) -> dict[str, str]:
-        return workspace_checkpoint_service.prepare_qa_checkpoint(workspace_path, task_id)
-
-    @staticmethod
-    def _prepare_merge_test_checkpoint(workspace_path: Path | None, task_id: str) -> dict[str, str]:
-        return workspace_checkpoint_service.prepare_merge_test_checkpoint(workspace_path, task_id)
-
-    @staticmethod
-    def _workspace_has_uncommitted_changes(workspace_path: Path | None) -> bool:
-        return workspace_checkpoint_service.workspace_has_uncommitted_changes(workspace_path)
-
-    @staticmethod
-    def _workspace_clean_checkpoint(workspace_path: Path | None) -> dict[str, str]:
-        return workspace_checkpoint_service.workspace_clean_checkpoint(workspace_path)
-
-    @staticmethod
-    def _git_head(workspace_path: Path | None) -> str:
-        return workspace_checkpoint_service.git_head(workspace_path)
-
-    @staticmethod
-    def _source_branch_for_task(task: dict[str, Any], project_name: str) -> str:
-        return workspace_checkpoint_service.source_branch_for_task(task, project_name)
-
     @staticmethod
     def _plan_report_session_fields(report: dict[str, Any]) -> dict[str, Any]:
         return run_orchestration_service.build_plan_report_session_fields(report)
@@ -750,22 +717,6 @@ class CodingOrchestrator(
     @staticmethod
     def _latest_execution_policy_decision(task: dict[str, Any]) -> dict[str, Any]:
         return run_orchestration_service.latest_execution_policy_decision(task)
-
-    @staticmethod
-    def _source_base_branch_for_task(task: dict[str, Any]) -> str:
-        return workspace_checkpoint_service.source_base_branch_for_task(task)
-
-    @staticmethod
-    def _task_short_id(task_id: str) -> str:
-        return workspace_checkpoint_service.task_short_id(task_id)
-
-    @staticmethod
-    def _slugify_ascii(text: str) -> str:
-        return workspace_checkpoint_service.slugify_ascii(text)
-
-    @staticmethod
-    def _latest_existing_implementation_workspace(task: dict[str, Any]) -> Path | None:
-        return workspace_checkpoint_service.latest_existing_implementation_workspace(task)
 
     def _merge_test_blocker(self, task: dict[str, Any]) -> str:
         task_id = str(task.get("task_id") or "")

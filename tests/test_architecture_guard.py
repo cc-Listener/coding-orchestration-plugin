@@ -377,6 +377,28 @@ class ArchitectureGuardTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
+    def test_orchestrator_does_not_keep_workspace_facade_methods(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def _implementation_workspace(",
+            "def _merge_test_workspace(",
+            "def _collect_qa_artifacts(",
+            "def _prepare_qa_checkpoint(",
+            "def _prepare_merge_test_checkpoint(",
+            "def _workspace_has_uncommitted_changes(",
+            "def _workspace_clean_checkpoint(",
+            "def _git_head(",
+            "def _source_branch_for_task(",
+            "def _source_base_branch_for_task(",
+            "def _task_short_id(",
+            "def _slugify_ascii(",
+            "def _latest_existing_implementation_workspace(",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()
