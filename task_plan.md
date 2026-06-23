@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 292：Runner router 子包治理（complete）
+阶段 293：Config contract 子包治理（complete）
 
 ## 各阶段
+
+### 阶段 293：Config contract 子包治理
+- [x] 定域：只收拢 `config.py` 到 `coding_orchestration/config/runtime.py`，通过 `coding_orchestration/config/__init__.py` 保留 `RuntimeConfig` / `ToolConfig` 稳定导出；保持默认运行根、工具命令、飞书域名和 MCP token env key 合同行为不变；不迁安装脚本、Hermes runtime adapter、Project MCP adapter、runner/workspace/git 或 run lifecycle。
+- [x] TDD：扩展模块布局架构测试，要求 config contract 不再散落在 `coding_orchestration/` 包根，并运行既有 config contract 测试。
+- [x] RED：确认新增 focused test 在当前包根文件存在时失败。
+- [x] 实现：移动模块并更新文档路径。
+- [x] 验证：运行 focused GREEN、config/docs 相邻回归、py_compile、YAML、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步进度、发现、技术方案、项目地图、组件合同、约定、machine-readable context 和治理计划。
+- **状态：** complete
 
 ### 阶段 292：Runner router 子包治理
 - [x] 定域：只收拢 `runner_router.py` 到 `coding_orchestration/runners/router.py`，保持默认 runner 构造、`RunnerUnavailable`、`RunnerRouter.select_runner()`、Hermes runtime 注入和 Codex backend decision 接线行为不变；不迁 runner implementations、Codex command/process/report、Hermes runtime adapter、auth 检测、workspace/git 或 run lifecycle。

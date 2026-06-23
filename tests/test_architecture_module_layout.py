@@ -149,6 +149,13 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
         self.assertFalse((package_root / "runner_router.py").exists())
         self.assertTrue((package_root / "runners" / "router.py").is_file())
 
+    def test_config_contract_lives_in_config_package(self):
+        package_root = REPO_ROOT / "coding_orchestration"
+
+        self.assertFalse((package_root / "config.py").exists())
+        self.assertTrue((package_root / "config" / "__init__.py").is_file())
+        self.assertTrue((package_root / "config" / "runtime.py").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

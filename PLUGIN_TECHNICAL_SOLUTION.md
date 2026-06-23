@@ -372,7 +372,7 @@ coding_orchestration plugin
 | 阶段范围 | 主责 | 协作 | 长期沉淀 |
 | --- | --- | --- | --- |
 | 0-1 现状与合同 | 架构治理 | 文档合同、测试治理、模块维护者 | 设计文档、实施计划、组件合同、风险清单 |
-| 2-4 配置 / 工具 / 端口 | Config / Tool / Port contract | Hermes host adapter、MCP adapter、application service | `RuntimeConfig`、`ToolSpec`、`ports.py` 和 contract tests |
+| 2-4 配置 / 工具 / 端口 | Config / Tool / Port contract | Hermes host adapter、MCP adapter、application service | `RuntimeConfig`、`coding_orchestration/config/runtime.py`、`ToolSpec`、`ports.py` 和 contract tests |
 | 5-9 用例服务 | Application service | Ledger adapter、Source adapter、Runner adapter、Presenter | `TaskService`、`RunService`、`DeliveryService`、`WorkItemService` 和 domain policy |
 | 10-13 Adapter 与资产 | Prompt / Runner / Storage / Source adapter | Application service、Report policy、Knowledge adapter | prompt 模板、runner 子模块、storage repository、`SourceResult` |
 | 14 Skill 分层 | Skill contract | Hermes binding、Tool contract | host-agnostic core skill 和 Hermes binding skill |
@@ -445,6 +445,8 @@ coding_orchestration plugin
 阶段 291 目录治理事实：Hermes CLI registration 已收拢到 `coding_orchestration/cli/registration.py`，并通过 `coding_orchestration/cli/__init__.py` 保留稳定导出；该模块只承接 Hermes CLI 子命令注册、tool-equivalent dispatcher fast path、Project MCP preflight host config gate 和 legacy `register_cli_command` fallback，不迁普通 `/coding` command façade、diagnostics executor、Gateway route、ToolSpec/dispatcher 纯合同、runner/workspace/git 或 run lifecycle。
 
 阶段 292 目录治理事实：Runner router 已收拢到 `coding_orchestration/runners/router.py`，并通过 `coding_orchestration/runners/__init__.py` 暴露 `RunnerRouter` / `RunnerUnavailable`；该模块只承接默认 runner 构造、runner capability 选择、Hermes runtime 注入和 Codex backend decision 接线，不迁 runner implementations、Codex command/process/report、Hermes runtime adapter、auth 检测、workspace/git 或 run lifecycle。
+
+阶段 293 目录治理事实：Config contract 已收拢到 `coding_orchestration/config/runtime.py`，并通过 `coding_orchestration/config/__init__.py` 保留 `RuntimeConfig` / `ToolConfig` 稳定导出；该模块只承接默认运行根、工具命令、飞书域名和 MCP token env key 默认值，不迁安装脚本、Hermes runtime adapter、Project MCP adapter、runner/workspace/git 或 run lifecycle。
 
 阶段 286 目录治理事实：policy/guard helper 已收拢到 `coding_orchestration/policies/`，包括 `diff_guard.py` 和 `execution_policy.py`；该包当时只承接 diff boundary audit 和 execution policy 归一化，status/report policy 已在阶段 288 继续收拢，状态机、run diff guard host service、RunService timeout、runner/workspace/git 和 run lifecycle 仍按各自边界维护。
 

@@ -48,7 +48,7 @@
 | Hermes CLI 子命令 | `from coding_orchestration.cli import register_cli` | `coding_orchestration/cli/registration.py` | `coding_orchestration/cli/__init__.py`、`coding_orchestration/cli/registration.py` | `register_cli` |
 | 测试治理 | 按行为域选择 `tests/test_*`；不要从生产代码 import 测试 helper | `tests/` | `tests/test_orchestrator_run_flow.py` 只保留 smoke/transition/sandbox；旧私有 helper 断言迁到 service/policy/presenter/adapter contract tests；旧文件形态清理由 `tests/test_architecture_guard.py` 锁定；包根模块族目录归位由 `tests/test_architecture_module_layout.py` 维护；主 guard 测试增长缓冲由 `tests/test_architecture_guard_test_governance.py` 维护 | Test governance |
 | 发布 readiness gate | `rtk proxy python3 scripts/release_readiness.py` | `scripts/release_readiness.py` | 执行完整单测、architecture guard、`git diff --check`、敏感扫描和最小 Hermes smoke；本机未运行 Hermes 时允许显式 `--skip-hermes-smoke`，正式发布前补跑 smoke | `build_release_readiness_steps`、`run_release_readiness` |
-| 运行配置边界 | `from coding_orchestration.config import RuntimeConfig, ToolConfig` | `coding_orchestration/config.py` | `coding_orchestration/config.py` | `RuntimeConfig`、`ToolConfig` |
+| 运行配置边界 | `from coding_orchestration.config import RuntimeConfig, ToolConfig` | `coding_orchestration/config/` | `coding_orchestration/config/runtime.py`、`coding_orchestration/config/__init__.py` | `RuntimeConfig`、`ToolConfig` |
 | 工具规格合同 | `from coding_orchestration.tools.tool_specs import coding_tool_specs` | `coding_orchestration/tools/tool_specs.py` | `coding_orchestration/tools/tool_specs.py`、`tools/plugin_tools.py` | `ToolSpec`、`coding_tool_specs` |
 | 工具 operation dispatcher | `from coding_orchestration.tools.tool_operation_dispatcher import ToolOperationDispatcher` | `coding_orchestration/tools/tool_operation_dispatcher.py` | `tools/tool_operation_dispatcher.py`、`orchestrator_facades/orchestrator_tool_facade.py`、`tools/plugin_tools.py`、`cli/registration.py`；Gateway `/coding project-mcp-preflight` diagnostic leaf 复用同一 operation 边界 | `ToolOperationDispatcher` |
 | 端口合同 | `from coding_orchestration.ports import RunnerPort, WorkItemPort, SourceResult` | `coding_orchestration/ports.py` | `coding_orchestration/ports.py` | `HostPort`、`RunnerPort`、`SourcePort`、`SourceResult`、`WorkItemPort`、`LedgerPort` |
@@ -145,7 +145,7 @@
 | `coding-operator-core`、`coding-health-core` | `coding_orchestration/skills/` |
 | `hermes-coding-operator`、`hermes-coding-health-check` | `coding_orchestration/skills/`、`coding_orchestration/__init__.py` |
 | `pre_gateway_dispatch`、`pre_llm_call` | `coding_orchestration/__init__.py`、`coding_orchestration/orchestrator.py` |
-| `RuntimeConfig`、`ToolConfig` | `coding_orchestration/config.py` |
+| `RuntimeConfig`、`ToolConfig` | `coding_orchestration/config/runtime.py`、`coding_orchestration/config/__init__.py` |
 | `ToolSpec`、`coding_tool_specs`、`ToolOperationDispatcher` | `coding_orchestration/tools/tool_specs.py`、`coding_orchestration/tools/tool_operation_dispatcher.py`、`coding_orchestration/tools/plugin_tools.py` |
 | `DiffGuard`、`ExecutionPolicy`、`control_policy_for_mode` | `coding_orchestration/policies/diff_guard.py`、`coding_orchestration/policies/execution_policy.py` |
 | `CodexReuseStrategy`、`CodexBackendDecision` | `coding_orchestration/runners/codex_reuse.py`、`coding_orchestration/runners/router.py` |

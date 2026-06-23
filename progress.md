@@ -4,6 +4,37 @@
 
 ## 会话：2026-06-23
 
+### 阶段 293：Config contract 子包治理
+- **状态：** complete
+- 背景：
+  - `config.py` 维护 `RuntimeConfig` / `ToolConfig`，属于配置合同边界，不应继续散落在 `coding_orchestration/` 包根。
+  - 本切片只收拢默认运行根、工具命令、飞书域名和 MCP token env key 默认值；安装脚本、Hermes runtime adapter、Project MCP adapter、runner/workspace/git 和 run lifecycle 不属于本切片。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求包根不再保留 `config.py`，并要求 `coding_orchestration/config/__init__.py` 与 `coding_orchestration/config/runtime.py` 存在。
+  - RED 已确认：focused layout test 先失败，失败点为包根旧文件 `config.py` 仍存在。
+  - 将配置合同移入 `coding_orchestration/config/runtime.py`，新增 `coding_orchestration/config/__init__.py` 保留 `RuntimeConfig` / `ToolConfig` 稳定导出。
+  - 更新技术方案、项目地图、组件合同、约定和 machine-readable context 中的 canonical path。
+- 当前边界：
+  - `coding_orchestration/config/runtime.py`：只做 `RuntimeConfig` / `ToolConfig` 默认值合同。
+  - `coding_orchestration/config/__init__.py`：只做稳定导出，不承载业务逻辑。
+  - 安装脚本、Hermes runtime adapter、Project MCP adapter、runner/workspace/git 和 run lifecycle 均未迁移。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为包根旧文件 `config.py`。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout tests.test_config_contract tests.test_docs_and_install_entry -v`：22 tests passed。
+  - 编译检查：`rtk python3 -m compileall coding_orchestration tests`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed，输出 `yaml ok`。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 999 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 过程问题：
+  - 一次 `rtk rg` 检查旧路径时 pattern 中反引号未转义，zsh 将 `config.py` 当作命令替换并输出 `command not found`；改用单引号包裹 pattern 后重新检查，旧路径仅剩历史记录、当前阶段说明和红测断言中的预期引用。
+- 当前包根：
+  - `coding_orchestration/` 包根 `.py` 数量：6（不含 `__init__.py`）。
+  - 包根 `.py` 总行数：1760。
+  - 剩余包根文件：`ledger.py`、`models.py`、`orchestrator.py`、`ports.py`、`run_orchestration_service.py`、`state_machine.py`。
+- 剩余风险：
+  - 剩余包根文件均是公共合同、兼容 façade、ledger façade 或 run orchestration owner 区域；下一步如继续包根治理，应优先评估 `run_orchestration_service.py` 可按 projection/service 继续拆分的余量，`models.py`、`ports.py`、`state_machine.py` 和 `ledger.py` 需要更宽兼容策略。
+
 ### 阶段 292：Runner router 子包治理
 - **状态：** complete
 - 背景：

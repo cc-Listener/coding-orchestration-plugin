@@ -63,6 +63,7 @@ project_map:
     cli_registration: coding_orchestration/cli/registration.py
     tool_registration: coding_orchestration/tools/plugin_tools.py
     tool_operation_dispatcher: coding_orchestration/tools/tool_operation_dispatcher.py
+    config_contract: coding_orchestration/config/runtime.py
     plugin_manifest: coding_orchestration/plugin.yaml
     install_script: scripts/install_symlink.py
     uninstall_script: scripts/uninstall_legacy.py
@@ -299,6 +300,10 @@ component_contract:
     - name: run_orchestration_helper
       path: coding_orchestration/run_orchestration_service.py
       preferred: true
+    - name: config_contract
+      path: coding_orchestration/config/runtime.py
+      preferred: true
+      note: "RuntimeConfig / ToolConfig owner；通过 coding_orchestration/config/__init__.py 保留稳定导出，只承接默认运行根、工具命令、飞书域名和 MCP token env key，不迁安装脚本、Hermes runtime adapter、Project MCP adapter、runner/workspace/git 或 run lifecycle。"
     - name: run_project_writeback_service
       path: coding_orchestration/run/services/run_project_writeback_service.py
       preferred: true

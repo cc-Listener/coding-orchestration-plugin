@@ -48,7 +48,7 @@
 | `coding_orchestration/services/merge_test_readiness_service.py` | Merge-test readiness 纯评估 service：基于 blocked task、implementation run、workspace/source branch、Codex session 和 structured report 判断是否可风险放行 merge-test；只返回评估 dict，不写 ledger、不推进状态、不触发 runner、不发送 Gateway 回复。 |
 | `coding_orchestration/project/project_profile_catalog.py` | Project profile catalog：读取 LLM Wiki project profile、合并 registry fallback、查找 name/alias/project/path basename、计算动态来源数量并格式化 project list/status；不写 profile、不绑定 active project、不发送 Gateway 回复。 |
 | `coding_orchestration/commands/project/project_command_executor.py` | Project command executor host shell：维护 `/coding project list/init/use/status/clear` 命令模式提示和 Gateway immediate project context 分支，调用 host 提供的项目路径解析、profile upsert、active project binding 与 project list/status formatter；不拥有 Gateway route、不创建任务、不启动 runner、不推进状态、不实现 project profile catalog 纯规则。 |
-| `coding_orchestration/config.py` | 运行配置和工具默认值边界；用于逐步收口路径、命令、域名和 env key hard code。 |
+| `coding_orchestration/config/runtime.py` | 运行配置和工具默认值边界；通过 `coding_orchestration.config` 保留 `RuntimeConfig` / `ToolConfig` 稳定导出，用于逐步收口路径、命令、域名和 env key hard code。 |
 | `coding_orchestration/policies/diff_guard.py` | Diff 边界审计策略 helper：维护 snapshot、changed files、allowed/forbidden path violations 和 diff summary 写回；不承载 run diff guard host orchestration、workspace/git checkpoint、runner 或状态推进。 |
 | `coding_orchestration/policies/execution_policy.py` | Execution policy 归一化 helper：把 Codex plan decision 归一成 `ExecutionPolicy`，提供缺省策略；不读取 artifact、不选择 runner、不推进状态。 |
 | `coding_orchestration/policies/status_policy.py` | 运行状态详情策略：report 状态归一化、known gaps、runner_failed、implementation_not_landed 和 verification limitations 判定；不承载状态机、RunService、runner/workspace/git 或 run lifecycle。 |
@@ -194,7 +194,7 @@ Feishu / Hermes Gateway
 | `coding_orchestration/run/projections/run_summary_projection.py` | run summary writer payload 边界；只允许构造 completed run 与 active run reconcile 的 LLM Wiki run summary 写回参数，不得读取 summary artifact、调用 summary writer、写 LLM Wiki、写 ledger 或推进状态。 |
 | `coding_orchestration/run/artifacts/run_artifact_paths.py` | run artifact path projection 边界；只允许构造 fresh run_dir 和 existing run record 的 `ArtifactSet` 路径合同，不得读写 artifact 文件、创建目录、调用 ledger、启动 runner 或推进状态。 |
 | `coding_orchestration/run/services/run_project_writeback_service.py` | run project writeback host 边界；只允许处理 stale completion gate、调用 project writeback payload projection 和注入的 writeback callback，不得直接 import WorkItemService/MCP adapter、写 ledger/artifact、启动 runner 或推进状态。 |
-| `coding_orchestration/config.py`、`tools/tool_specs.py`、`ports.py` | 新解耦合同层，改动会影响后续服务/adapter 拆分方向，需保持 host-agnostic。 |
+| `coding_orchestration/config/runtime.py`、`tools/tool_specs.py`、`ports.py` | 新解耦合同层，改动会影响后续服务/adapter 拆分方向，需保持 host-agnostic。 |
 | `coding_orchestration/services/task_service.py`、`services/task_utils.py` | 任务创建、来源索引和状态 payload 用例层；改动需配套 `tests/test_task_service.py` 和 orchestrator 主流程回归。 |
 | `coding_orchestration/services/run_service.py` | 运行策略和结果映射用例层；改动需配套 `tests/test_run_service.py`、`tests/test_plan_run_flow.py`、`tests/test_command_run_flow.py`、`tests/test_status_reconcile_flow.py` 和 runner 回归。 |
 | `coding_orchestration/services/delivery_service.py`、`coding_orchestration/commands/delivery/delivery_command_executor.py` | 父级需求交付拆解纯规则与 command host shell；改动需配套 `tests/test_delivery_service.py`、`tests/test_delivery_command_executor.py` 和 requirement delivery 主流程回归。 |
