@@ -1,8 +1,8 @@
 import unittest
 from dataclasses import dataclass
 
-from coding_orchestration import source_context_repair_service
 from coding_orchestration.models import TaskPhase, TaskStatus
+from coding_orchestration.source import source_context_repair_service
 
 
 @dataclass

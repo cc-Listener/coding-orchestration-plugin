@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 273：Meegle reader adapter 子包治理（complete）
+阶段 274：Source context repair service 子包治理（complete）
 
 ## 各阶段
+
+### 阶段 274：Source context repair service 子包治理
+- [x] 定域：只收拢 `source_context_repair_service.py` 到 `coding_orchestration/source/`，保持 source context 读取、deferred source pre-run enrichment、既有 task context 修复、source summary 回写和项目上下文回填接线语义不变；不迁 `source_resolver.py`、reader、ledger schema、runner/workspace/git 或 run lifecycle。
+- [x] TDD：扩展模块布局架构测试，要求 source context repair service 不再散落在 `coding_orchestration/` 包根。
+- [x] RED：确认新增 focused test 在当前包根文件存在时失败。
+- [x] 实现：移动模块并更新 import / 文档路径。
+- [x] 验证：运行 focused GREEN、source context repair 相邻回归、py_compile、YAML、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步进度、发现、技术方案、项目地图、组件合同、约定、machine-readable context 和治理计划。
+- **状态：** complete
 
 ### 阶段 273：Meegle reader adapter 子包治理
 - [x] 定域：只收拢 `meegle_reader.py` 到 `coding_orchestration/source/adapters/`，保持 Meegle/飞书 Project work item reader gateway/CLI fallback、payload 归一化和 deferred recovery 语义不变；不迁 `source_resolver.py`、`source_context_repair_service.py`、Feishu reader、ledger schema、runner/workspace/git 或 run lifecycle。

@@ -214,7 +214,7 @@ class DocsAndInstallEntryTest(unittest.TestCase):
             "source/source_projection.py",
             "TaskService",
             "run_manifest_service",
-            "source_context_repair_service.py",
+            "source/source_context_repair_service.py",
         ):
             with self.subTest(expected=expected):
                 self.assertIn(expected, task_31_line)

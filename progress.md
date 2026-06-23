@@ -4,6 +4,33 @@
 
 ## 会话：2026-06-23
 
+### 阶段 274：Source context repair service 子包治理
+- **状态：** complete
+- 背景：
+  - `source_context_repair_service.py` 维护 source context 读取、deferred source pre-run enrichment、既有 task context 修复、source summary 回写和项目上下文回填接线。
+  - 该模块属于 source host service 边界，不应继续散落在 `coding_orchestration/` 包根，也不应回流到 orchestrator façade 或 source resolver。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 `source_context_repair_service.py` 位于 `coding_orchestration/source/`。
+  - RED 已确认：focused test 先失败，失败点为包根仍存在 `source_context_repair_service.py`。
+  - 将 `coding_orchestration/source_context_repair_service.py` 移动到 `coding_orchestration/source/source_context_repair_service.py`。
+  - 更新 task/source façade 和 source context repair 测试 import 到新包路径。
+  - 同步项目地图、组件合同、约定、machine-readable context、技术方案、发现和目录治理计划。
+- 当前边界：
+  - `coding_orchestration/source/source_context_repair_service.py`：source context 读取、deferred source pre-run enrichment、既有 task context 修复、source summary 回写和项目上下文回填接线。
+  - 本切片未迁 `source_resolver.py`、reader、ledger schema、runner/workspace/git 或 run lifecycle。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为 `source_context_repair_service.py` 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Source context repair 相邻回归：`rtk python3 -m unittest tests.test_source_context_repair_service tests.test_source_flow tests.test_source_plan_flow tests.test_source_projection tests.test_task_service tests.test_gateway_project_task_flow tests.test_run_manifest_service tests.test_orchestrator_tools -v`：73 tests passed。
+  - 文档合同回归：`rtk python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_module_layout -v`：17 tests passed。
+  - 编译检查：`rtk python3 -m py_compile ...`：passed。
+  - YAML 解析：`rtk python3 -c "import yaml; yaml.safe_load(open('contracts/project-context.yaml', encoding='utf-8')); print('yaml ok')"`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - Source 域包根仍保留 `source_resolver.py`；这是公开入口和多 adapter 编排 owner，后续需要单独评估是否迁移或保留 façade。
+
 ### 阶段 273：Meegle reader adapter 子包治理
 - **状态：** complete
 - 背景：
