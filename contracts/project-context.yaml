@@ -133,6 +133,8 @@ project_map:
       reason: "Gateway coding mode host shell，维护 coding mode enter/exit、pending rewrite 确认/取消、高置信度 rewrite direct execute、低置信度 handoff、rewrite context 装配、gateway_rewrite_presenter.py direct 文案调用和 presenters/task_list_presenter.py direct task label 调用；不拥有 Gateway route/controller、pending action executor、task 创建实现、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_commands/coding_diagnostics_command_executor.py
       reason: "Coding diagnostics command executor host shell，维护 doctor / lark-preflight / project-mcp-preflight / source-resolve command-mode dispatch、Project MCP config/stdio readiness gate、Hermes runtime availability probe、Gateway immediate diagnostic 分支和 presenters/doctor_presenter.py direct 文案调用；不拥有 Gateway route、不实现 CLI direct dispatcher、不迁普通 status/list presentation、不触碰 runner/workspace/git 或 run lifecycle。"
+    - path: coding_orchestration/integrations/hermes/hermes_runtime.py
+      reason: "Hermes runtime integration adapter，维护 Hermes terminal background dispatch 和 dispatch start result 归一；不拥有 runner 选择、Codex command 构造、report 读取或 run lifecycle。"
     - path: coding_orchestration/coding_commands/coding_task_list_command_executor.py
       reason: "Coding task list command executor host shell，维护普通 /coding list 与 Gateway list immediate 的 active status 查询、active task 标记、空列表文案和会话切换提示；不实现 task list presenter、Gateway route、CLI direct dispatcher、status reconcile、delivery/project/diagnostics、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_commands/coding_status_command_executor.py
@@ -657,6 +659,10 @@ component_contract:
       path: coding_orchestration/coding_commands/coding_diagnostics_command_executor.py
       use_instead_of:
         - "在 orchestrator 中继续新增 doctor / lark-preflight / project-mcp-preflight / source-resolve command-level diagnostic host shell、Project MCP config/stdio readiness gate、Hermes runtime availability probe、Gateway immediate diagnostic 分支或 `_doctor_*` presenter 私有代理。"
+    - name: hermes_runtime
+      path: coding_orchestration/integrations/hermes/hermes_runtime.py
+      use_instead_of:
+        - "在包根继续新增或恢复 Hermes terminal runtime adapter。"
     - name: coding_task_list_command_executor
       path: coding_orchestration/coding_commands/coding_task_list_command_executor.py
       use_instead_of:

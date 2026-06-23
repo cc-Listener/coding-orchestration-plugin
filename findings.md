@@ -425,6 +425,7 @@
 - Architecture guard 测试治理确认：模块族目录归位守卫已从 `tests/test_architecture_guard.py` 拆到 `tests/test_architecture_module_layout.py`，主 guard 测试降到 548 行；新增 `tests/test_architecture_guard_test_governance.py` 锁定主文件低于 580 行，后续新增目录表项应优先落在 module layout 测试文件，不再把主 guard 文件推回 600 行临界线。
 - Run background orchestration service 子包治理确认：`run_background_orchestration.py` 适合收拢到 `coding_orchestration/run/services/`；该模块仍只处理后台 queued/running 等待完成、后台启动失败状态收敛和 merge-test `human_required` pending action，不迁后台 run mode-specific 启动、通知 sender、runner/workspace/git、`start_run()` 或 run lifecycle 主体。
 - Run summary writer knowledge integration 子包治理确认：`RunSummaryWriter` 适合先收拢到 `coding_orchestration/integrations/knowledge/`，因为它只委托 `KnowledgePort.write_run_summary()`，不拥有 run summary payload projection、LLM Wiki 文档拼接、artifact、ledger 或状态推进；`knowledge_adapter.py` / `llm_wiki_adapter.py` 引用面更大，应后续独立切片迁移。
+- Hermes runtime integration 子包治理确认：`HermesRuntime` 适合收拢到 `coding_orchestration/integrations/hermes/`，因为它只包装 Hermes terminal background dispatch 和 dispatch start result；runner 选择、Codex command 构造、report 读取、bootstrap 注入和 run lifecycle 仍留在既有 owner。
 
 ## 视觉/浏览器发现
 - 本轮没有新增浏览器或图片验证。

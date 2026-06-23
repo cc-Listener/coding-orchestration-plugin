@@ -4,6 +4,35 @@
 
 ## 会话：2026-06-23
 
+### 阶段 267：Hermes runtime integration 子包治理
+- **状态：** complete
+- 背景：
+  - `HermesRuntime` 是 Hermes terminal dispatch runtime adapter，负责把 Codex command 包装为 Hermes terminal background run，并识别 dispatch error / `ok=false`。
+  - 该职责属于 Hermes integration 边界，不应继续散落在 `coding_orchestration/` 包根；runner 选择、Codex command 构造和 bootstrap façade 接线保持原边界。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 `hermes_runtime.py` 位于 `coding_orchestration/integrations/hermes/`。
+  - RED 已确认：focused test 先失败，失败点为包根仍存在 `hermes_runtime.py`。
+  - 新增 `coding_orchestration/integrations/hermes/__init__.py`。
+  - 将 `HermesRuntime` 移动到 `coding_orchestration/integrations/hermes/hermes_runtime.py`。
+  - 更新 `orchestrator_bootstrap_facade.py` 和 `tests/test_hermes_runtime_runner.py` 的 import 到新包路径。
+  - 同步项目地图、组件合同、约定、machine-readable context、技术方案、发现和目录治理计划。
+- 当前边界：
+  - `coding_orchestration/integrations/hermes/hermes_runtime.py`：Hermes terminal dispatch runtime adapter。
+  - `coding_orchestration/runner_router.py` / `coding_orchestration/runners/`：runner 选择和 Codex command/process/report 实现。
+  - `coding_orchestration/orchestrator_facades/orchestrator_bootstrap_facade.py`：把 Hermes runtime 注入 runner router / runners 的 host bootstrap 接线。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为 `['hermes_runtime.py']` 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Hermes runtime / runner 相邻回归：`rtk python3 -m unittest tests.test_hermes_runtime_runner tests.test_codex_reuse tests.test_coding_diagnostics_command_executor -v`：17 tests passed。
+  - 相邻回归：`rtk python3 -m unittest tests.test_architecture_module_layout tests.test_hermes_runtime_runner tests.test_codex_reuse tests.test_coding_diagnostics_command_executor tests.test_orchestrator_run_flow -v`：21 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/orchestrator_facades/orchestrator_bootstrap_facade.py coding_orchestration/integrations/hermes/__init__.py coding_orchestration/integrations/hermes/hermes_runtime.py tests/test_architecture_module_layout.py tests/test_hermes_runtime_runner.py`：passed。
+  - YAML 解析：`rtk python3 -c "import yaml; yaml.safe_load(open('contracts/project-context.yaml', encoding='utf-8')); print('yaml ok')"`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 本阶段不迁 `kanban_bridge.py`、`kanban_sync_service.py`、`install.py`、`knowledge_adapter.py` 或 `llm_wiki_adapter.py`；后续 integration 包治理继续按引用面拆分独立切片。
+
 ### 阶段 266：Run summary writer knowledge integration 子包治理
 - **状态：** complete
 - 背景：

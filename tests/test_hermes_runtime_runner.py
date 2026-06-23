@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.hermes_runtime import HermesRuntime
+from coding_orchestration.integrations.hermes.hermes_runtime import HermesRuntime
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskPhase, TaskStatus

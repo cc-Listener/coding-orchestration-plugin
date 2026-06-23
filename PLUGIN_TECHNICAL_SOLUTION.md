@@ -446,6 +446,8 @@ coding_orchestration plugin
 
 阶段 266 目录治理事实：`coding_orchestration/integrations/knowledge/` 已开始收拢 knowledge integration 边界，首片迁入 `RunSummaryWriter` 端口委托；该模块仍只调用注入的 `KnowledgePort.write_run_summary()`，不拼接 LLM Wiki 文档、不读取 run artifact、不写 ledger、不推进状态。`knowledge_adapter.py` 和 `llm_wiki_adapter.py` 留待后续独立切片。
 
+阶段 267 目录治理事实：`coding_orchestration/integrations/hermes/` 已开始收拢 Hermes integration 边界，首片迁入 `HermesRuntime`；该 adapter 只包装 Hermes terminal background dispatch 和 dispatch start result，不拥有 runner 选择、Codex command 构造、report 读取或 run lifecycle。
+
 Task 30 历史收口事实：`run/services/run_checkpoint_preparation_service.py` 已承接 QA / merge-test checkpoint preparation callback 选择、调用和 manifest update payload 构造；它只调用注入 callback 并返回 `manifest_updates`，不直接 mutate manifest、不写 artifact/ledger/report/summary、不启动 runner、不推进状态。mode 到 checkpoint kind/target branch 选择仍归 `run_start_selection_projection.py`，manifest 文件写入仍归 artifact service。
 
 Task 30 历史收口事实：`run/services/run_implementation_checkpoint_service.py` 已承接 implementation dirty 后置 checkpoint 生成和 manifest artifact writeback callback 接线；它只消费已计算好的 dirty flag，调用注入 checkpoint / manifest writer callback，不判断 dirty、不构造 blocked report、不写 ledger/report/summary、不启动 runner、不推进状态。dirty observation 仍归 `run/services/run_evidence_observation_service.py`，blocked report refinement 仍归 `run_report_refinement_projection.py`。
