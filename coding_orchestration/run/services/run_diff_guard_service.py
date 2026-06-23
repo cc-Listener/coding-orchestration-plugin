@@ -4,8 +4,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from ... import run_orchestration_service
 from ...models import RunMode
-from ... import run_orchestration_service, workspace_checkpoint_service
+from ...workspace import checkpoint_service as workspace_checkpoint_service
 
 
 @dataclass(frozen=True)

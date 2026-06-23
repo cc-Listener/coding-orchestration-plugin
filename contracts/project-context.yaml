@@ -93,6 +93,8 @@ project_map:
       reason: "Orchestrator task runtime façade mixin，维护 Kanban/status host wrapper、task list/status event wrapper、feedback active-task wrapper、active task/coding mode binding wrapper、task lifecycle wrapper、人工决策记录和 RunService gate wrapper；CodingOrchestrator 只继承 mixin 保留兼容方法名，不承载 handle_gateway_event、active run reconcile、runner/workspace/git、start_run 或 run lifecycle。"
     - path: coding_orchestration/orchestrator_facades/orchestrator_workspace_facade.py
       reason: "Orchestrator workspace façade mixin，维护 implementation/merge-test workspace 查找、QA artifact 收集、QA/merge-test checkpoint 准备、dirty/head/clean checkpoint 观测、source branch/base branch 投影、task short id/slug 和 latest existing implementation workspace wrapper；CodingOrchestrator 只继承 mixin 保留兼容方法名，不承载 workspace/git/checkpoint 核心实现、handle_gateway_event、active run reconcile、runner 调度、start_run 或 run lifecycle。"
+    - path: coding_orchestration/workspace/checkpoint_service.py
+      reason: "Workspace checkpoint service，维护 implementation workspace 复用/创建、source branch/base branch、QA artifact 收集、clean-tree checkpoint、git HEAD 和 diff guard QA artifact 过滤；不承载 WorkspaceManager、runner 调度、状态推进、risk decision 或 run lifecycle。"
     - path: coding_orchestration/orchestrator_facades/orchestrator_background_facade.py
       reason: "Orchestrator background façade mixin，维护后台 plan/implementation/QA/merge-test 启动与通知 wrapper、completion wait/failed/pending-action/notification wrapper、sender scheduling/reply wrapper 和 execution policy artifact wrapper；CodingOrchestrator 只继承 mixin 保留兼容方法名，不承载后台 executor/notifier/orchestration 核心实现、handle_gateway_event、active run reconcile、runner 调度、start_run 或 run lifecycle。"
     - path: coding_orchestration/orchestrator_facades/orchestrator_status_policy_facade.py
@@ -334,6 +336,10 @@ component_contract:
     - name: run_implementation_checkpoint_service
       path: coding_orchestration/run/services/run_implementation_checkpoint_service.py
       preferred: true
+    - name: workspace_checkpoint_service
+      path: coding_orchestration/workspace/checkpoint_service.py
+      preferred: true
+      note: "WorkspaceCheckpointService owner；只维护 implementation workspace 复用/创建、source branch/base branch、QA artifact 收集、clean-tree checkpoint、git HEAD 和 diff guard QA artifact 过滤，不迁 WorkspaceManager、runner/workspace/git run lifecycle 或状态推进。"
     - name: run_manifest_session_writeback_service
       path: coding_orchestration/run/services/run_manifest_session_writeback_service.py
       preferred: true
@@ -677,6 +683,10 @@ component_contract:
       path: coding_orchestration/run/services/run_implementation_checkpoint_service.py
       use_instead_of:
         - "在 orchestrator 中继续新增 implementation dirty 后置 checkpoint 生成或 manifest artifact writeback callback 接线。"
+    - name: workspace_checkpoint_service
+      path: coding_orchestration/workspace/checkpoint_service.py
+      use_instead_of:
+        - "在 coding_orchestration/ 包根继续放置 workspace_checkpoint_service.py，或把 implementation workspace 复用/创建、source branch/base branch、QA artifact 收集、clean-tree checkpoint、git HEAD、diff guard QA artifact 过滤写回 orchestrator.py。"
     - name: run_manifest_session_writeback_service
       path: coding_orchestration/run/services/run_manifest_session_writeback_service.py
       use_instead_of:

@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 288：Status policy 子包治理（complete）
+阶段 289：Workspace checkpoint service 子包治理（complete）
 
 ## 各阶段
+
+### 阶段 289：Workspace checkpoint service 子包治理
+- [x] 定域：只收拢 `workspace_checkpoint_service.py` 到 `coding_orchestration/workspace/checkpoint_service.py`，保持 implementation workspace 复用/创建、source branch/base branch、QA artifact 收集、clean-tree checkpoint、git HEAD 和 diff guard QA artifact 过滤行为不变；不迁 `WorkspaceManager`、runner 调度、状态推进、risk decision、runner/workspace/git run lifecycle。
+- [x] TDD：扩展模块布局架构测试，要求 workspace checkpoint helper 不再散落在 `coding_orchestration/` 包根。
+- [x] RED：确认新增 focused test 在当前包根文件存在时失败。
+- [x] 实现：移动模块并更新 import / 文档路径。
+- [x] 验证：运行 focused GREEN、workspace checkpoint / implementation / QA / merge-test / run diff guard 相邻回归、py_compile、YAML、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步进度、发现、技术方案、项目地图、组件合同、约定、machine-readable context 和治理计划。
+- **状态：** complete
 
 ### 阶段 288：Status policy 子包治理
 - [x] 定域：只收拢 `status_policy.py` 到 `coding_orchestration/policies/`，保持 report 状态归一化、known gaps、runner_failed、implementation_not_landed 和 verification limitations 判定行为不变；不迁 `models.py`、`state_machine.py`、RunService、runner/workspace/git 或 run lifecycle。

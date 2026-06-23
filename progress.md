@@ -4,6 +4,36 @@
 
 ## 会话：2026-06-23
 
+### 阶段 289：Workspace checkpoint service 子包治理
+- **状态：** complete
+- 背景：
+  - `workspace_checkpoint_service.py` 维护 implementation workspace 复用/创建、source branch/base branch、QA artifact 收集、clean-tree checkpoint、git HEAD 和 diff guard QA artifact 过滤。
+  - 该职责属于 workspace/checkpoint run support 边界，不应继续散落在 `coding_orchestration/` 包根；`WorkspaceManager`、runner 调度、状态推进、risk decision 和 runner/workspace/git run lifecycle 继续留在既有 owner。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 workspace checkpoint helper 位于 `coding_orchestration/workspace/`。
+  - RED 已确认：focused layout test 先失败，失败点为 `workspace_checkpoint_service.py` 仍在包根。
+  - 新增 `coding_orchestration/workspace/__init__.py`，将 `workspace_checkpoint_service.py` 移入 `coding_orchestration/workspace/checkpoint_service.py`。
+  - 更新 workspace façade、bootstrap façade、run diff guard service、workspace checkpoint tests 和当前事实文档中的 import / canonical 路径。
+- 当前边界：
+  - `coding_orchestration/workspace/checkpoint_service.py`：只维护 `WorkspaceCheckpointService`、workspace reuse/merge-test lookup、source branch/base branch、QA artifact 收集、clean-tree checkpoint、git HEAD、uncommitted check 和 diff guard QA artifact 过滤。
+  - `coding_orchestration/orchestrator_facades/orchestrator_workspace_facade.py`：继续保留兼容 wrapper；不承载 workspace/git/checkpoint 核心实现。
+  - `coding_orchestration/symphony_compat/workspace_manager.py` 继续作为 `WorkspaceManager` owner，本切片没有迁 WorkspaceManager 实现、runner 调度、状态推进、risk decision 或 run lifecycle。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为包根旧文件。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Workspace/checkpoint 相邻回归：`rtk python3 -m unittest tests.test_workspace_checkpoint_service tests.test_implementation_workspace_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow tests.test_run_checkpoint_preparation_service tests.test_run_evidence_observation_service tests.test_run_diff_guard_service tests.test_command_run_flow tests.test_status_reconcile_flow -v`：72 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/workspace/__init__.py coding_orchestration/workspace/checkpoint_service.py coding_orchestration/orchestrator_facades/orchestrator_workspace_facade.py coding_orchestration/orchestrator_facades/orchestrator_bootstrap_facade.py coding_orchestration/run/services/run_diff_guard_service.py tests/test_workspace_checkpoint_service.py tests/test_architecture_module_layout.py`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed，输出 `yaml ok`。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 当前包根：
+  - `coding_orchestration/` 包根 `.py` 数量：10（不含 `__init__.py`）。
+  - 包根 `.py` 总行数：2089。
+  - 剩余包根文件：`cli.py`、`config.py`、`ledger.py`、`models.py`、`orchestrator.py`、`plugin_tools.py`、`ports.py`、`run_orchestration_service.py`、`runner_router.py`、`state_machine.py`。
+- 剩余风险：
+  - 剩余包根文件多为公共入口、核心模型/状态合同、ledger façade、runner/run orchestration owner 或配置/端口；后续应先判断哪些应保留为包入口，哪些可继续按 domain package 独立迁移，避免一次性迁 runner/workspace/git/run lifecycle。
+
 ### 阶段 288：Status policy 子包治理
 - **状态：** complete
 - 背景：

@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 
 from coding_orchestration.models import RunMode
-from coding_orchestration.workspace_checkpoint_service import (
+from coding_orchestration.workspace.checkpoint_service import (
     WorkspaceCheckpointService,
     collect_qa_artifacts,
     diff_guard_changed_files_for_mode,

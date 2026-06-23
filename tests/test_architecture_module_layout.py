@@ -125,6 +125,7 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ("execution_policy.py", "policies", "execution_policy.py"),
             ("status_policy.py", "policies", "status_policy.py"),
             ("codex_reuse.py", "runners", "codex_reuse.py"),
+            ("*checkpoint_service.py", "workspace", "checkpoint_service.py"),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):

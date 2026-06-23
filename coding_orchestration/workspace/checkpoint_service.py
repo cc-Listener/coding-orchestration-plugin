@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from .models import RunMode
+from ..models import RunMode
 
 
 SOURCE_BRANCH_SLUG_MAX_LENGTH = 64

@@ -446,6 +446,8 @@ coding_orchestration plugin
 
 阶段 288 目录治理事实：status policy 已收拢到 `coding_orchestration/policies/status_policy.py`；该模块只承接 report 状态归一化、known gaps、runner_failed、implementation_not_landed 和 verification limitations 判定，不迁 `models.py`、`state_machine.py`、RunService、runner/workspace/git 或 run lifecycle。
 
+阶段 289 目录治理事实：Workspace checkpoint service 已收拢到 `coding_orchestration/workspace/checkpoint_service.py`；该模块只承接 implementation workspace 复用/创建、source branch/base branch、QA artifact 收集、clean-tree checkpoint、git HEAD 和 diff guard QA artifact 过滤，不迁 `WorkspaceManager`、runner 调度、状态推进、risk decision 或 runner/workspace/git run lifecycle。
+
 阶段 282 目录治理事实：command catalog 纯数据和 Coding Mode command rewriter adapter 已收拢到 `coding_orchestration/commands/`；该包现在承接 `/coding` command facts、help/listing 文案、rewrite context、LLM rewrite prompt、JSON 解析和 fallback shape，不迁 Gateway route/controller、command executor、orchestrator façade、runner/workspace/git 或 run lifecycle。
 
 阶段 283 目录治理事实：report quality helper 已收拢到 `coding_orchestration/reports/`，包括 `report_contract.py`、`report_admission.py` 和 `run_log_compactor.py`；该包只承接结构化 report 完整性检查、交付拆解准入和 operator-facing run log compact，不迁 runner subprocess、report writer/loader 主体、状态推进、Gateway、workspace/git 或 run lifecycle。
