@@ -129,6 +129,8 @@ class ArchitectureGuardTest(unittest.TestCase):
             ("run_[ls]*_writeback_service.py", "run/services", "run_ledger_writeback_service.py run_session_writeback_service.py run_summary_writeback_service.py"),
             ("run_manifest_session_writeback_service.py", "run/services", "run_manifest_session_writeback_service.py"),
             ("run_project_writeback_service.py", "run/services", "run_project_writeback_service.py"),
+            ("run_checkpoint_preparation_service.py", "run/services", "run_checkpoint_preparation_service.py"),
+            ("run_[dei]*_service.py", "run/services", "run_diff_guard_service.py run_dispatch_service.py run_evidence_observation_service.py run_implementation_checkpoint_service.py"),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):

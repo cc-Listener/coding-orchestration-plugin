@@ -11,7 +11,7 @@ from coding_orchestration.models import AgentRunStatus, ArtifactSet, RunMode, Ta
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
 from coding_orchestration import run_orchestration_service
-from coding_orchestration.run_dispatch_service import dispatch_run
+from coding_orchestration.run.services.run_dispatch_service import dispatch_run
 from coding_orchestration.runners.base import RunResult
 from tests.orchestrator_flow_fixtures import FakeRouter, FakeRunner, _write_workflow
 

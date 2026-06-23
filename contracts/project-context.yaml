@@ -161,17 +161,17 @@ project_map:
       reason: "Delivery command executor host shell，维护 /coding breakdown、/coding analyze、/coding approve-breakdown、/coding materialize、/coding run <parent> --next、/coding status <parent> --delivery/--tree 用户可见分支和 decomposition / human decision / ledger / rollup callback 绑定；不承载 DeliveryService 纯规则、不实现 runner、不触碰 Gateway route 或 workspace/git 副作用。"
     - path: coding_orchestration/source_projection.py
       reason: "SourceProjection 纯投影层，把 SourceResult / legacy source_context 映射为 prompt/context/status/manifest/run-preflight/dashboard source health/source-resolve diagnostic payload/task creation helper 稳定字段，并提供 context-index 序列化 payload；不读外部来源、不写 ledger、不推进状态、不改变 source_context 持久化。"
-    - path: coding_orchestration/run_diff_guard_service.py
+    - path: coding_orchestration/run/services/run_diff_guard_service.py
       reason: "Run diff guard observation host service，维护 before snapshot、changed files 观测、QA report artifact 过滤、policy violations 组合、plan-only 写入 violations 补充和 diff summary 写回；不写 ledger/report/manifest/summary、不启动 runner、不推进状态。"
-    - path: coding_orchestration/run_dispatch_service.py
+    - path: coding_orchestration/run/services/run_dispatch_service.py
       reason: "Run dispatch host service，维护 checkpoint failure gate、runner.run 调度和 runner exception fallback；不写 ledger/report/manifest/summary、不执行 diff guard、不收集 QA evidence、不推进状态。"
     - path: coding_orchestration/run_status_transition_service.py
       reason: "Run status transition host service，维护状态机、status/phase/Kanban callback、run start/completion/reconcile transition 和 active run cleanup；不写 report/manifest/summary、不启动 runner、不执行 diff guard、不收集 QA evidence。"
-    - path: coding_orchestration/run_evidence_observation_service.py
+    - path: coding_orchestration/run/services/run_evidence_observation_service.py
       reason: "Run evidence observation host service，维护 QA artifacts、tested commit 和 implementation dirty-check observation；只调用注入 callback，不写 ledger/report/manifest/summary、不创建 checkpoint、不启动 runner、不推进状态。"
-    - path: coding_orchestration/run_checkpoint_preparation_service.py
+    - path: coding_orchestration/run/services/run_checkpoint_preparation_service.py
       reason: "Run checkpoint preparation host service，维护 QA/merge-test checkpoint callback 选择、调用和 manifest update payload；只调用注入 callback，不直接 mutate manifest、不写 artifact/ledger/report/summary、不启动 runner、不推进状态。"
-    - path: coding_orchestration/run_implementation_checkpoint_service.py
+    - path: coding_orchestration/run/services/run_implementation_checkpoint_service.py
       reason: "Run implementation checkpoint writeback host service，维护 implementation dirty 后置 checkpoint 生成和 manifest artifact writeback callback 接线；只消费已计算好的 dirty flag，不构造 blocked report、不写 ledger/report/summary、不启动 runner、不推进状态。"
     - path: coding_orchestration/run/services/run_manifest_session_writeback_service.py
       reason: "Run manifest session metadata writeback host service，维护 runner session metadata 到 run manifest 的 callback 接线；只消费已解析 session id，复用 manifest session 字段投影，不写 ledger/report/summary、不启动 runner、不推进状态。"
@@ -304,13 +304,13 @@ component_contract:
       path: coding_orchestration/run/projections/run_report_refinement_projection.py
       preferred: true
     - name: run_evidence_observation_service
-      path: coding_orchestration/run_evidence_observation_service.py
+      path: coding_orchestration/run/services/run_evidence_observation_service.py
       preferred: true
     - name: run_checkpoint_preparation_service
-      path: coding_orchestration/run_checkpoint_preparation_service.py
+      path: coding_orchestration/run/services/run_checkpoint_preparation_service.py
       preferred: true
     - name: run_implementation_checkpoint_service
-      path: coding_orchestration/run_implementation_checkpoint_service.py
+      path: coding_orchestration/run/services/run_implementation_checkpoint_service.py
       preferred: true
     - name: run_manifest_session_writeback_service
       path: coding_orchestration/run/services/run_manifest_session_writeback_service.py
@@ -600,15 +600,15 @@ component_contract:
       use_instead_of:
         - "在 orchestrator 或 run_orchestration_service 中继续新增 diff guard / implementation commit missing blocked report、run report refinement projection 或 implementation dirty-check 信号拼装。"
     - name: run_evidence_observation_service
-      path: coding_orchestration/run_evidence_observation_service.py
+      path: coding_orchestration/run/services/run_evidence_observation_service.py
       use_instead_of:
         - "在 orchestrator 中继续新增 QA artifact/tested commit observation 或 implementation dirty-check observation callback 调用逻辑。"
     - name: run_checkpoint_preparation_service
-      path: coding_orchestration/run_checkpoint_preparation_service.py
+      path: coding_orchestration/run/services/run_checkpoint_preparation_service.py
       use_instead_of:
         - "在 orchestrator 中继续新增 QA/merge-test checkpoint preparation callback 选择、调用或 checkpoint payload 到 manifest update 的映射逻辑。"
     - name: run_implementation_checkpoint_service
-      path: coding_orchestration/run_implementation_checkpoint_service.py
+      path: coding_orchestration/run/services/run_implementation_checkpoint_service.py
       use_instead_of:
         - "在 orchestrator 中继续新增 implementation dirty 后置 checkpoint 生成或 manifest artifact writeback callback 接线。"
     - name: run_manifest_session_writeback_service

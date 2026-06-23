@@ -438,9 +438,11 @@ coding_orchestration plugin
 
 阶段 261 目录治理事实：`coding_orchestration/run/services/` 已继续收拢 runner session metadata 到 manifest 的 host writeback service 与 completed run Project writeback host service；二者仍只消费上游已计算事实和注入 callback，不持有 runner/workspace/git 生命周期，也不直接持有 WorkItem/MCP adapter。
 
-Task 30 历史收口事实：`run_checkpoint_preparation_service.py` 已承接 QA / merge-test checkpoint preparation callback 选择、调用和 manifest update payload 构造；它只调用注入 callback 并返回 `manifest_updates`，不直接 mutate manifest、不写 artifact/ledger/report/summary、不启动 runner、不推进状态。mode 到 checkpoint kind/target branch 选择仍归 `run_start_selection_projection.py`，manifest 文件写入仍归 artifact service。
+阶段 262 目录治理事实：`coding_orchestration/run/services/` 已继续收拢 checkpoint preparation、diff guard、dispatch、evidence observation 和 implementation checkpoint execution host service；这些模块仍只做注入 callback 编排或执行期观测，不迁 `start_run()` 主体，不持有 runner/workspace/git 生命周期 owner，也不承接完成态 coordinator。
 
-Task 30 历史收口事实：`run_implementation_checkpoint_service.py` 已承接 implementation dirty 后置 checkpoint 生成和 manifest artifact writeback callback 接线；它只消费已计算好的 dirty flag，调用注入 checkpoint / manifest writer callback，不判断 dirty、不构造 blocked report、不写 ledger/report/summary、不启动 runner、不推进状态。dirty observation 仍归 `run_evidence_observation_service.py`，blocked report refinement 仍归 `run_report_refinement_projection.py`。
+Task 30 历史收口事实：`run/services/run_checkpoint_preparation_service.py` 已承接 QA / merge-test checkpoint preparation callback 选择、调用和 manifest update payload 构造；它只调用注入 callback 并返回 `manifest_updates`，不直接 mutate manifest、不写 artifact/ledger/report/summary、不启动 runner、不推进状态。mode 到 checkpoint kind/target branch 选择仍归 `run_start_selection_projection.py`，manifest 文件写入仍归 artifact service。
+
+Task 30 历史收口事实：`run/services/run_implementation_checkpoint_service.py` 已承接 implementation dirty 后置 checkpoint 生成和 manifest artifact writeback callback 接线；它只消费已计算好的 dirty flag，调用注入 checkpoint / manifest writer callback，不判断 dirty、不构造 blocked report、不写 ledger/report/summary、不启动 runner、不推进状态。dirty observation 仍归 `run/services/run_evidence_observation_service.py`，blocked report refinement 仍归 `run_report_refinement_projection.py`。
 
 Task 30 历史收口事实：`run/services/run_manifest_session_writeback_service.py` 已承接 runner session metadata 到 run manifest 的 host callback 接线；它只消费已解析 `session_id`，复用 `run_manifest_service.build_manifest_session_fields()` 更新 manifest object/dict 并调用注入 manifest metadata writer，不解析 stdout、不写 ledger/report/summary、不启动 runner、不推进状态。session id 来源、task session ledger update 和 Codex attach/resume command 规则仍归原边界。
 

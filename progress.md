@@ -4,6 +4,35 @@
 
 ## 会话：2026-06-23
 
+### 阶段 262：Run execution host service 子包治理第一切片
+- **状态：** complete
+- 背景：
+  - 阶段 260/261 已把 run ledger/session/summary writeback callback service、manifest session metadata writeback service 和 project writeback host service 收拢到 `coding_orchestration/run/services/`。
+  - 本阶段继续只处理 5 个执行期小型 host service，不迁 completion/reconcile coordinator、status transition、manifest/orchestration helper、background orchestration、runner/workspace/git 或 `start_run()` 主体。
+- 执行的操作：
+  - 在 `tests/test_architecture_guard.py` 的模块族表中新增 checkpoint preparation 与 diff/dispatch/evidence/implementation checkpoint service 的 `run/services` 目录约束，锁定包根不得保留这 5 个执行期 service。
+  - RED 已确认：focused architecture test 先失败，失败点为包根仍存在 `run_checkpoint_preparation_service.py`、`run_diff_guard_service.py`、`run_dispatch_service.py`、`run_evidence_observation_service.py` 和 `run_implementation_checkpoint_service.py`。
+  - 迁移上述 5 个 service 到 `coding_orchestration/run/services/`，调整 service 内部相对 import，并更新 `orchestrator.py` 与目标 service 测试 import。
+  - 保留 `orchestrator_module.run_*_service` 模块别名，兼容既有 monkeypatch contract。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`PLUGIN_TECHNICAL_SOLUTION.md`、`docs/plans/2026-06-23-coding-orchestration-package-governance.md`、`task_plan.md` 和 `findings.md`。
+- 当前目录边界：
+  - `coding_orchestration/run/services/`：run ledger/session/summary/manifest-session/project writeback host callback service，以及 checkpoint preparation、diff guard、dispatch、evidence observation、implementation checkpoint execution host service。
+  - `coding_orchestration/` 包根：不再保留这 5 个 execution host service。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_repository_module_families_live_in_dedicated_packages -v` 先失败，失败点为 5 个目标 service 仍在包根。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - 目标 service 自测：`rtk python3 -m unittest tests.test_run_checkpoint_preparation_service tests.test_run_diff_guard_service tests.test_run_dispatch_service tests.test_run_evidence_observation_service tests.test_run_implementation_checkpoint_service -v`：22 tests passed。
+  - Checkpoint/dispatch 相邻回归：`rtk python3 -m unittest tests.test_run_checkpoint_preparation_service tests.test_run_start_selection_projection tests.test_workspace_checkpoint_service tests.test_run_manifest_service tests.test_run_start_artifact_service tests.test_run_manifest_artifact_service tests.test_run_dispatch_service -v`：48 tests passed。
+  - Diff guard 相邻回归：`rtk python3 -m unittest tests.test_run_diff_guard_service tests.test_run_orchestration_start_rules tests.test_diff_guard tests.test_plan_run_flow tests.test_implementation_workspace_flow -v`：48 tests passed。
+  - Evidence/dirty checkpoint 相邻回归：`rtk python3 -m unittest tests.test_run_evidence_observation_service tests.test_qa_flow tests.test_implementation_workspace_flow tests.test_run_orchestration_start_rules tests.test_run_ledger_projection tests.test_run_implementation_checkpoint_service tests.test_run_report_refinement_projection tests.test_run_manifest_artifact_service -v`：58 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/run/services/*.py coding_orchestration/orchestrator.py tests/test_architecture_guard.py tests/test_run_checkpoint_preparation_service.py tests/test_run_diff_guard_service.py tests/test_run_dispatch_service.py tests/test_run_evidence_observation_service.py tests/test_run_implementation_checkpoint_service.py`：passed。
+  - YAML 解析：`rtk python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 995 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 本阶段不迁 completion/reconcile coordinator、status transition、background orchestration、manifest/orchestration helper、source/project/integration 层；后续继续按治理计划拆小片。
+
 ### 阶段 261：Run service 子包治理第二切片
 - **状态：** complete
 - 背景：

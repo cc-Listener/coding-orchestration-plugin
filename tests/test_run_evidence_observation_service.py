@@ -10,7 +10,7 @@ from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
-from coding_orchestration.run_evidence_observation_service import (
+from coding_orchestration.run.services.run_evidence_observation_service import (
     RunQaEvidenceObservation,
     observe_implementation_dirty_check,
     observe_run_qa_evidence,
