@@ -334,6 +334,49 @@ class ArchitectureGuardTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
+    def test_orchestrator_does_not_keep_task_runtime_facade_methods(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def _sync_task_to_kanban(",
+            "def _transition_task_status(",
+            "def _sync_status_to_kanban(",
+            "def _kanban_sync_skipped(",
+            "def _kanban_sync_record_from_result(",
+            "def _task_status_sync_fields(",
+            "def _format_task_list_for_event(",
+            "def _status_for_event(",
+            "def _read_report_json(",
+            "def _continue_active_task(",
+            "def _change_active_task(",
+            "def _bugfix_active_task(",
+            "def _reopen_merged_test_task_for_bugfix_if_needed(",
+            "def _bind_active_task_for_event(",
+            "def _enable_coding_mode_for_event(",
+            "def _disable_coding_mode_for_event(",
+            "def _coding_mode_enabled_for_event(",
+            "def _coding_mode_binding_key_for_event(",
+            "def _active_task_for_event(",
+            "def active_task_for_session(",
+            "def _active_task_id_for_event(",
+            "def _binding_key_for_event(",
+            "def _active_coding_statuses(",
+            "def _task_is_cancelled(",
+            "def _cancelled_task_message(",
+            "def _restore_state_for_cancelled_task(",
+            "def _record_implementation_confirmation(",
+            "def _record_implementation_confirmation_before_plan_ready(",
+            "def _record_qa_request(",
+            "def _task_is_plan_ready_for_implementation(",
+            "def _task_has_active_run(",
+            "def _start_run_blocker(",
+            "def _qa_start_blocker(",
+            "def _clear_active_run_if_matches(",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()
