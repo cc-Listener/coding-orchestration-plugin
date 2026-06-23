@@ -90,6 +90,7 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ("hermes_runtime.py", "integrations/hermes", "hermes_runtime.py"),
             ("kanban_*.py", "integrations/kanban", "kanban_bridge.py kanban_sync_service.py"),
             ("install.py", "integrations/install", "install.py"),
+            ("meegle_reader.py", "source/adapters", "meegle_reader.py"),
             ("source_links.py", "source", "source_links.py"),
             ("source_projection.py", "source", "source_projection.py"),
             ("source_recovery.py", "source", "source_recovery.py"),

@@ -233,7 +233,7 @@ rtk git commit -m "feat: 收拢 presenter 模块目录"
 - Done: `source_projection.py` -> `coding_orchestration/source/source_projection.py`
 - Move: `source_context_repair_service.py`
 - Move: `source_resolver.py`
-- Move: `meegle_reader.py` -> `source/adapters/meegle_reader.py`
+- Done: `meegle_reader.py` -> `coding_orchestration/source/adapters/meegle_reader.py`
 - Keep: `feishu/` as current independent adapter package for now
 
 **Step 1:** Add architecture test requiring source helpers, then later `source_*.py`, `source_resolver.py`, and `meegle_reader.py`, to live under `source/` in safe sub-slices.

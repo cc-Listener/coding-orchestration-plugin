@@ -10,8 +10,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .feishu.feishu_project_reader import FeishuProjectReader
-from .meegle_reader import MeegleReader
 from .ports import SourceResult
+from .source.adapters.meegle_reader import MeegleReader
 
 
 CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]

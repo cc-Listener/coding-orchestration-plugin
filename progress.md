@@ -4,6 +4,33 @@
 
 ## 会话：2026-06-23
 
+### 阶段 273：Meegle reader adapter 子包治理
+- **状态：** complete
+- 背景：
+  - `meegle_reader.py` 维护 Meegle/飞书 Project work item 的 gateway/CLI fallback、payload 归一化接线和 deferred recovery 接线。
+  - 该模块属于 source reader adapter 边界，不应继续散落在 `coding_orchestration/` 包根，也不应并入 `source_resolver.py` 或 Feishu reader package。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 `meegle_reader.py` 位于 `coding_orchestration/source/adapters/`。
+  - RED 已确认：focused test 先失败，失败点为包根仍存在 `meegle_reader.py`。
+  - 新增 `coding_orchestration/source/adapters/__init__.py`，将 `meegle_reader.py` 移动到 `coding_orchestration/source/adapters/meegle_reader.py`。
+  - 更新 `SourceResolver` 和 Meegle reader 测试 import 到新包路径。
+  - 同步项目地图、组件合同、约定、machine-readable context、技术方案、发现和目录治理计划。
+- 当前边界：
+  - `coding_orchestration/source/adapters/meegle_reader.py`：Meegle/飞书 Project reader adapter，负责 gateway/CLI fallback、payload 归一化接线和 deferred recovery 接线。
+  - 本切片未迁 `source_resolver.py`、`source_context_repair_service.py`、Feishu reader、ledger schema、runner/workspace/git 或 run lifecycle。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为 `meegle_reader.py` 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Meegle/SourceResolver 相邻回归：`rtk python3 -m unittest tests.test_meegle_reader tests.test_source_resolver tests.test_source_flow tests.test_source_plan_flow tests.test_source_work_item_context tests.test_source_recovery -v`：41 tests passed。
+  - 文档合同回归：`rtk python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_module_layout -v`：17 tests passed。
+  - 编译检查：`rtk python3 -m py_compile ...`：passed。
+  - YAML 解析：`rtk python3 -c "import yaml; yaml.safe_load(open('contracts/project-context.yaml', encoding='utf-8')); print('yaml ok')"`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 包根仍保留 `source_resolver.py` 和 `source_context_repair_service.py`；二者引用面不同，需要后续独立切片继续评估。
+
 ### 阶段 272：Source projection 子包治理
 - **状态：** complete
 - 背景：

@@ -1,6 +1,6 @@
 import unittest
 
-from coding_orchestration.meegle_reader import MeegleReader
+from coding_orchestration.source.adapters.meegle_reader import MeegleReader
 from coding_orchestration.source_resolver import SourceResolver
 
 

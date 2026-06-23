@@ -442,6 +442,8 @@ coding_orchestration plugin
 
 阶段 272 目录治理事实：SourceProjection 已收拢到 `coding_orchestration/source/source_projection.py`；该模块继续只承接 `SourceResult` / legacy `source_context` 到 prompt/context/status/manifest/run-preflight/dashboard source health/source-resolve diagnostic payload/task creation helper 的稳定投影，不迁 `source_resolver.py`、`source_context_repair_service.py`、`meegle_reader.py`、reader transport、ledger schema、runner/workspace/git 或 run lifecycle。
 
+阶段 273 目录治理事实：Meegle reader adapter 已收拢到 `coding_orchestration/source/adapters/meegle_reader.py`；该模块继续只维护 Meegle/飞书 Project work item gateway/CLI fallback、payload 归一化接线和 deferred recovery 接线，不迁 `source_resolver.py`、`source_context_repair_service.py`、Feishu reader、ledger schema、runner/workspace/git 或 run lifecycle。
+
 阶段 261 目录治理事实：`coding_orchestration/run/services/` 已继续收拢 runner session metadata 到 manifest 的 host writeback service 与 completed run Project writeback host service；二者仍只消费上游已计算事实和注入 callback，不持有 runner/workspace/git 生命周期，也不直接持有 WorkItem/MCP adapter。
 
 阶段 262 目录治理事实：`coding_orchestration/run/services/` 已继续收拢 checkpoint preparation、diff guard、dispatch、evidence observation 和 implementation checkpoint execution host service；这些模块仍只做注入 callback 编排或执行期观测，不迁 `start_run()` 主体，不持有 runner/workspace/git 生命周期 owner，也不承接完成态 coordinator。

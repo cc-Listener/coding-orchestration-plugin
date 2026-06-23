@@ -149,6 +149,8 @@ project_map:
       reason: "Source context repair host service，维护 source context 读取、deferred source pre-run enrichment、既有 task context 修复、source summary 回写和项目上下文回填接线；不改 legacy source_context schema、不实现 source reader、不承载 source 权限策略、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/source/
       reason: "Source package，维护 Feishu/Meegle URL 解析、deferred recovery payload、work item payload 归一化和 SourceProjection 稳定投影；不承载 source resolver、reader transport、ledger schema、runner/workspace/git 或 run lifecycle。"
+    - path: coding_orchestration/source/adapters/
+      reason: "Source reader adapter package，维护 Meegle/飞书 Project reader gateway/CLI fallback、payload 归一化接线和 deferred recovery 接线；不承载 source resolver、source context repair、ledger schema、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/integrations/kanban/kanban_bridge.py
       reason: "Kanban integration adapter，维护真实 Kanban 工具映射；不承载 task 创建同步、状态同步、状态机、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/integrations/kanban/kanban_sync_service.py
@@ -384,6 +386,9 @@ component_contract:
       preferred: true
     - name: source_helpers
       path: coding_orchestration/source/
+      preferred: true
+    - name: source_reader_adapters
+      path: coding_orchestration/source/adapters/
       preferred: true
       note: "Feishu/Meegle URL 解析、deferred recovery payload 和 work item payload 归一化 owner；包根不得恢复 source_links.py、source_recovery.py 或 source_work_item_context.py。"
     - name: feishu_source_adapters
@@ -837,6 +842,10 @@ component_contract:
       path: coding_orchestration/source/
       use_instead_of:
         - "在 reader、CLI、MCP、prompt 或包根重新实现 Feishu/Meegle URL 解析、deferred recovery payload 或 work item payload 归一化。"
+    - name: source_reader_adapters
+      path: coding_orchestration/source/adapters/
+      use_instead_of:
+        - "在 coding_orchestration/ 包根新增 Meegle/Feishu Project reader adapter，或把 Meegle gateway/CLI fallback 和 payload coercion 写进 source resolver、orchestrator、service 或 runner。"
     - name: feishu_source_adapters
       path: coding_orchestration/feishu/
       use_instead_of:
