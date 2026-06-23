@@ -4,6 +4,33 @@
 
 ## 会话：2026-06-23
 
+### 阶段 261：Run service 子包治理第二切片
+- **状态：** complete
+- 背景：
+  - 阶段 260 已把 run ledger/session/summary writeback callback service 收拢到 `coding_orchestration/run/services/`。
+  - 本阶段继续按小切片只处理 run manifest session metadata writeback 与 run project writeback host service，不迁 completion/reconcile coordinator、status transition、dispatch/diff/evidence/checkpoint service、runner/workspace/git 或 `start_run()` 主体。
+- 执行的操作：
+  - 在 `tests/test_architecture_guard.py` 的模块族表中新增 manifest/project writeback service 的 `run/services` 目录约束，锁定包根不得保留 `run_manifest_session_writeback_service.py` 与 `run_project_writeback_service.py`。
+  - RED 已确认：focused architecture test 先失败，失败点为包根仍存在两个目标 service。
+  - 迁移 `run_manifest_session_writeback_service.py` 与 `run_project_writeback_service.py` 到 `coding_orchestration/run/services/`，调整相对 import，并更新 orchestrator、completed run writeback coordinator 和目标 service 测试 import。
+  - 保留 `orchestrator_module.run_manifest_session_writeback_service` 与 `orchestrator_module.run_project_writeback_service` 模块别名，兼容既有 monkeypatch contract。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`PLUGIN_TECHNICAL_SOLUTION.md`、`docs/plans/2026-06-23-coding-orchestration-package-governance.md`、`task_plan.md` 和 `findings.md`。
+- 当前目录边界：
+  - `coding_orchestration/run/services/`：run ledger/session/summary writeback callback service，以及 manifest session metadata/project writeback host service。
+  - `coding_orchestration/` 包根：不再保留 `run_manifest_session_writeback_service.py` 或 `run_project_writeback_service.py`。
+- 已验证：
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_repository_module_families_live_in_dedicated_packages -v`：1 test passed。
+  - Manifest/project writeback service 自测：`rtk python3 -m unittest tests.test_run_manifest_session_writeback_service tests.test_run_project_writeback_service -v`：7 tests passed。
+  - 相邻回归：`rtk python3 -m unittest tests.test_run_manifest_service tests.test_run_manifest_session_writeback_service tests.test_run_project_writeback_service tests.test_run_completion_writeback_service tests.test_implementation_session_flow tests.test_run_orchestration_start_rules tests.test_bugfix_writeback_flow tests.test_plan_run_flow -v`：70 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/run/services/*.py coding_orchestration/orchestrator.py coding_orchestration/run_completion_writeback_service.py tests/test_architecture_guard.py tests/test_run_manifest_session_writeback_service.py tests/test_run_project_writeback_service.py`：passed。
+  - YAML 解析：`rtk python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 995 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 本阶段只处理 2 个 writeback host service；run completion/reconcile coordinator、dispatch/diff/evidence/checkpoint/status transition、source/project/integration 层仍按治理计划继续分片。
+  - `tests/test_architecture_guard.py` 当前 597 行，后续再新增架构表项前应优先压缩或拆分，避免超过 600 行治理线。
+
 ### 阶段 260：Run service 子包治理第一切片
 - **状态：** complete
 - 背景：

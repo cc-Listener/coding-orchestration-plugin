@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 260：Run service 子包治理第一切片（complete）
+阶段 261：Run service 子包治理第二切片（complete）
 
 ## 各阶段
+
+### 阶段 261：Run service 子包治理第二切片
+- [x] 定域：只收拢 run manifest session metadata writeback 与 run project writeback service 到 `coding_orchestration/run/services/`，不迁 completion/reconcile coordinator、status transition、dispatch/diff/evidence/checkpoint service、runner/workspace/git 或 `start_run()` 主体。
+- [x] TDD：新增架构测试，要求 manifest/project writeback service 不再散落在 `coding_orchestration/` 包根。
+- [x] RED：确认新增 focused architecture test 在旧目录布局下失败。
+- [x] 实现：迁移 run manifest session 与 project writeback service 并更新 import。
+- [x] 验证：运行 focused GREEN、manifest/project writeback service 自测、相邻回归、py_compile、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步目录约定、项目地图、组件合同、machine-readable context、进度和发现。
+- **状态：** complete
 
 ### 阶段 260：Run service 子包治理第一切片
 - [x] 定域：只收拢 3 个低耦合 run writeback callback service 到 `coding_orchestration/run/services/`，不迁 completion/reconcile coordinator、run status transition、manifest/project writeback、runner/workspace/git 或 `start_run()` 主体。

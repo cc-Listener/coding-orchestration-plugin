@@ -87,13 +87,9 @@ class ArchitectureGuardTest(unittest.TestCase):
 
     def _assert_modules_live_in_dedicated_package(self, *, glob_pattern: str, package: str, expected: list[str]):
         package_root = REPO_ROOT / "coding_orchestration"
-        nested_root = package_root / package
 
-        root_modules = sorted(path.name for path in package_root.glob(glob_pattern))
-        nested_modules = sorted(path.name for path in nested_root.glob(glob_pattern))
-
-        self.assertEqual([], root_modules)
-        self.assertEqual(expected, nested_modules)
+        self.assertEqual([], sorted(path.name for path in package_root.glob(glob_pattern)))
+        self.assertEqual(expected, sorted(path.name for path in (package_root / package).glob(glob_pattern)))
 
     def test_repository_module_families_live_in_dedicated_packages(self):
         cases = [
@@ -131,6 +127,8 @@ class ArchitectureGuardTest(unittest.TestCase):
             ("run_*artifact*.py", "run/artifacts", "run_artifact_paths.py run_context_artifact_service.py run_manifest_artifact_service.py run_report_artifact_service.py run_start_artifact_service.py run_stderr_artifact_service.py run_summary_artifact_service.py"),
             ("run_*projection.py", "run/projections", "run_failure_report_projection.py run_ledger_projection.py run_prompt_projection.py run_report_refinement_projection.py run_session_projection.py run_start_selection_projection.py run_summary_projection.py"),
             ("run_[ls]*_writeback_service.py", "run/services", "run_ledger_writeback_service.py run_session_writeback_service.py run_summary_writeback_service.py"),
+            ("run_manifest_session_writeback_service.py", "run/services", "run_manifest_session_writeback_service.py"),
+            ("run_project_writeback_service.py", "run/services", "run_project_writeback_service.py"),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):
