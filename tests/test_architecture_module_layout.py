@@ -86,6 +86,7 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ("run_background_orchestration.py", "run/services", "run_background_orchestration.py"),
             ("run_summary_writer.py", "integrations/knowledge", "run_summary_writer.py"),
             ("hermes_runtime.py", "integrations/hermes", "hermes_runtime.py"),
+            ("kanban_*.py", "integrations/kanban", "kanban_bridge.py kanban_sync_service.py"),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):

@@ -1,6 +1,6 @@
 import unittest
 
-from coding_orchestration import kanban_sync_service
+from coding_orchestration.integrations.kanban import kanban_sync_service
 from coding_orchestration.models import TaskKind, TaskStatus
 
 

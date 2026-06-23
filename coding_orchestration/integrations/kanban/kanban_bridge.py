@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Callable
 
-from .models import TaskStatus, task_status_view
+from ...models import TaskStatus, task_status_view
 
 
 class KanbanBridge:

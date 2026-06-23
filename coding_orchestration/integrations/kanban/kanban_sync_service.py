@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from .models import TaskKind, TaskStatus, task_status_view
+from ...models import TaskKind, TaskStatus, task_status_view
 
 
 def sync_task_to_kanban(

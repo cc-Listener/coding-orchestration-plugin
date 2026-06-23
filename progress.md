@@ -4,6 +4,35 @@
 
 ## 会话：2026-06-23
 
+### 阶段 268：Kanban integration 子包治理
+- **状态：** complete
+- 背景：
+  - `kanban_bridge.py` 是 Kanban 真实工具映射 adapter，`kanban_sync_service.py` 是 task 创建同步、状态同步、skipped/failed sync record 和 task status view 字段投影 host service。
+  - 二者属于 Kanban integration 边界，不应继续散落在 `coding_orchestration/` 包根；状态机、task runtime façade 主体、runner/workspace/git、run lifecycle 和 dashboard 保持原边界。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 `kanban_bridge.py` 和 `kanban_sync_service.py` 位于 `coding_orchestration/integrations/kanban/`。
+  - RED 已确认：focused test 先失败，失败点为包根仍存在 `kanban_bridge.py` / `kanban_sync_service.py`。
+  - 新增 `coding_orchestration/integrations/kanban/__init__.py`。
+  - 将 `kanban_bridge.py` 和 `kanban_sync_service.py` 移动到 `coding_orchestration/integrations/kanban/`。
+  - 更新 `orchestrator_bootstrap_facade.py`、`orchestrator_task_runtime_facade.py`、Kanban 相关测试和当前事实文档的 import / 路径。
+  - 同步项目地图、组件合同、约定、machine-readable context、技术方案、发现和目录治理计划。
+- 当前边界：
+  - `coding_orchestration/integrations/kanban/kanban_bridge.py`：真实 Kanban 工具映射。
+  - `coding_orchestration/integrations/kanban/kanban_sync_service.py`：task 创建同步、状态同步、skipped/failed sync record 和 task status view 字段投影。
+  - `coding_orchestration/run/services/run_status_transition_service.py`：状态机、status/phase/Kanban callback、run transition 和 active run cleanup。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为 `['kanban_bridge.py', 'kanban_sync_service.py']` 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Kanban / task runtime 相邻回归：`rtk python3 -m unittest tests.test_kanban_bridge tests.test_kanban_sync_service tests.test_orchestrator_run_flow tests.test_run_status_transition_service tests.test_task_status_payload tests.test_task_service -v`：36 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/integrations/kanban/__init__.py coding_orchestration/integrations/kanban/kanban_bridge.py coding_orchestration/integrations/kanban/kanban_sync_service.py coding_orchestration/orchestrator_facades/orchestrator_bootstrap_facade.py coding_orchestration/orchestrator_facades/orchestrator_task_runtime_facade.py tests/test_architecture_module_layout.py tests/test_kanban_bridge.py tests/test_kanban_sync_service.py`：passed。
+  - YAML 解析：`rtk python3 -c "import yaml; yaml.safe_load(open('contracts/project-context.yaml', encoding='utf-8')); print('yaml ok')"`：passed。
+  - 当前事实旧路径扫描：`rtk rg -n "from coding_orchestration\\.kanban_bridge|from coding_orchestration import kanban_sync_service|coding_orchestration/kanban_bridge.py|coding_orchestration/kanban_sync_service.py" coding_orchestration tests docs/project-map.md docs/component-contract.md docs/conventions.md contracts/project-context.yaml task_plan.md findings.md PLUGIN_TECHNICAL_SOLUTION.md docs/plans/2026-06-23-coding-orchestration-package-governance.md`：no matches。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 本阶段不迁 `knowledge_adapter.py`、`llm_wiki_adapter.py`、`install.py` 或更深层 run lifecycle / workspace / runner 逻辑；后续 integration 包治理继续按引用面拆分独立切片。
+
 ### 阶段 267：Hermes runtime integration 子包治理
 - **状态：** complete
 - 背景：

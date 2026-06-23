@@ -147,7 +147,9 @@ project_map:
       reason: "Coding background run executor host shell，维护 Gateway 后台 plan-only / implementation / QA / merge-test mode-specific 启动、presenters/run_completion_presenter direct message 选择、失败通知和 completion notification callback 接线；不拥有 start_run、后台等待完成、失败状态收敛、merge-test pending action、runner/workspace/git/checkpoint 或 run lifecycle。"
     - path: coding_orchestration/source_context_repair_service.py
       reason: "Source context repair host service，维护 source context 读取、deferred source pre-run enrichment、既有 task context 修复、source summary 回写和项目上下文回填接线；不改 legacy source_context schema、不实现 source reader、不承载 source 权限策略、runner/workspace/git 或 run lifecycle。"
-    - path: coding_orchestration/kanban_sync_service.py
+    - path: coding_orchestration/integrations/kanban/kanban_bridge.py
+      reason: "Kanban integration adapter，维护真实 Kanban 工具映射；不承载 task 创建同步、状态同步、状态机、runner/workspace/git 或 run lifecycle。"
+    - path: coding_orchestration/integrations/kanban/kanban_sync_service.py
       reason: "Kanban sync host service，维护 task 创建时的 Kanban create 写回、状态同步写回、skipped/failed sync record 和 task status view 字段投影；不改 kanban_bridge 工具映射、不改状态机、不承载 runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/task_lifecycle_guard_service.py
       reason: "Task lifecycle guard service，维护 active coding status 列表、取消态保护文案、cancelled task 恢复状态选择和 merged_test bugfix reopen 写回；不改状态机、不承载 runner/workspace/git 或 run lifecycle。"
@@ -487,8 +489,11 @@ component_contract:
     - name: source_context_repair_service
       path: coding_orchestration/source_context_repair_service.py
       preferred: true
+    - name: kanban_bridge
+      path: coding_orchestration/integrations/kanban/kanban_bridge.py
+      preferred: true
     - name: kanban_sync_service
-      path: coding_orchestration/kanban_sync_service.py
+      path: coding_orchestration/integrations/kanban/kanban_sync_service.py
       preferred: true
     - name: task_lifecycle_guard_service
       path: coding_orchestration/task_lifecycle_guard_service.py
@@ -783,7 +788,7 @@ component_contract:
       use_instead_of:
         - "在 orchestrator 中继续新增 source context 读取、deferred source pre-run enrichment、既有 task context 修复、source summary 回写或项目上下文回填接线。"
     - name: kanban_sync_service
-      path: coding_orchestration/kanban_sync_service.py
+      path: coding_orchestration/integrations/kanban/kanban_sync_service.py
       use_instead_of:
         - "在 orchestrator 中继续新增 Kanban create/status sync host helper、skipped/failed sync record 或 task status view 字段投影。"
     - name: task_lifecycle_guard_service

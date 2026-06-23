@@ -283,8 +283,8 @@ rtk git commit -m "feat: 收拢 presenter 模块目录"
 - Create: `coding_orchestration/integrations/knowledge/__init__.py`
 - Create: `coding_orchestration/integrations/install/__init__.py`
 - Move: `hermes_runtime.py`（阶段 267 已先行收拢到 `coding_orchestration/integrations/hermes/`）
-- Move: `kanban_bridge.py`
-- Move: `kanban_sync_service.py`
+- Move: `kanban_bridge.py`（阶段 268 已先行收拢到 `coding_orchestration/integrations/kanban/`）
+- Move: `kanban_sync_service.py`（阶段 268 已先行收拢到 `coding_orchestration/integrations/kanban/`）
 - Move: `knowledge_adapter.py`
 - Move: `llm_wiki_adapter.py`
 - Move: `run_summary_writer.py`（阶段 266 已先行收拢到 `coding_orchestration/integrations/knowledge/`）

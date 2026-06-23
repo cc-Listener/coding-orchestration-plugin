@@ -14,8 +14,8 @@ from ..feishu.feishu_project_mcp import (
 from ..feishu.feishu_project_reader import FeishuProjectReader
 from ..gateway.gateway_binding_service import GatewayBindingService
 from ..integrations.hermes.hermes_runtime import HermesRuntime
+from ..integrations.kanban.kanban_bridge import KanbanBridge
 from ..integrations.knowledge.run_summary_writer import RunSummaryWriter
-from ..kanban_bridge import KanbanBridge
 from ..knowledge_adapter import LocalKnowledgeAdapter
 from ..ledger import TaskLedger
 from ..project_knowledge_resolver import ProjectKnowledgeResolver

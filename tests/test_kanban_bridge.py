@@ -3,7 +3,7 @@ import unittest
 import json
 from pathlib import Path
 
-from coding_orchestration.kanban_bridge import KanbanBridge
+from coding_orchestration.integrations.kanban.kanban_bridge import KanbanBridge
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import TaskKind, TaskStatus
