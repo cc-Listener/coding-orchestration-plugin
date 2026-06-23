@@ -11,6 +11,7 @@
   - Codex runner 使用可见 session，方便 CLI 查看
 
 ## 研究发现
+- 阶段 288 确认：status policy 已收拢到 `coding_orchestration/policies/status_policy.py`；包根不再承载 `status_policy.py`，`models.py` 和 `state_machine.py` 继续作为公共状态 contract 暂留包根。阶段完成后包根 `.py` 降到 11 个、2273 行，剩余文件为 `cli.py`、`config.py`、`ledger.py`、`models.py`、`orchestrator.py`、`plugin_tools.py`、`ports.py`、`run_orchestration_service.py`、`runner_router.py`、`state_machine.py`、`workspace_checkpoint_service.py`。
 - 阶段 287 确认：Codex backend reuse decision 已收拢到 `coding_orchestration/runners/codex_reuse.py`；包根不再承载 `codex_reuse.py`，`runner_router.py` 继续作为 runner 选择入口暂留包根。阶段完成后包根 `.py` 降到 12 个、2389 行，剩余文件为 `cli.py`、`config.py`、`ledger.py`、`models.py`、`orchestrator.py`、`plugin_tools.py`、`ports.py`、`run_orchestration_service.py`、`runner_router.py`、`state_machine.py`、`status_policy.py`、`workspace_checkpoint_service.py`。
 - 阶段 286 确认：policy/guard helper 已收拢到 `coding_orchestration/policies/`；包根不再承载 `diff_guard.py` 或 `execution_policy.py`，`status_policy.py` 继续作为 run status/report policy owner 暂留包根。
 - 阶段 285 确认：Tool contract/dispatcher 已收拢到 `coding_orchestration/tools/`；包根不再承载 `tool_specs.py` 或 `tool_operation_dispatcher.py`，`plugin_tools.py` 继续只做 Hermes native tool host 注册和 payload 归一。

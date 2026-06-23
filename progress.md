@@ -4,6 +4,36 @@
 
 ## 会话：2026-06-23
 
+### 阶段 288：Status policy 子包治理
+- **状态：** complete
+- 背景：
+  - `status_policy.py` 维护 report 状态归一化、known gaps、runner_failed、implementation_not_landed 和 verification limitations 判定。
+  - 该职责属于 policy helper 边界，不应继续散落在 `coding_orchestration/` 包根；`models.py` 和 `state_machine.py` 继续作为公共状态合同暂留包根。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 status policy 位于 `coding_orchestration/policies/`。
+  - RED 已确认：focused layout test 先失败，失败点为 `status_policy.py` 仍在包根。
+  - 将 `status_policy.py` 移入 `coding_orchestration/policies/status_policy.py`，并在 `policies/__init__.py` 暴露稳定导出。
+  - 更新 run orchestration、RunService、merge-test readiness、status façade、run projections、run completion presenter、测试和当前事实文档中的 import / canonical 路径。
+- 当前边界：
+  - `coding_orchestration/policies/status_policy.py`：只维护 report 状态详情、known gaps、runner_failed、implementation_not_landed 和 verification limitations 判定，不承载状态机、RunService、runner/workspace/git 或 run lifecycle。
+  - `coding_orchestration/models.py`、`coding_orchestration/state_machine.py`：继续作为公共状态 contract 暂留包根。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为 `status_policy.py` 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Status policy / run service / reconcile 相邻回归：`rtk python3 -m unittest tests.test_status_policy tests.test_run_service tests.test_status_reconcile_flow tests.test_run_orchestration_start_rules tests.test_task_lifecycle_guard_service tests.test_merge_test_readiness_service tests.test_run_orchestration_service tests.test_architecture_module_layout -v`：79 tests passed。
+  - Projection/docs 相邻回归：`rtk python3 -m unittest tests.test_run_report_refinement_projection tests.test_run_session_projection tests.test_docs_and_install_entry -v`：22 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/policies/status_policy.py coding_orchestration/policies/__init__.py coding_orchestration/run_orchestration_service.py coding_orchestration/services/run_service.py coding_orchestration/services/merge_test_readiness_service.py coding_orchestration/orchestrator_facades/orchestrator_status_policy_facade.py coding_orchestration/run/projections/run_session_projection.py coding_orchestration/run/projections/run_report_refinement_projection.py coding_orchestration/presenters/run_completion_presenter.py tests/test_status_policy.py tests/test_architecture_module_layout.py`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed，输出 `yaml ok`。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 当前包根：
+  - `coding_orchestration/` 包根 `.py` 数量：11。
+  - 包根 `.py` 总行数：2273。
+  - 剩余包根文件：`cli.py`、`config.py`、`ledger.py`、`models.py`、`orchestrator.py`、`plugin_tools.py`、`ports.py`、`run_orchestration_service.py`、`runner_router.py`、`state_machine.py`、`workspace_checkpoint_service.py`。
+- 剩余风险：
+  - 剩余包根文件多为公共入口、核心模型/状态合同、ledger façade、runner/workspace/run orchestration owner；后续需要先判断哪些应保留为包入口，哪些可继续按 domain package 独立迁移。
+
 ### 阶段 287：Codex reuse runner helper 子包治理
 - **状态：** complete
 - 背景：

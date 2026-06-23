@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import status_policy
+from ..policies import status_policy
 from ..models import AgentRunStatus, RunMode, TaskStatus
 
 

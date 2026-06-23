@@ -47,7 +47,7 @@ from .run.projections.run_start_selection_projection import (
 )
 from .models import AgentRunStatus, RunMode, TaskPhase, TaskStatus, normalize_agent_run_status
 from .services.run_service import RunService
-from .status_policy import (
+from .policies.status_policy import (
     run_details_require_verification_limitations,
     run_status_details_from_report,
 )

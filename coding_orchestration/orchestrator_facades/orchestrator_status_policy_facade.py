@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import run_orchestration_service, status_policy
+from .. import run_orchestration_service
+from ..policies import status_policy
 from ..models import ArtifactSet, RunMode, TaskPhase, TaskStatus
 from ..services import RunService
 

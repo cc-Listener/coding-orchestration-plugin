@@ -1,7 +1,7 @@
 import unittest
 
 from coding_orchestration.models import AgentRunStatus, RunMode
-from coding_orchestration.status_policy import (
+from coding_orchestration.policies.status_policy import (
     normalize_implementation_run_status,
     run_details_are_runner_failed,
     run_details_require_verification_limitations,

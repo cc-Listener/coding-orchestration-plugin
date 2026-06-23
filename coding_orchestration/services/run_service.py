@@ -13,7 +13,7 @@ from ..models import (
     normalize_agent_run_status,
 )
 from ..state_machine import TaskStateMachine
-from ..status_policy import run_details_are_runner_failed
+from ..policies.status_policy import run_details_are_runner_failed
 
 
 CancelledTaskMessage = Callable[[dict[str, Any]], str]
