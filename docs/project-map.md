@@ -57,7 +57,7 @@
 | `coding_orchestration/tools/tool_operation_dispatcher.py` | `ToolOperationDispatcher`：按 `ToolSpec.operation_id` 分发到当前 service/façade handler；`orchestrator_facades/orchestrator_tool_facade.py` 只负责 host façade 接线；`tools/plugin_tools.py` Hermes native tool 注册层只做 host payload 归一和 handler 包装，不持有 orchestrator 方法名映射；`cli/registration.py` 的 tool-equivalent 命令和 Gateway `/coding project-mcp-preflight` diagnostic leaf 复用同一 operation 边界。 |
 | `coding_orchestration/cli/registration.py` | Hermes CLI 子命令注册入口；纯 tool-equivalent 命令直接走 `dispatch_tool_operation()`，普通 `status <task_id>` 只读取 `task.status` payload，`project-mcp-preflight` 额外保留 host config 与 stdio command readiness gate；`coding_orchestration.cli` 作为稳定导出包保留 `register_cli`。 |
 | `coding_orchestration/ports/contracts.py` | 逐步拆分核心域和 adapter 的端口合同；通过 `coding_orchestration.ports` 保留稳定导出，覆盖 host、runner、source、work item、ledger、knowledge 和 runtime；`SourceResult` 是 source 读取的稳定结果合同。 |
-| `coding_orchestration/models.py` | 公共枚举和数据结构：任务状态、phase、run mode、runner capability、artifact contract。 |
+| `coding_orchestration/models/contracts.py` | 公共枚举和数据结构：任务状态、phase、run mode、runner capability、artifact contract；通过 `coding_orchestration.models` 保留稳定导出。 |
 | `coding_orchestration/state_machine/machine.py` | 任务状态转换规则，以及 runner/source 状态到 task 状态的映射；通过 `coding_orchestration.state_machine` 保留稳定导出。 |
 | `coding_orchestration/presenters/doctor_presenter.py` | doctor、lark-preflight、project-mcp-preflight 和 source-resolve 的用户可见文案 presenter；承载 host 恢复命令和配置引用，`coding_diagnostics_command_executor.py` 负责状态收集并 direct 调用 presenter，不经 `CodingOrchestrator._doctor_*` 私有代理。 |
 | `coding_orchestration/coding_commands/coding_task_list_command_executor.py` | Coding task list command host shell：维护普通 `/coding list` 与 Gateway list immediate 的 active status 查询、active task 标记、空列表文案和会话切换提示；不承载 task list presenter、Gateway route 规则、CLI direct dispatcher、status reconcile、delivery/project/diagnostics、runner/workspace/git 或 run lifecycle。 |
@@ -207,7 +207,7 @@ Feishu / Hermes Gateway
 | `coding_orchestration/skills/hermes-coding-operator/`、`skills/hermes-coding-health-check/` | Hermes binding skill，只负责 host 映射和用户可见修复命令；改动需配套 `tests/test_plugin_registration.py`。 |
 | `coding_orchestration/integrations/install/install.py`、`scripts/install_symlink.py`、`scripts/uninstall_legacy.py` | 会影响本机 Hermes 插件安装、卸载和 Gateway 重启，执行前需先 dry-run 或看清参数。 |
 | `coding_orchestration/reports/report_contract.py`、`reports/report_admission.py` | 结构化 report 质量门，改动会影响任务是否可进入下一阶段。 |
-| `coding_orchestration/state_machine/machine.py`、`coding_orchestration/policies/status_policy.py`、`models.py` | 公共状态 contract，改动需同步测试和用户可见文案。 |
+| `coding_orchestration/state_machine/machine.py`、`coding_orchestration/policies/status_policy.py`、`coding_orchestration/models/contracts.py` | 公共状态 contract，改动需同步测试和用户可见文案。 |
 
 ## 不确定项
 

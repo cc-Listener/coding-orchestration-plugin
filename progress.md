@@ -4,6 +4,35 @@
 
 ## 会话：2026-06-23
 
+### 阶段 296：Models contract 子包治理
+- **状态：** complete
+- 背景：
+  - `models.py` 维护任务状态、任务类型、phase、run mode、runner capability、run manifest、artifact set 和状态显示 helper，属于公共模型合同边界，不应继续散落在 `coding_orchestration/` 包根。
+  - 本切片只做同名包化，并通过 `coding_orchestration/models/__init__.py` 保留 `from coding_orchestration.models import ...` 稳定导出；状态机、RunService、ports、runner/workspace/git 和 run lifecycle 不属于本切片。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求包根不再保留 `models.py`，并要求 `coding_orchestration/models/__init__.py` 与 `coding_orchestration/models/contracts.py` 存在。
+  - RED 已确认：focused layout test 先失败，失败点为包根旧文件 `models.py` 仍存在。
+  - 将模型合同移入 `coding_orchestration/models/contracts.py`，新增 `coding_orchestration/models/__init__.py` 保留稳定导出。
+  - 更新 architecture guard 边界扫描路径，并同步技术方案、项目地图、组件合同、约定、machine-readable context 和发现中的 canonical path。
+- 当前边界：
+  - `coding_orchestration/models/contracts.py`：只做公共枚举、runner capability、manifest、artifact contract 和状态显示 helper。
+  - `coding_orchestration/models/__init__.py`：只做稳定导出，不承载业务逻辑。
+  - 状态机、RunService、ports、runner/workspace/git 和 run lifecycle 均未迁移。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为包根旧文件 `models.py`。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout tests.test_state_machine tests.test_run_service tests.test_run_status_transition_service tests.test_run_artifact_paths tests.test_architecture_guard -v`：83 tests passed。
+  - 编译检查：`rtk python3 -m compileall coding_orchestration tests`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed，输出 `yaml ok`。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 1002 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 当前包根：
+  - `coding_orchestration/` 包根 `.py` 数量：3（不含 `__init__.py`）。
+  - 包根 `.py` 总行数：1112。
+  - 剩余包根文件：`ledger.py`、`orchestrator.py`、`run_orchestration_service.py`。
+- 剩余风险：
+  - 剩余包根文件集中在 ledger façade、orchestrator façade 和 run orchestration owner；继续治理时应优先采用 façade 包化或 projection/service 分拆，不迁 runner/workspace/git/run lifecycle 核心实现。
+
 ### 阶段 295：State machine contract 子包治理
 - **状态：** complete
 - 背景：

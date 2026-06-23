@@ -19,12 +19,12 @@ LINE_EXEMPTIONS = {
 BOUNDARY_DEBT: set[tuple[str, str]] = set()
 
 BOUNDARY_CHECKED_FILES = {
-    "coding_orchestration/models.py",
-    "coding_orchestration/state_machine.py",
+    "coding_orchestration/models/contracts.py",
+    "coding_orchestration/state_machine/machine.py",
     "coding_orchestration/status_policy.py",
     "coding_orchestration/report_contract.py",
     "coding_orchestration/report_admission.py",
-    "coding_orchestration/ports.py",
+    "coding_orchestration/ports/contracts.py",
     "coding_orchestration/tool_specs.py",
 }
 

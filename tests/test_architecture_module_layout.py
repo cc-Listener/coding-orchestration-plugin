@@ -170,6 +170,13 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
         self.assertTrue((package_root / "state_machine" / "__init__.py").is_file())
         self.assertTrue((package_root / "state_machine" / "machine.py").is_file())
 
+    def test_models_contract_lives_in_models_package(self):
+        package_root = REPO_ROOT / "coding_orchestration"
+
+        self.assertFalse((package_root / "models.py").exists())
+        self.assertTrue((package_root / "models" / "__init__.py").is_file())
+        self.assertTrue((package_root / "models" / "contracts.py").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

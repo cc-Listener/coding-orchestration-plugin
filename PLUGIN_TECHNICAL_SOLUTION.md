@@ -452,6 +452,8 @@ coding_orchestration plugin
 
 阶段 295 目录治理事实：State machine contract 已收拢到 `coding_orchestration/state_machine/machine.py`，并通过 `coding_orchestration/state_machine/__init__.py` 保留 `TaskStateMachine` / `InvalidTransition` 稳定导出；该模块只承接任务状态合法转换、runner 状态到 task 状态映射和 source 状态到 task 状态映射，不迁 `models.py`、RunService、run status transition service、runner/workspace/git 或 run lifecycle。
 
+阶段 296 目录治理事实：Models contract 已收拢到 `coding_orchestration/models/contracts.py`，并通过 `coding_orchestration/models/__init__.py` 保留 `TaskStatus`、`TaskPhase`、`RunMode`、`AgentRunStatus`、`RunManifest`、`RunnerCapabilities`、`ArtifactSet` 和状态显示 helper 稳定导出；该模块只承接公共枚举、runner capability、manifest 和 artifact contract，不迁状态机、RunService、ports、runner/workspace/git 或 run lifecycle。
+
 阶段 286 目录治理事实：policy/guard helper 已收拢到 `coding_orchestration/policies/`，包括 `diff_guard.py` 和 `execution_policy.py`；该包当时只承接 diff boundary audit 和 execution policy 归一化，status/report policy 已在阶段 288 继续收拢，状态机、run diff guard host service、RunService timeout、runner/workspace/git 和 run lifecycle 仍按各自边界维护。
 
 阶段 287 目录治理事实：Codex reuse runner helper 已收拢到 `coding_orchestration/runners/codex_reuse.py`；该模块只承接 Hermes terminal Codex CLI、Hermes openai-codex provider 和 direct Codex CLI fallback 的 backend decision，不迁 `runner_router.py`、runner implementations、Hermes runtime adapter、auth 检测、runner/workspace/git 或 run lifecycle。

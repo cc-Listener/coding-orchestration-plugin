@@ -568,6 +568,9 @@ component_contract:
     - name: task_ledger
       path: coding_orchestration/ledger.py
       preferred: true
+    - name: models_contract
+      path: coding_orchestration/models/contracts.py
+      preferred: true
     - name: report_contract
       path: coding_orchestration/reports/report_contract.py
       preferred: true
@@ -585,6 +588,10 @@ component_contract:
       path: coding_orchestration/state_machine/machine.py
       use_instead_of:
         - "自行拼接非法状态转换。"
+    - name: models_contract
+      path: coding_orchestration/models/contracts.py
+      use_instead_of:
+        - "在 coding_orchestration/ 包根继续放置 models.py，或绕过 coding_orchestration.models 稳定导出自行复制任务状态、run mode、manifest 或 artifact contract。"
     - name: run_orchestration_service
       path: coding_orchestration/run_orchestration_service.py
       use_instead_of:

@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 295：State machine contract 子包治理（complete）
+阶段 296：Models contract 子包治理（complete）
 
 ## 各阶段
+
+### 阶段 296：Models contract 子包治理
+- [x] 定域：只收拢 `models.py` 到 `coding_orchestration/models/contracts.py`，通过 `coding_orchestration/models/__init__.py` 保留 `from coding_orchestration.models import ...` 稳定导出；保持任务状态、phase、run mode、runner capability、manifest、artifact contract 和状态显示 helper 行为不变；不迁状态机、RunService、ports、runner/workspace/git 或 run lifecycle。
+- [x] TDD：扩展模块布局架构测试，要求 models contract 不再散落在 `coding_orchestration/` 包根，并运行既有 state/model/run service 相邻测试。
+- [x] RED：确认新增 focused test 在当前包根文件存在时失败。
+- [x] 实现：移动模块并更新 architecture guard 边界扫描路径 / 文档路径。
+- [x] 验证：运行 focused GREEN、state/run/model 相邻回归、py_compile、YAML、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步进度、发现、技术方案、项目地图、组件合同、约定、machine-readable context 和治理计划。
+- **状态：** complete
 
 ### 阶段 295：State machine contract 子包治理
 - [x] 定域：只收拢 `state_machine.py` 到 `coding_orchestration/state_machine/machine.py`，通过 `coding_orchestration/state_machine/__init__.py` 保留 `from coding_orchestration.state_machine import TaskStateMachine, InvalidTransition` 稳定导出；保持任务状态转换、runner/source 状态映射和异常语义不变；不迁 `models.py`、RunService、run status transition service、runner/workspace/git 或 run lifecycle。
