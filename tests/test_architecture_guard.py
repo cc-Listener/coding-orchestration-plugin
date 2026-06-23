@@ -399,6 +399,31 @@ class ArchitectureGuardTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
+    def test_orchestrator_does_not_keep_background_facade_methods(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def _start_background_plan_only(",
+            "def _run_plan_only_and_notify(",
+            "def _start_background_implementation(",
+            "def _run_implementation_and_notify(",
+            "def _execution_policy_from_run_result(",
+            "def _start_background_qa(",
+            "def _run_qa_and_notify(",
+            "def _start_background_merge_test(",
+            "def _run_merge_test_and_notify(",
+            "def _wait_for_background_run_completion(",
+            "def _record_completion_notification(",
+            "def _mark_background_run_failed(",
+            "def _store_pending_action_from_merge_test_result(",
+            "def _call_sender(",
+            "def _schedule_sender(",
+            "def _reply_if_possible(",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()

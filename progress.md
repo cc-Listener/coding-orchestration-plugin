@@ -4,6 +4,28 @@
 
 ## 会话：2026-06-23
 
+### 阶段 244：Task 37 Orchestrator 500 行治理第十七切片
+- **状态：** complete
+- 背景：
+  - 阶段 243 已把 workspace checkpoint façade 迁入 `orchestrator_workspace_facade.py`；`orchestrator.py` 仍直接承载 background run façade wrapper，包括后台 plan/implementation/QA/merge-test 启动与通知 wrapper、completion wait/failed/pending-action/notification wrapper、sender scheduling/reply wrapper 和 execution policy artifact wrapper。
+  - 本阶段选择 background run façade 作为低风险 host wrapper 切片；不迁后台 executor/notifier/orchestration 核心实现、`start_run()` 主体、active run reconcile 主体、runner 调度或 run lifecycle。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_guard.py`，要求 `orchestrator.py` 不再直接定义 background run façade wrapper。
+  - RED 已确认：focused architecture test 先失败于 `orchestrator.py` 仍定义 16 个 background run façade wrapper。
+  - 新增 `coding_orchestration/orchestrator_background_facade.py`，用 `OrchestratorBackgroundFacadeMixin` 承接 background run façade wrapper。
+  - `CodingOrchestrator` 改为继承 `OrchestratorBackgroundFacadeMixin`，删除主文件内对应 background façade 实现和迁移后的无用 import。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：1288 行。
+  - `coding_orchestration/orchestrator_background_facade.py`：94 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_orchestrator_does_not_keep_background_facade_methods -v` 先失败 16 个 subTest，失败点为 background run façade wrapper 仍在 `orchestrator.py`。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/orchestrator_background_facade.py tests/test_architecture_guard.py`：passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_coding_background_run_executor tests.test_background_run_notifier tests.test_run_background_orchestration tests.test_gateway_command_executor tests.test_gateway_coding_mode_executor tests.test_gateway_pending_action_executor tests.test_plan_run_flow tests.test_qa_flow tests.test_merge_test_qa_gate_flow tests.test_command_run_flow tests.test_run_context_artifact_service -v`：73 tests passed。
+  - 文档/架构测试、YAML 解析、architecture guard、格式检查和 Release gate no-smoke 已在提交前验证通过。
+- 剩余风险：
+  - 500 行是长期目标；本阶段未迁后台 executor/notifier/orchestration 核心实现、`handle_gateway_event()`、active run reconcile、runner 调度、`start_run()`、run lifecycle 或状态机核心。
+
 ### 阶段 243：Task 37 Orchestrator 500 行治理第十六切片
 - **状态：** complete
 - 背景：
