@@ -204,7 +204,7 @@ rtk git commit -m "feat: 收拢 presenter 模块目录"
 - Moved: `run_session_writeback_service.py` -> `run/services/run_session_writeback_service.py`
 - Moved in stage 263: `run_status_transition_service.py` -> `run/services/run_status_transition_service.py`
 - Moved: `run_summary_writeback_service.py` -> `run/services/run_summary_writeback_service.py`
-- Move: `run_manifest_service.py`
+- Moved in stage 278: `run_manifest_service.py` -> `run/services/run_manifest_service.py`
 - Move: `run_orchestration_service.py`
 - Modify: orchestrator imports, façade imports, tests and docs
 

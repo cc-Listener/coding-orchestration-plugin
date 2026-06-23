@@ -74,6 +74,7 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
                 "run_ledger_writeback_service.py run_session_writeback_service.py run_summary_writeback_service.py",
             ),
             ("run_manifest_session_writeback_service.py", "run/services", "run_manifest_session_writeback_service.py"),
+            ("run_manifest_service.py", "run/services", "run_manifest_service.py"),
             ("run_project_writeback_service.py", "run/services", "run_project_writeback_service.py"),
             ("run_completion_writeback_service.py", "run/services", "run_completion_writeback_service.py"),
             ("run_reconcile_writeback_service.py", "run/services", "run_reconcile_writeback_service.py"),

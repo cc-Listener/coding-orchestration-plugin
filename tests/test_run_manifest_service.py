@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from coding_orchestration.models import ArtifactSet, RunMode, RunnerName
-from coding_orchestration.run_manifest_service import (
+from coding_orchestration.run.services.run_manifest_service import (
     artifact_record,
     build_manifest_session_fields,
     build_run_manifest,
@@ -88,7 +88,7 @@ class RunManifestServiceTest(unittest.TestCase):
         }
 
         with patch(
-            "coding_orchestration.run_manifest_service.source_projection_from_source",
+            "coding_orchestration.run.services.run_manifest_service.source_projection_from_source",
             return_value=SimpleNamespace(
                 status="permission_missing",
                 source_type="feishu_docx",

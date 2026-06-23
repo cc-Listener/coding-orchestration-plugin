@@ -49,6 +49,7 @@ from .run.services import (
     run_evidence_observation_service,
     run_implementation_checkpoint_service,
     run_ledger_writeback_service,
+    run_manifest_service,
     run_manifest_session_writeback_service,
     run_project_writeback_service,
     run_reconcile_writeback_service,
@@ -58,7 +59,6 @@ from .run.services import (
 )
 from . import (
     run_orchestration_service,
-    run_manifest_service,
 )
 from .source import source_projection
 from .project_resolver import ProjectResolver

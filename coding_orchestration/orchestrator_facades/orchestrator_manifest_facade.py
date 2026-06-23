@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .. import run_manifest_service
 from ..models import ArtifactSet, RunManifest, RunMode, RunnerName
 from ..run.artifacts import run_artifact_paths
+from ..run.services import run_manifest_service
 from ..runners.codex_report_schema import write_report_schema
 from ..symphony_compat.workflow_loader import WorkflowSpec
 

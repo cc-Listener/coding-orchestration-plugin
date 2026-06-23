@@ -20,7 +20,7 @@ from ..integrations.knowledge.knowledge_adapter import LocalKnowledgeAdapter
 from ..ledger import TaskLedger
 from ..project_knowledge_resolver import ProjectKnowledgeResolver
 from ..project_resolver import ProjectRegistry
-from ..run_manifest_service import RunManifestService
+from ..run.services.run_manifest_service import RunManifestService
 from ..runner_router import RunnerRouter
 from ..services import DeliveryService, RunService, TaskService, WorkItemService
 from ..source.source_resolver import SourceResolver
