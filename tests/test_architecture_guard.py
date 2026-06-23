@@ -292,6 +292,48 @@ class ArchitectureGuardTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
+    def test_orchestrator_does_not_keep_task_source_facade_methods(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def command_coding_task(",
+            "def create_task_from_text(",
+            "def _create_task_from_text(",
+            "def _task_creation_flag_error(",
+            "def _task_creation_validation_error(",
+            "def _format_task_creation_validation_error(",
+            "def _initial_task_status_for_create(",
+            "def _read_source_context(",
+            "def _index_external_source_context(",
+            "def _extract_first_feishu_document_link(",
+            "def _extract_first_feishu_project_link(",
+            "def _normalize_document_source_context_for_codex(",
+            "def _looks_like_failed_feishu_document_context(",
+            "def _looks_like_failed_feishu_project_context(",
+            "def _requirement_summary(",
+            "def _message_summary(",
+            "def _source_context_for_ledger(",
+            "def _source_context_requires_human(",
+            "def _event_source_for_ledger(",
+            "def _event_media_for_ledger(",
+            "def _mentions_image_placeholder_without_media(",
+            "def _media_prompt_lines(",
+            "def _append_media_description(",
+            "def _draft_knowledge_source_refs(",
+            "def _task_status_payload(",
+            "def _latest_agent_run(",
+            "def _next_actions_for_task_payload(",
+            "def _source_context_payload(",
+            "def _source_status_from_context(",
+            "def _repair_task_context_from_existing_task(",
+            "def _enrich_deferred_source_context_before_run(",
+            "def _resolve_source_context(",
+            "def _is_deferred_feishu_source_context(",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()

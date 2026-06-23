@@ -4,6 +4,28 @@
 
 ## 会话：2026-06-23
 
+### 阶段 241：Task 37 Orchestrator 500 行治理第十四切片
+- **状态：** complete
+- 背景：
+  - 阶段 240 已把 project/profile/active-project façade 迁入 `orchestrator_project_facade.py`；`orchestrator.py` 仍直接承载 task/source façade wrapper，包括 task create command wrapper、TaskService source/status payload wrapper、source context 读取/修复/enrich wrapper、event/media ledger helper 和 draft knowledge source refs wrapper。
+  - 本阶段选择 task/source façade 作为边界清楚的 host wrapper 切片；不迁 active task/coding mode binding、feedback command host shell、run lifecycle、runner/workspace/git、`start_run()` 或状态机核心。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_guard.py`，要求 `orchestrator.py` 不再直接定义 task/source façade wrapper。
+  - RED 已确认：focused architecture test 先失败于 `orchestrator.py` 仍定义 33 个 task/source façade wrapper。
+  - 新增 `coding_orchestration/orchestrator_task_source_facade.py`，用 `OrchestratorTaskSourceFacadeMixin` 承接 task create command wrapper、TaskService source/status payload wrapper、source context 读取/修复/enrich wrapper、event/media ledger helper 和 draft knowledge source refs wrapper。
+  - `CodingOrchestrator` 改为继承 `OrchestratorTaskSourceFacadeMixin`，删除主文件内对应 task/source façade 实现和迁移后的无用 import。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：1608 行。
+  - `coding_orchestration/orchestrator_task_source_facade.py`：240 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_orchestrator_does_not_keep_task_source_facade_methods -v` 先失败 33 个 subTest，失败点为 task/source façade wrapper 仍在 `orchestrator.py`。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/orchestrator_task_source_facade.py tests/test_architecture_guard.py`：passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_task_service tests.test_task_status_payload tests.test_source_context_repair_service tests.test_source_flow tests.test_source_plan_flow tests.test_gateway_command_executor tests.test_gateway_coding_mode_executor tests.test_coding_feedback_command_executor tests.test_plan_run_flow -v`：59 tests passed。
+  - 文档/架构测试、YAML 解析、architecture guard、格式检查和 Release gate no-smoke 已在提交前验证通过。
+- 剩余风险：
+  - 500 行是长期目标；本阶段未迁 active task/coding mode binding、feedback command host shell、active run reconcile、runner/workspace/git、`start_run()`、run lifecycle 或状态机核心。
+
 ### 阶段 240：Task 37 Orchestrator 500 行治理第十三切片
 - **状态：** complete
 - 背景：
