@@ -95,11 +95,11 @@ class ArchitectureGuardTest(unittest.TestCase):
         self.assertEqual([], root_modules)
         self.assertEqual(expected, nested_modules)
 
-    def test_orchestrator_facade_modules_live_in_dedicated_package(self):
-        self._assert_modules_live_in_dedicated_package(
-            glob_pattern="orchestrator_*_facade.py",
-            package="orchestrator_facades",
-            expected=(
+    def test_repository_module_families_live_in_dedicated_packages(self):
+        cases = [
+            (
+                "orchestrator_*_facade.py",
+                "orchestrator_facades",
                 "orchestrator_active_run_facade.py orchestrator_background_facade.py "
                 "orchestrator_bootstrap_facade.py orchestrator_command_facade.py "
                 "orchestrator_diagnostics_facade.py orchestrator_gateway_facade.py "
@@ -107,32 +107,35 @@ class ArchitectureGuardTest(unittest.TestCase):
                 "orchestrator_project_facade.py orchestrator_prompt_context_facade.py "
                 "orchestrator_runtime_facade.py orchestrator_status_policy_facade.py "
                 "orchestrator_task_runtime_facade.py orchestrator_task_source_facade.py "
-                "orchestrator_tool_facade.py orchestrator_workspace_facade.py"
-            ).split(),
-        )
-
-    def test_gateway_modules_live_in_dedicated_package(self):
-        self._assert_modules_live_in_dedicated_package(
-            glob_pattern="gateway_*.py",
-            package="gateway",
-            expected=(
+                "orchestrator_tool_facade.py orchestrator_workspace_facade.py",
+            ),
+            (
+                "gateway_*.py",
+                "gateway",
                 "gateway_active_context.py gateway_binding_service.py gateway_coding_mode_executor.py "
                 "gateway_command_controller.py gateway_command_executor.py gateway_pending_action_executor.py "
-                "gateway_project_context.py gateway_rewrite_context.py gateway_rewrite_presenter.py"
-            ).split(),
-        )
-
-    def test_coding_command_executors_live_in_dedicated_package(self):
-        self._assert_modules_live_in_dedicated_package(
-            glob_pattern="coding_*_command_executor.py",
-            package="coding_commands",
-            expected=(
+                "gateway_project_context.py gateway_rewrite_context.py gateway_rewrite_presenter.py",
+            ),
+            (
+                "coding_*_command_executor.py",
+                "coding_commands",
                 "coding_diagnostics_command_executor.py coding_feedback_command_executor.py "
                 "coding_help_command_executor.py coding_merge_test_command_executor.py "
                 "coding_run_command_executor.py coding_status_command_executor.py "
-                "coding_task_control_command_executor.py coding_task_list_command_executor.py"
-            ).split(),
-        )
+                "coding_task_control_command_executor.py coding_task_list_command_executor.py",
+            ),
+            (
+                "feishu_*.py",
+                "feishu",
+                "feishu_copy.py feishu_document_reader.py feishu_messages.py feishu_project_mcp.py "
+                "feishu_project_reader.py feishu_work_item_reader.py",
+            ),
+        ]
+        for glob_pattern, package, expected in cases:
+            with self.subTest(package=package):
+                self._assert_modules_live_in_dedicated_package(
+                    glob_pattern=glob_pattern, package=package, expected=expected.split()
+                )
 
     def test_orchestrator_does_not_keep_doctor_presenter_private_proxies(self):
         source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")

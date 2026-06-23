@@ -9,7 +9,7 @@ from ..doctor_presenter import (
     format_source_resolve as render_source_resolve,
     render_doctor_summary,
 )
-from ..feishu_project_mcp import FeishuProjectMcpConfig
+from ..feishu.feishu_project_mcp import FeishuProjectMcpConfig
 from ..models import RunMode
 
 

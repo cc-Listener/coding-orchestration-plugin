@@ -1,6 +1,6 @@
 import unittest
 
-from coding_orchestration.feishu_project_reader import FeishuProjectReader
+from coding_orchestration.feishu.feishu_project_reader import FeishuProjectReader
 
 
 class FeishuProjectReaderTest(unittest.TestCase):

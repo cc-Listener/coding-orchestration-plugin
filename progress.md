@@ -4,6 +4,33 @@
 
 ## 会话：2026-06-23
 
+### 阶段 255：Feishu 模块目录治理第一切片
+- **状态：** complete
+- 背景：
+  - 阶段 253/254 已分别把 Gateway 专属模块和普通 coding command executor 收拢到专用子包。
+  - 本阶段继续治理 `coding_orchestration/` 包根散落文件，只处理 6 个 `feishu_*.py`；不迁 `source_links.py`、`source_recovery.py`、`source_projection.py`、`meegle_reader.py`、runner/workspace/git 或 run lifecycle。
+- 执行的操作：
+  - 将 `tests/test_architecture_guard.py` 的目录布局断言改为表驱动，并新增 Feishu 模块族检查，锁定包根不得保留 `feishu_*.py`；测试文件保持 600 行，未触发 large-file watch。
+  - RED 已确认：focused architecture test 先失败，失败点为包根仍存在 6 个 Feishu 模块。
+  - 新增 `coding_orchestration/feishu/__init__.py`，迁移 `feishu_copy.py`、`feishu_messages.py`、`feishu_document_reader.py`、`feishu_work_item_reader.py`、`feishu_project_reader.py` 和 `feishu_project_mcp.py`。
+  - 更新生产代码、测试 import 和 mock patch 路径，保持 Feishu 文案、reader、Project reader 兼容 façade 和 Project MCP adapter 行为不变。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前目录边界：
+  - `coding_orchestration/feishu/`：Feishu/Lark 用户可见文案、Docx/Wiki reader、Project work item reader、Project reader 兼容 façade 和 Project MCP adapter。
+  - `coding_orchestration/` 包根：不再保留 `feishu_*.py`。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_repository_module_families_live_in_dedicated_packages -v` 先失败，失败点为 root Feishu list 包含 6 个旧路径文件。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - Feishu 回归：`rtk python3 -m unittest tests.test_feishu_copy tests.test_feishu_messages tests.test_feishu_document_reader tests.test_feishu_work_item_reader tests.test_feishu_project_reader tests.test_feishu_project_mcp tests.test_feishu_project_mcp_e2e -v`：34 tests passed。
+  - Source/tool/diagnostics 相邻回归：`rtk python3 -m unittest tests.test_source_resolver tests.test_task_service tests.test_task_status_payload tests.test_source_flow tests.test_source_plan_flow tests.test_workitem_service tests.test_coding_diagnostics_command_executor tests.test_coding_cli tests.test_orchestrator_tools -v`：80 tests passed。
+  - 编译检查：`rtk python3 -m py_compile ...` 覆盖 Feishu 子包、相关 import 消费方和 architecture guard test：passed。
+  - YAML 解析：`rtk python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 995 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 本阶段只处理 Feishu 模块目录，不迁移 `delivery_command_executor.py`、`project_command_executor.py`、`coding_background_run_executor.py`、`meegle_reader.py`、source 通用投影/恢复层、runner/workspace/git 或 run lifecycle；后续应继续按职责域独立切片治理。
+
 ### 阶段 254：Coding command executor 目录治理第一切片
 - **状态：** complete
 - 背景：

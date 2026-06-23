@@ -4,7 +4,7 @@ from typing import Any
 
 from .feishu_document_reader import FeishuDocumentReader
 from .feishu_work_item_reader import FeishuWorkItemReader
-from .source_links import (
+from ..source_links import (
     FeishuDocumentLink,
     FeishuProjectLink,
     extract_feishu_document_link,

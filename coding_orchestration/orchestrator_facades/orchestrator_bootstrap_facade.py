@@ -4,14 +4,14 @@ from pathlib import Path
 from typing import Any
 
 from ..command_rewriter import HermesCommandRewriter
-from ..feishu_project_mcp import (
+from ..feishu.feishu_project_mcp import (
     READ_TOOLS,
     WRITE_TOOLS,
     FeishuProjectMcpAdapter,
     FeishuProjectMcpConfig,
     build_stdio_client_factory,
 )
-from ..feishu_project_reader import FeishuProjectReader
+from ..feishu.feishu_project_reader import FeishuProjectReader
 from ..gateway.gateway_binding_service import GatewayBindingService
 from ..hermes_runtime import HermesRuntime
 from ..kanban_bridge import KanbanBridge

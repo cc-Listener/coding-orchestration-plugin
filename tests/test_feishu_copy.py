@@ -1,6 +1,6 @@
 import unittest
 
-from coding_orchestration.feishu_copy import render_user_update
+from coding_orchestration.feishu.feishu_copy import render_user_update
 
 
 class FeishuCopyTest(unittest.TestCase):

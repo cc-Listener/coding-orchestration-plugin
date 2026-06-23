@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from ..feishu_project_mcp import redact_secrets
+from ..feishu.feishu_project_mcp import redact_secrets
 from ..models import AgentRunStatus, RunMode, TaskStatus
 from ..project_intake import ProjectIntakeRule
 from ..project_workitem_binding import ProjectWorkitemIdentity

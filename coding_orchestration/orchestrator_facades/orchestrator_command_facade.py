@@ -4,7 +4,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from ..feishu_copy import render_user_update
+from ..feishu.feishu_copy import render_user_update
 from ..models import TaskPhase, TaskStatus
 from ..services import DeliveryService
 from .. import (

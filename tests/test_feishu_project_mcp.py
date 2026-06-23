@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from unittest.mock import Mock
 
-from coding_orchestration.feishu_project_mcp import (
+from coding_orchestration.feishu.feishu_project_mcp import (
     FeishuProjectMcpAdapter,
     FeishuProjectMcpConfig,
     McpJsonRpcClient,

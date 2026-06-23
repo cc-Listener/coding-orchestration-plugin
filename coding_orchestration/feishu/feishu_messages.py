@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from .feishu_copy import render_user_update
-from .models import ProjectCandidate, task_status_display
+from ..models import ProjectCandidate, task_status_display
 
 
 def render_task_created(

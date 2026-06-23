@@ -2,7 +2,7 @@ import unittest
 from subprocess import CompletedProcess
 from unittest.mock import patch
 
-from coding_orchestration.feishu_document_reader import FeishuDocumentReader
+from coding_orchestration.feishu.feishu_document_reader import FeishuDocumentReader
 from coding_orchestration.source_links import extract_feishu_document_link
 
 
@@ -38,7 +38,7 @@ class FeishuDocumentReaderTest(unittest.TestCase):
             "接口文档：https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe"
         )
 
-        with patch("coding_orchestration.feishu_document_reader.subprocess.run") as run:
+        with patch("coding_orchestration.feishu.feishu_document_reader.subprocess.run") as run:
             run.return_value = CompletedProcess(
                 args=["lark-cli"],
                 returncode=3,
@@ -63,7 +63,7 @@ class FeishuDocumentReaderTest(unittest.TestCase):
             "接口文档：https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe"
         )
 
-        with patch("coding_orchestration.feishu_document_reader.subprocess.run") as run:
+        with patch("coding_orchestration.feishu.feishu_document_reader.subprocess.run") as run:
             run.side_effect = [
                 CompletedProcess(
                     args=["rtk", "lark-cli", "docs", "+fetch"],
@@ -101,7 +101,7 @@ class FeishuDocumentReaderTest(unittest.TestCase):
             "接口文档：https://bestfulfill.feishu.cn/wiki/FLArwwLCaikbg6kVhWRcxpFQnTe"
         )
 
-        with patch("coding_orchestration.feishu_document_reader.subprocess.run") as run:
+        with patch("coding_orchestration.feishu.feishu_document_reader.subprocess.run") as run:
             run.return_value = CompletedProcess(
                 args=["lark-cli"],
                 returncode=1,

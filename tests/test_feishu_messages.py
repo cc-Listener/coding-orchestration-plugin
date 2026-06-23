@@ -1,6 +1,6 @@
 import unittest
 
-from coding_orchestration.feishu_messages import (
+from coding_orchestration.feishu.feishu_messages import (
     render_delivery_breakdown,
     render_task_tree_status,
     render_task_created,

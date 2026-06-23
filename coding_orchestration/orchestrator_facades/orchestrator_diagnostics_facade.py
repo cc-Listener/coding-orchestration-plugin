@@ -4,7 +4,7 @@ from typing import Any
 
 from .. import source_projection
 from ..coding_commands import coding_diagnostics_command_executor
-from ..feishu_project_mcp import FeishuProjectMcpConfig
+from ..feishu.feishu_project_mcp import FeishuProjectMcpConfig
 from ..models import AgentRunStatus, task_status_view
 
 

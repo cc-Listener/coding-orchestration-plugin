@@ -4,7 +4,7 @@ import sys
 import unittest
 from pathlib import Path
 
-from coding_orchestration.feishu_project_mcp import (
+from coding_orchestration.feishu.feishu_project_mcp import (
     FeishuProjectMcpAdapter,
     FeishuProjectMcpConfig,
     build_stdio_client_factory,

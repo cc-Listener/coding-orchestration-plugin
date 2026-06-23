@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from .feishu_project_reader import FeishuProjectReader
+from .feishu.feishu_project_reader import FeishuProjectReader
 from .meegle_reader import MeegleReader
 from .ports import SourceResult
 

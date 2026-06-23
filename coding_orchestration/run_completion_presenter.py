@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .feishu_copy import render_user_update
+from .feishu.feishu_copy import render_user_update
 from .models import RunMode, TaskStatus, task_status_display
 from .status_policy import run_status_details_from_report
 

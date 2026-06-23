@@ -1,6 +1,6 @@
 import unittest
 
-from coding_orchestration.feishu_work_item_reader import FeishuWorkItemReader
+from coding_orchestration.feishu.feishu_work_item_reader import FeishuWorkItemReader
 from coding_orchestration.source_links import extract_feishu_project_link
 
 

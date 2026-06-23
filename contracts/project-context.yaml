@@ -153,6 +153,8 @@ project_map:
       reason: "Coding feedback command executor host shell，维护普通 /coding continue/change/bugfix 命令模式占位、Gateway active task feedback 分流、feedback human decision / draft knowledge 记录 helper 和 bugfix replan 选择规则；direct 调用 feedback_presenter.py 渲染用户可见反馈文案，并通过 host callback 调用 Project clarification、后台 plan/implementation 启动和 merged-test reopen，不拥有 Gateway route/controller、后台 runner 实现、start_run、workspace/checkpoint/git、merge-test gates、source enrichment 或 Project MCP 写回。"
     - path: coding_orchestration/coding_commands/coding_task_control_command_executor.py
       reason: "Coding task control command executor host shell，维护普通 /coding use/exit/cancel/restore/delete/complete command-mode 分支和 Gateway use/exit task binding shell；delete artifact 清理通过 host callback，不拥有 Gateway route/controller、文件系统清理实现、runner/workspace/git、merge-test gates 或 run lifecycle。"
+    - path: coding_orchestration/feishu/
+      reason: "Feishu/Lark adapter package，维护飞书用户可见文案、Docx/Wiki reader、Project work item reader、Project reader 兼容 façade 和 Project MCP adapter；不承载通用 source projection、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/gateway/gateway_rewrite_context.py
       reason: "Gateway rewrite context 纯投影 helper，只消费已采集的 task/project/media/catalog 事实并返回 LLM rewrite context 与 next-step hint；不读 ledger、不持有 Gateway event、不调用 command_rewriter、不发送回复。"
     - path: coding_orchestration/delivery_command_executor.py
@@ -259,6 +261,8 @@ component_contract:
       kind: runner_adapters
     - path: coding_orchestration/source_resolver.py
       kind: source_adapter
+    - path: coding_orchestration/feishu/
+      kind: feishu_source_adapters
     - path: coding_orchestration/report_contract.py
       kind: report_gate
   systems:
@@ -366,6 +370,10 @@ component_contract:
     - name: source_resolution
       path: coding_orchestration/source_resolver.py
       preferred: true
+    - name: feishu_source_adapters
+      path: coding_orchestration/feishu/
+      preferred: true
+      note: "Feishu/Lark 文案、Docx/Wiki reader、Project work item reader、Project reader 兼容 façade 和 Project MCP adapter owner；包根不得再新增 feishu_*.py。"
     - name: delivery_command_executor
       path: coding_orchestration/delivery_command_executor.py
       preferred: true
@@ -787,6 +795,10 @@ component_contract:
       path: coding_orchestration/source_resolver.py
       use_instead_of:
         - "直接猜测飞书/Meegle 来源正文。"
+    - name: feishu_source_adapters
+      path: coding_orchestration/feishu/
+      use_instead_of:
+        - "在 coding_orchestration/ 包根新增 feishu_*.py，或把 Feishu Docx/Wiki reader、Project work item reader、Project MCP adapter 逻辑分散到 source resolver、orchestrator、service 或 runner。"
     - name: source_projection
       path: coding_orchestration/source_projection.py
       use_instead_of:

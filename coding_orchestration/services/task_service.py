@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..execution_policy import control_policy_for_mode
-from ..feishu_messages import (
+from ..feishu.feishu_messages import (
     render_task_created,
     render_task_needs_human,
     render_task_needs_source_context,
