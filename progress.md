@@ -4,6 +4,33 @@
 
 ## 会话：2026-06-23
 
+### 阶段 281：Background host helper 子包治理
+- **状态：** complete
+- 背景：
+  - `background_run_notifier.py` 承接后台线程启动、sender 调度、reply fallback、失败通知模板和 completion notification record。
+  - `coding_background_run_executor.py` 承接 Gateway 后台 plan-only / implementation / QA / merge-test mode-specific 启动、completion message 选择、失败通知和 completion notification 接线。
+  - 两者同属 background host helper 边界，不应继续散落在 `coding_orchestration/` 包根。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 background helper 位于 `coding_orchestration/background/`。
+  - RED 已确认：focused test 先失败，失败点为两个 background helper 仍在包根。
+  - 新增 `coding_orchestration/background/__init__.py`，将 notifier 和 executor 移入 `coding_orchestration/background/`。
+  - 更新 orchestrator background façade、测试和当前事实文档中的 import / canonical 路径。
+- 当前边界：
+  - `coding_orchestration/background/background_run_notifier.py`：后台线程启动、sender/reply fallback 和 notification record，不推进状态、不映射 runner result、不处理 merge-test pending action。
+  - `coding_orchestration/background/coding_background_run_executor.py`：后台 mode-specific 启动与 notification 接线，不承载 `start_run()`、后台等待完成、失败状态收敛、runner/workspace/git/checkpoint 或 run lifecycle。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为两个 background helper 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Background helper contract：`rtk python3 -m unittest tests.test_background_run_notifier tests.test_coding_background_run_executor -v`：13 tests passed。
+  - Background/Gateway/run 相邻回归：`rtk python3 -m unittest tests.test_architecture_module_layout tests.test_run_background_orchestration tests.test_coding_background_run_executor tests.test_background_run_notifier tests.test_gateway_command_executor tests.test_gateway_coding_mode_executor tests.test_gateway_pending_action_executor tests.test_plan_run_flow tests.test_qa_flow tests.test_merge_test_qa_gate_flow tests.test_command_run_flow tests.test_run_context_artifact_service -v`：74 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/background/__init__.py coding_orchestration/background/background_run_notifier.py coding_orchestration/background/coding_background_run_executor.py coding_orchestration/orchestrator_facades/orchestrator_background_facade.py tests/test_background_run_notifier.py tests/test_coding_background_run_executor.py tests/test_architecture_module_layout.py`：passed。
+  - YAML 解析：`rtk python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 包根仍保留 command catalog/rewrite、prompt/context/report、runner/workspace/run orchestration 等跨域或核心模块；后续应继续按引用面小、职责单一的模块族切片迁移。
+
 ### 阶段 280：Service boundary 子包治理
 - **状态：** complete
 - 背景：
@@ -437,8 +464,8 @@
   - 同步项目地图、组件合同、约定、machine-readable context、技术方案和目录治理计划。
 - 当前边界：
   - `coding_orchestration/run/services/run_background_orchestration.py`：后台等待完成、后台失败 transition 和 merge-test human_required pending action host orchestration。
-  - `coding_orchestration/coding_background_run_executor.py`：后台 run mode-specific 启动与 completion notification 接线。
-  - `coding_orchestration/background_run_notifier.py`：后台线程、sender 调度、reply fallback 和 notification record。
+  - `coding_orchestration/background/coding_background_run_executor.py`：后台 run mode-specific 启动与 completion notification 接线。
+  - `coding_orchestration/background/background_run_notifier.py`：后台线程、sender 调度、reply fallback 和 notification record。
 - 已验证：
   - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为 `['run_background_orchestration.py']` 仍在包根。
   - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
@@ -658,7 +685,7 @@
   - 编译检查：`rtk python3 -m py_compile coding_orchestration/commands/*.py coding_orchestration/commands/delivery/*.py coding_orchestration/commands/project/*.py coding_orchestration/orchestrator_facades/orchestrator_command_facade.py coding_orchestration/orchestrator_facades/orchestrator_gateway_facade.py coding_orchestration/coding_commands/coding_status_command_executor.py tests/test_architecture_guard.py tests/test_delivery_command_executor.py tests/test_project_command_executor.py`：passed。
   - 旧生产/测试 import 和旧文档根路径扫描：no matches。
 - 剩余风险：
-  - 本阶段只处理 delivery/project command host shell 目录，不迁 `coding_background_run_executor.py`、run artifact/projection/service、source/project/integration 层；后续按治理计划继续独立切片。
+  - 本阶段只处理 delivery/project command host shell 目录，不迁 `background/coding_background_run_executor.py`、run artifact/projection/service、source/project/integration 层；后续按治理计划继续独立切片。
 
 ### 阶段 256：Presenter 模块目录治理第一切片
 - **状态：** complete
@@ -680,7 +707,7 @@
   - Presenter 回归：`rtk python3 -m unittest tests.test_feedback_presenter tests.test_merge_test_presenter tests.test_run_start_presenter tests.test_run_completion_presenter tests.test_task_list_presenter tests.test_task_status_presenter -v`：22 tests passed。
   - Command/Gateway/status 相邻回归：`rtk python3 -m unittest tests.test_coding_diagnostics_command_executor tests.test_coding_feedback_command_executor tests.test_coding_merge_test_command_executor tests.test_coding_run_command_executor tests.test_coding_status_command_executor tests.test_coding_task_list_command_executor tests.test_gateway_command_executor tests.test_gateway_coding_mode_executor tests.test_status_reconcile_flow tests.test_implementation_result_flow tests.test_plan_run_flow tests.test_merge_test_blocked_flow tests.test_merge_test_qa_gate_flow tests.test_gateway_safety_lifecycle_flow tests.test_coding_background_run_executor -v`：97 tests passed。
   - 旧生产/测试 import 扫描：no matches。
-  - 编译检查：`rtk python3 -m py_compile coding_orchestration/presenters/*.py coding_orchestration/orchestrator_facades/*.py coding_orchestration/coding_commands/*.py coding_orchestration/gateway/*.py coding_orchestration/cli.py coding_orchestration/coding_background_run_executor.py tests/test_architecture_guard.py`：passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/presenters/*.py coding_orchestration/orchestrator_facades/*.py coding_orchestration/coding_commands/*.py coding_orchestration/gateway/*.py coding_orchestration/cli.py coding_orchestration/background/coding_background_run_executor.py tests/test_architecture_guard.py`：passed。
   - YAML 解析：`rtk python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
   - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
   - 格式检查：`rtk git diff --check`：passed。
@@ -688,7 +715,7 @@
 - 遇到的错误：
   - 首次 presenter 批量回归命令误包含不存在的 `tests.test_doctor_presenter`，导致 unittest loader error；已改为仓库实际存在的 presenter tests 重跑通过。
 - 剩余风险：
-  - 本阶段只处理 presenter 目录，不迁 `delivery_command_executor.py`、`project_command_executor.py`、`coding_background_run_executor.py`、run artifact/projection/service、source/project/integration 层；后续按治理计划继续独立切片。
+  - 本阶段只处理 presenter 目录，不迁 `delivery_command_executor.py`、`project_command_executor.py`、`background/coding_background_run_executor.py`、run artifact/projection/service、source/project/integration 层；后续按治理计划继续独立切片。
 
 ### 阶段 255：Feishu 模块目录治理第一切片
 - **状态：** complete
@@ -715,13 +742,13 @@
   - 格式检查：`rtk git diff --check`：passed。
   - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 995 tests passed，architecture guard no findings，敏感扫描 no findings。
 - 剩余风险：
-  - 本阶段只处理 Feishu 模块目录，不迁移 `delivery_command_executor.py`、`project_command_executor.py`、`coding_background_run_executor.py`、`meegle_reader.py`、source 通用投影/恢复层、runner/workspace/git 或 run lifecycle；后续应继续按职责域独立切片治理。
+  - 本阶段只处理 Feishu 模块目录，不迁移 `delivery_command_executor.py`、`project_command_executor.py`、`background/coding_background_run_executor.py`、`meegle_reader.py`、source 通用投影/恢复层、runner/workspace/git 或 run lifecycle；后续应继续按职责域独立切片治理。
 
 ### 阶段 254：Coding command executor 目录治理第一切片
 - **状态：** complete
 - 背景：
   - 阶段 253 已把 Gateway 专属模块收拢到 `coding_orchestration/gateway/`。
-  - 本阶段继续治理 `coding_orchestration/` 包根散落文件，只处理 8 个 `coding_*_command_executor.py`；不迁 `delivery_command_executor.py`、`project_command_executor.py`、`coding_background_run_executor.py`、runner/workspace/git 或 run lifecycle。
+  - 本阶段继续治理 `coding_orchestration/` 包根散落文件，只处理 8 个 `coding_*_command_executor.py`；不迁 `delivery_command_executor.py`、`project_command_executor.py`、`background/coding_background_run_executor.py`、runner/workspace/git 或 run lifecycle。
 - 执行的操作：
   - 扩展 `tests/test_architecture_guard.py`，新增 `test_coding_command_executors_live_in_dedicated_package`，锁定包根不得保留 `coding_*_command_executor.py`。
   - RED 已确认：focused architecture test 先失败，失败点为包根仍存在 8 个 coding command executor。
@@ -743,7 +770,7 @@
   - 格式检查：`rtk proxy git diff --check`：passed。
   - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 997 tests passed，architecture guard no findings，敏感扫描 no findings。
 - 剩余风险：
-  - 本阶段只处理普通 coding command executor。`feishu_*`、`delivery_command_executor.py`、`project_command_executor.py`、`coding_background_run_executor.py` 和 source adapter / background / project 目录治理仍需后续独立切片。
+  - 本阶段只处理普通 coding command executor。`feishu_*`、`delivery_command_executor.py`、`project_command_executor.py`、`background/coding_background_run_executor.py` 和 source adapter / background / project 目录治理仍需后续独立切片。
 
 ### 阶段 253：Gateway 模块目录治理第一切片
 - **状态：** complete
@@ -1378,7 +1405,7 @@
 - 执行的操作：
   - 扩展 `tests/test_coding_background_run_executor.py`、`tests/test_coding_run_command_executor.py` 和 `tests/test_coding_merge_test_command_executor.py`，要求 executor 在 host 不提供 `CodingOrchestrator._format_*completion_message` 私有代理时仍直接消费 `run_completion_presenter.py`。
   - RED 已确认：focused tests 先失败于 executor module 尚未持有 `run_completion_presenter`，仍只能通过 host 私有 completion wrapper 间接渲染文案。
-  - 修改 `coding_background_run_executor.py`、`coding_run_command_executor.py` 和 `coding_merge_test_command_executor.py`，将 completion 文案渲染改为 direct presenter call。
+  - 修改 `background/coding_background_run_executor.py`、`coding_run_command_executor.py` 和 `coding_merge_test_command_executor.py`，将 completion 文案渲染改为 direct presenter call。
   - 修改 `coding_orchestration/orchestrator.py`，内部 decomposition blocked message、confirmed plan / merge-test context 摘要读取改为 direct presenter call，并删除 `_format_*completion_message`、completion helper 和 `_read_text_excerpt` 私有代理。
   - 将旧 flow 测试中直接调用 `CodingOrchestrator._format_*completion_message` 的断言迁到 `run_completion_presenter.py` owner。
   - 同步 `PLUGIN_TECHNICAL_SOLUTION.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml` 和 `task_plan.md`。
@@ -1389,7 +1416,7 @@
   - Flow 回归：`rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_implementation_result_flow tests.test_qa_flow tests.test_merge_test_basic_flow tests.test_merge_test_qa_gate_flow -v`：38 tests passed。
   - Gateway safety 漏改回归：`rtk proxy python3 -m unittest tests.test_gateway_safety_lifecycle_flow -v`：4 tests passed。
   - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：23 tests passed。
-  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/coding_background_run_executor.py coding_orchestration/coding_run_command_executor.py coding_orchestration/coding_merge_test_command_executor.py tests/test_coding_background_run_executor.py tests/test_coding_run_command_executor.py tests/test_coding_merge_test_command_executor.py tests/test_implementation_result_flow.py tests/test_plan_run_flow.py`：passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/background/coding_background_run_executor.py coding_orchestration/coding_run_command_executor.py coding_orchestration/coding_merge_test_command_executor.py tests/test_coding_background_run_executor.py tests/test_coding_run_command_executor.py tests/test_coding_merge_test_command_executor.py tests/test_implementation_result_flow.py tests/test_plan_run_flow.py`：passed。
   - YAML 解析：`rtk proxy python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
   - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 2943 lines`。
   - 格式检查：`rtk proxy git diff --check`：passed。
@@ -1606,7 +1633,7 @@
 ### 阶段 218：Task 34 source context repair service 第二十一切片
 - **状态：** complete
 - 背景：
-  - 阶段 217 已把 Gateway 后台 run mode-specific 启动与通知接线迁入 `coding_background_run_executor.py`。
+  - 阶段 217 已把 Gateway 后台 run mode-specific 启动与通知接线迁入 `background/coding_background_run_executor.py`。
   - `orchestrator.py` 仍直接承接 source context 读取、deferred source pre-run enrichment 和既有 task context 修复；这些是 host helper 接线，可迁出但仍复用既有 source reader、ledger、resolver 和 transition callback。
   - 本轮不改 legacy `source_context` schema、不改 source reader、不迁 `start_run()`、runner/workspace/git 或 run lifecycle。
 - 执行的操作：
@@ -1635,12 +1662,12 @@
 - 执行的操作：
   - 新增 `tests/test_coding_background_run_executor.py`，覆盖四种后台 start wrapper、plan-only 等待完成通知、implementation stale completion 文案、QA completion 文案、merge-test pending action after_success 和失败通知记录。
   - RED 已确认：`coding_background_run_executor` 缺失导致测试失败。
-  - 新增 `coding_orchestration/coding_background_run_executor.py`，承接后台 run mode-specific host shell；`CodingOrchestrator._start_background_*()` 和 `_run_*_and_notify()` 改为薄 wrapper。
+  - 新增 `coding_orchestration/background/coding_background_run_executor.py`，承接后台 run mode-specific host shell；`CodingOrchestrator._start_background_*()` 和 `_run_*_and_notify()` 改为薄 wrapper。
 - 已验证：
   - RED：`rtk proxy python3 -m unittest tests.test_coding_background_run_executor -v` 先失败于 missing import。
   - GREEN：同一测试通过，6 tests passed。
   - 相邻回归：`rtk proxy python3 -m unittest tests.test_coding_background_run_executor tests.test_background_run_notifier tests.test_run_background_orchestration tests.test_plan_run_flow tests.test_command_run_flow tests.test_qa_flow tests.test_merge_test_qa_gate_flow tests.test_gateway_command_executor -v`：50 tests passed。
-  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/coding_background_run_executor.py coding_orchestration/orchestrator.py tests/test_coding_background_run_executor.py`：passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/background/coding_background_run_executor.py coding_orchestration/orchestrator.py tests/test_coding_background_run_executor.py`：passed。
   - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 3258 lines`。
   - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests passed。
   - 格式检查：`rtk proxy git diff --check`：passed。
@@ -3790,12 +3817,12 @@
   - 阶段 96-101 已将多类 presentation 从 `orchestrator.py` 迁出。
   - 后台 plan-only/implementation/QA/merge-test run 的线程启动、sender 调度、reply fallback 和 completion notification 记录仍直接写在 `orchestrator.py`，但这些是 host 通知编排，不应和 run 状态推进、runner 结果归一、merge-test pending action 混在一起。
 - 执行的操作：
-  - 新增 `coding_orchestration/background_run_notifier.py`，承接后台线程启动、统一失败通知文案、`send_message` / adapter fallback、async sender 调度、completion notification record 构造和通知编排。
+  - 新增 `coding_orchestration/background/background_run_notifier.py`，承接后台线程启动、统一失败通知文案、`send_message` / adapter fallback、async sender 调度、completion notification record 构造和通知编排。
   - `CodingOrchestrator._start_background_*()`、`_run_*_and_notify()`、`_call_sender()`、`_schedule_sender()`、`_reply_if_possible()` 和 `_record_completion_notification()` 保留兼容 wrapper 或回调入口，内部委托 notifier。
   - `start_run()`、`_wait_for_background_run_completion()`、`_mark_background_run_failed()` 和 `_store_pending_action_from_merge_test_result()` 暂不迁移，避免让通知服务承载业务状态决策。
   - 新增 `tests/test_background_run_notifier.py`，覆盖 notification record、gateway sender、adapter fallback、async sender failure、success/failure run notification 和线程命名。
 - 创建/修改的文件：
-  - `coding_orchestration/background_run_notifier.py`
+  - `coding_orchestration/background/background_run_notifier.py`
   - `coding_orchestration/orchestrator.py`
   - `tests/test_background_run_notifier.py`
   - `docs/plans/2026-06-16-decoupled-architecture-design.md`
@@ -3809,13 +3836,13 @@
 - 已验证：
   - 新增 notifier tests：`rtk proxy python3 -m unittest tests.test_background_run_notifier -v`：7 tests OK。
   - 相邻后台通知流程：`rtk proxy python3 -m unittest tests.test_plan_run_flow tests.test_qa_flow tests.test_merge_test_qa_gate_flow tests.test_command_run_flow -v`：27 tests OK。
-  - py_compile：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/background_run_notifier.py tests/test_background_run_notifier.py`：passed。
+  - py_compile：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/background/background_run_notifier.py tests/test_background_run_notifier.py`：passed。
   - 文档与 guard tests：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：17 tests OK。
   - architecture guard：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 6003 lines`。
   - 完整单测：`rtk proxy python3 -m unittest discover -s tests -v`：598 tests OK。
   - 空白检查：`rtk proxy git diff --check`：passed。
   - 敏感扫描：`rtk rg -n 'MCP_USER_TOKEN=[A-Za-z0-9_./+=-]{20,}|Bearer [A-Za-z0-9._-]{20,}|FEISHU_APP_SECRET=[A-Za-z0-9_./+=-]{20,}|CODEX_CLI_COMMAND=/Users/[A-Za-z0-9._/-]{8,}' .`：无命中。
-  - 行数：`orchestrator.py` 从 6056 行降至 6003 行；新增 `background_run_notifier.py` 193 行。
+  - 行数：`orchestrator.py` 从 6056 行降至 6003 行；新增 `background/background_run_notifier.py` 193 行。
 - 剩余风险：
   - `orchestrator.py` 仍是 6003 行 legacy façade，后续继续拆 gateway binding service、workspace/git/diff checkpoint 和剩余 runner 副作用编排。
 

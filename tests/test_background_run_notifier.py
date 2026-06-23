@@ -4,7 +4,7 @@ import threading
 import unittest
 from datetime import datetime, timezone
 
-from coding_orchestration import background_run_notifier
+from coding_orchestration.background import background_run_notifier
 from coding_orchestration.models import RunMode
 
 

@@ -109,6 +109,8 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ),
             ("merge_test_readiness_service.py", "services", "merge_test_readiness_service.py"),
             ("task_lifecycle_guard_service.py", "services", "task_lifecycle_guard_service.py"),
+            ("background_run_notifier.py", "background", "background_run_notifier.py"),
+            ("coding_background_run_executor.py", "background", "coding_background_run_executor.py"),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):

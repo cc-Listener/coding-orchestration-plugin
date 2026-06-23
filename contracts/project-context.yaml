@@ -143,7 +143,7 @@ project_map:
       reason: "Coding run command executor host shell，维护普通 /coding run <task_id>、/coding implement <task_id> 和 /coding qa <task_id> 的同步 command-mode task gate、human decision、QA request、start_run callback 接线和 presenters/run_completion_presenter direct call；不拥有 /coding run <parent> --next、Gateway 异步启动、start_run 实现、active run reconcile、workspace/checkpoint/git、merge-test gates、delete/cancel/restore 或 run lifecycle。"
     - path: coding_orchestration/coding_commands/coding_merge_test_command_executor.py
       reason: "Coding merge-test command executor host shell，维护普通 prepare-merge-test / merge-test command 分支、blocked risk release 接线、QA 风险确认、merge-test run 启动 callback、presenters/merge_test_presenter direct call 和 presenters/run_completion_presenter direct call；不拥有 workspace/git/checkpoint 实现、blocked readiness 纯评估、QA evidence 观测、start_run 实现或 run lifecycle。"
-    - path: coding_orchestration/coding_background_run_executor.py
+    - path: coding_orchestration/background/coding_background_run_executor.py
       reason: "Coding background run executor host shell，维护 Gateway 后台 plan-only / implementation / QA / merge-test mode-specific 启动、presenters/run_completion_presenter direct message 选择、失败通知和 completion notification callback 接线；不拥有 start_run、后台等待完成、失败状态收敛、merge-test pending action、runner/workspace/git/checkpoint 或 run lifecycle。"
     - path: coding_orchestration/source/source_context_repair_service.py
       reason: "Source context repair host service，维护 source context 读取、deferred source pre-run enrichment、既有 task context 修复、source summary 回写和项目上下文回填接线；不改 legacy source_context schema、不实现 source reader、不承载 source 权限策略、runner/workspace/git 或 run lifecycle。"
@@ -487,7 +487,7 @@ component_contract:
       path: coding_orchestration/coding_commands/coding_help_command_executor.py
       preferred: true
     - name: coding_background_run_executor
-      path: coding_orchestration/coding_background_run_executor.py
+      path: coding_orchestration/background/coding_background_run_executor.py
       preferred: true
     - name: gateway_command_controller
       path: coding_orchestration/gateway/gateway_command_controller.py
@@ -788,7 +788,7 @@ component_contract:
       use_instead_of:
         - "在 orchestrator 中继续新增普通 /coding help、Gateway /commands listing、分页或 Hermes built-in command list 拼接。"
     - name: coding_background_run_executor
-      path: coding_orchestration/coding_background_run_executor.py
+      path: coding_orchestration/background/coding_background_run_executor.py
       use_instead_of:
         - "在 orchestrator 中继续新增 Gateway 后台 run mode-specific 启动、completion message 选择、失败通知接线或 completion notification callback。"
         - "通过 CodingOrchestrator._format_*completion_message 私有代理渲染后台 completion 文案。"

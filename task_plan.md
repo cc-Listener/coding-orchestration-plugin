@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 280：Service boundary 子包治理（complete）
+阶段 281：Background host helper 子包治理（complete）
 
 ## 各阶段
+
+### 阶段 281：Background host helper 子包治理
+- [x] 定域：只收拢 `background_run_notifier.py` 和 `coding_background_run_executor.py` 到 `coding_orchestration/background/`，保持后台线程启动、sender/reply fallback、completion notification record、Gateway 后台 plan/implementation/QA/merge-test mode-specific 启动和通知接线行为不变；不迁 run lifecycle、start_run、runner/workspace/git 或后台等待完成/失败状态收敛。
+- [x] TDD：扩展模块布局架构测试，要求 background helper 不再散落在 `coding_orchestration/` 包根。
+- [x] RED：确认新增 focused test 在当前包根文件存在时失败。
+- [x] 实现：移动模块并更新 import / 文档路径。
+- [x] 验证：运行 focused GREEN、background/Gateway/run flow 相邻回归、py_compile、YAML、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步进度、发现、技术方案、项目地图、组件合同、约定、machine-readable context 和治理计划。
+- **状态：** complete
 
 ### 阶段 280：Service boundary 子包治理
 - [x] 定域：只收拢 `merge_test_readiness_service.py` 和 `task_lifecycle_guard_service.py` 到 `coding_orchestration/services/`，保持 blocked merge-test readiness 纯评估、active coding status 列表、取消态保护、cancelled restore 和 merged_test bugfix reopen 行为不变；不迁 run lifecycle、workspace/git、Gateway/command host shell 或状态机。

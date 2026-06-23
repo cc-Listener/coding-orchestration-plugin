@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from coding_orchestration import coding_background_run_executor
+from coding_orchestration.background import coding_background_run_executor
 from coding_orchestration.models import RunMode
 
 

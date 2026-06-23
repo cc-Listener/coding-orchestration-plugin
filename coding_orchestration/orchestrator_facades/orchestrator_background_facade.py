@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import (
+from ..background import (
     background_run_notifier,
     coding_background_run_executor,
 )

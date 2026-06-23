@@ -6,7 +6,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from .models import RunMode
+from ..models import RunMode
 
 
 def current_event_loop_or_none() -> Any | None:
