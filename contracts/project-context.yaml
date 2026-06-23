@@ -566,7 +566,7 @@ component_contract:
       path: coding_orchestration/source/source_projection.py
       preferred: true
     - name: task_ledger
-      path: coding_orchestration/ledger.py
+      path: coding_orchestration/ledger/facade.py
       preferred: true
     - name: models_contract
       path: coding_orchestration/models/contracts.py
@@ -581,7 +581,7 @@ component_contract:
         - "在外部直接改 Task Ledger 状态。"
         - "绕过 command/task flow 手动推进 phase。"
     - name: TaskLedger
-      path: coding_orchestration/ledger.py
+      path: coding_orchestration/ledger/facade.py
       use_instead_of:
         - "手写 SQLite SQL 更新任务 JSON 字段。"
     - name: TaskStateMachine

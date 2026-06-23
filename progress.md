@@ -4,6 +4,35 @@
 
 ## 会话：2026-06-23
 
+### 阶段 297：TaskLedger façade 子包治理
+- **状态：** complete
+- 背景：
+  - `ledger.py` 维护 SQLite 连接、TaskLedger 公开 façade 方法、active binding、project work item binding 和 storage repositories 委托，属于兼容 façade 边界，不应继续散落在 `coding_orchestration/` 包根。
+  - 本切片只做同名包化，并通过 `coding_orchestration/ledger/__init__.py` 保留 `from coding_orchestration.ledger import TaskLedger` 稳定导出；storage schema/repository、RunService、runner/workspace/git 和 run lifecycle 不属于本切片。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求包根不再保留 `ledger.py`，并要求 `coding_orchestration/ledger/__init__.py` 与 `coding_orchestration/ledger/facade.py` 存在。
+  - RED 已确认：focused layout test 先失败，失败点为包根旧文件 `ledger.py` 仍存在。
+  - 将 `TaskLedger` façade 移入 `coding_orchestration/ledger/facade.py`，新增 `coding_orchestration/ledger/__init__.py` 保留稳定导出。
+  - 更新技术方案、项目地图、组件合同、约定、machine-readable context 和发现中的 canonical path。
+- 当前边界：
+  - `coding_orchestration/ledger/facade.py`：只做 SQLite 连接、公开 façade 方法和 repository 委托。
+  - `coding_orchestration/ledger/__init__.py`：只做稳定导出，不承载业务逻辑。
+  - SQLite schema、SQL mutation 和 JSON 列读写继续归属 `coding_orchestration/storage/`。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为包根旧文件 `ledger.py`。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout tests.test_storage_repositories tests.test_storage_schema tests.test_ledger_wiki_orchestrator tests.test_project_workitem_binding tests.test_workitem_service -v`：29 tests passed。
+  - 编译检查：`rtk python3 -m compileall coding_orchestration tests`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed，输出 `yaml ok`。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 1003 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 当前包根：
+  - `coding_orchestration/` 包根 `.py` 数量：2（不含 `__init__.py`）。
+  - 包根 `.py` 总行数：890。
+  - 剩余包根文件：`orchestrator.py`、`run_orchestration_service.py`。
+- 剩余风险：
+  - `orchestrator.py` 已低于 500 行目标但仍是插件 façade 入口；`run_orchestration_service.py` 是 run orchestration helper owner。继续治理时应先判断是否需要保留包根兼容入口，避免为了零包根而破坏稳定 import 或把 run lifecycle 核心迁乱。
+
 ### 阶段 296：Models contract 子包治理
 - **状态：** complete
 - 背景：

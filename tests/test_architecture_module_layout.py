@@ -177,6 +177,13 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
         self.assertTrue((package_root / "models" / "__init__.py").is_file())
         self.assertTrue((package_root / "models" / "contracts.py").is_file())
 
+    def test_task_ledger_facade_lives_in_ledger_package(self):
+        package_root = REPO_ROOT / "coding_orchestration"
+
+        self.assertFalse((package_root / "ledger.py").exists())
+        self.assertTrue((package_root / "ledger" / "__init__.py").is_file())
+        self.assertTrue((package_root / "ledger" / "facade.py").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
