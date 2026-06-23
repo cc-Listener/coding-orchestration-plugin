@@ -4,6 +4,36 @@
 
 ## 会话：2026-06-23
 
+### 阶段 286：Policy/guard helper 子包治理
+- **状态：** complete
+- 背景：
+  - `diff_guard.py` 维护文件 snapshot、changed files、allowed/forbidden path violations 和 diff summary 写回。
+  - `execution_policy.py` 维护 Codex plan decision 到 `ExecutionPolicy` 的归一化和缺省策略。
+  - 两者同属 policy/guard helper 边界，不应继续散落在 `coding_orchestration/` 包根；`status_policy.py` 继续作为 run status/report policy owner 暂留包根。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 policy/guard helper 位于 `coding_orchestration/policies/`。
+  - RED 已确认：focused layout test 先失败，失败点为 `diff_guard.py` 和 `execution_policy.py` 仍在包根。
+  - 新增 `coding_orchestration/policies/__init__.py`，将 `diff_guard.py` 和 `execution_policy.py` 移入 `coding_orchestration/policies/`。
+  - 更新 orchestrator、TaskService、policy 测试和当前事实文档中的 import / canonical 路径。
+- 当前边界：
+  - `coding_orchestration/policies/diff_guard.py`：只维护 diff boundary audit，不承载 run diff guard host service、workspace/git checkpoint、runner 或状态推进。
+  - `coding_orchestration/policies/execution_policy.py`：只维护 `ExecutionPolicy` 和 `control_policy_for_mode()`，不读取 artifact、不选择 runner、不推进状态。
+  - `coding_orchestration/status_policy.py`：仍是 report 状态归一化、known gaps、runner_failed 和 verification limitations 判定 owner。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为两个 policy/guard helper 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Policy/diff guard/run service 相邻回归：`rtk python3 -m unittest tests.test_diff_guard tests.test_execution_policy tests.test_run_diff_guard_service tests.test_run_context_artifact_service tests.test_task_service tests.test_plan_run_flow tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_docs_and_install_entry tests.test_architecture_module_layout -v`：66 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/policies/__init__.py coding_orchestration/policies/diff_guard.py coding_orchestration/policies/execution_policy.py coding_orchestration/orchestrator.py coding_orchestration/services/task_service.py tests/test_diff_guard.py tests/test_execution_policy.py tests/test_architecture_module_layout.py`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed，输出 `yaml ok`。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 当前包根：
+  - `coding_orchestration/` 包根 `.py` 数量：13。
+  - 包根 `.py` 总行数：2445。
+- 剩余风险：
+  - 包根仍保留 `workspace_checkpoint_service.py`、`runner_router.py`、`codex_reuse.py`、`run_orchestration_service.py`、`ledger.py`、`models.py`、`ports.py`、`state_machine.py`、`status_policy.py` 等核心或跨域模块；后续可继续评估 Codex backend 策略或 workspace/run support 的独立目录切片，避免一次性迁 runner/workspace/git/run lifecycle。
+
 ### 阶段 285：Tool contract/dispatcher 子包治理
 - **状态：** complete
 - 背景：

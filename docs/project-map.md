@@ -49,6 +49,8 @@
 | `coding_orchestration/project/project_profile_catalog.py` | Project profile catalog：读取 LLM Wiki project profile、合并 registry fallback、查找 name/alias/project/path basename、计算动态来源数量并格式化 project list/status；不写 profile、不绑定 active project、不发送 Gateway 回复。 |
 | `coding_orchestration/commands/project/project_command_executor.py` | Project command executor host shell：维护 `/coding project list/init/use/status/clear` 命令模式提示和 Gateway immediate project context 分支，调用 host 提供的项目路径解析、profile upsert、active project binding 与 project list/status formatter；不拥有 Gateway route、不创建任务、不启动 runner、不推进状态、不实现 project profile catalog 纯规则。 |
 | `coding_orchestration/config.py` | 运行配置和工具默认值边界；用于逐步收口路径、命令、域名和 env key hard code。 |
+| `coding_orchestration/policies/diff_guard.py` | Diff 边界审计策略 helper：维护 snapshot、changed files、allowed/forbidden path violations 和 diff summary 写回；不承载 run diff guard host orchestration、workspace/git checkpoint、runner 或状态推进。 |
+| `coding_orchestration/policies/execution_policy.py` | Execution policy 归一化 helper：把 Codex plan decision 归一成 `ExecutionPolicy`，提供缺省策略；不读取 artifact、不选择 runner、不推进状态。 |
 | `coding_orchestration/tools/tool_specs.py` | Hermes native tools / future MCP tools 的 host-agnostic 工具规格合同。 |
 | `coding_orchestration/tools/tool_operation_dispatcher.py` | `ToolOperationDispatcher`：按 `ToolSpec.operation_id` 分发到当前 service/façade handler；`orchestrator_facades/orchestrator_tool_facade.py` 只负责 host façade 接线；`plugin_tools.py` Hermes native tool 注册层只做 host payload 归一和 handler 包装，不持有 orchestrator 方法名映射；`cli.py` 的 tool-equivalent 命令和 Gateway `/coding project-mcp-preflight` diagnostic leaf 复用同一 operation 边界。 |
 | `coding_orchestration/cli.py` | Hermes CLI 子命令入口；纯 tool-equivalent 命令直接走 `dispatch_tool_operation()`，普通 `status <task_id>` 只读取 `task.status` payload，`project-mcp-preflight` 额外保留 host config 与 stdio command readiness gate。 |
@@ -111,7 +113,7 @@
 | `coding_orchestration/prompting/`、`coding_orchestration/prompts/` | Codex 可见 prompt、pre-LLM active task context 与运行上下文 artifact 组装；prompt/context helper 归属 `prompting/`，mode/source 模板归属 `prompts/`，`PromptBuilder` 只做组合。 |
 | `coding_orchestration/runner_router.py`、`coding_orchestration/runners/` | runner 选择与 Codex CLI / Hermes autonomous Codex / generic CLI 适配；Hermes terminal runtime adapter 已归属 `integrations/hermes/hermes_runtime.py`，Codex command 构造已拆到 `runners/codex_command.py`，subprocess/timeout/cancel/timing 已拆到 `runners/codex_process.py`，report 字段/状态/stdout 解析策略已拆到 `runners/codex_report.py`，report schema 已拆到 `runners/codex_report_schema.py`，report 读取/admission/fallback 决策已拆到 `runners/codex_report_loader.py`，report/summary 写入已拆到 `runners/codex_report_writer.py`，artifact 路径合同已拆到 `runners/codex_artifacts.py`。 |
 | `coding_orchestration/reports/report_contract.py`、`reports/report_admission.py`、`reports/run_log_compactor.py` | runner report 质量门、交付拆解准入和日志压缩。 |
-| `coding_orchestration/diff_guard.py` | implementation/QA/merge-test 后的路径边界审计。 |
+| `coding_orchestration/policies/` | Policy/guard helper package，维护 diff boundary audit 和 execution policy 归一化；`status_policy.py` 仍是 run status/report policy owner，暂留包根。 |
 | `coding_orchestration/dashboard/` | Hermes dashboard tab API 和 manifest。 |
 | `coding_orchestration/skills/coding-operator-core/`、`skills/coding-health-core/` | host-agnostic skill 合同：通用意图分流、项目优先、交付拆解、readiness 输出格式和修复口径。 |
 | `coding_orchestration/skills/hermes-coding-operator/`、`skills/hermes-coding-health-check/` | Hermes host binding skill：把 core intent / health check 映射到 `/coding`、Hermes CLI、`lark-cli` 和插件本地配置。 |

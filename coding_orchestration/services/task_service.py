@@ -5,7 +5,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from ..execution_policy import control_policy_for_mode
+from ..policies.execution_policy import control_policy_for_mode
 from ..feishu.feishu_messages import (
     render_task_created,
     render_task_needs_human,

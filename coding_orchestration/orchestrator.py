@@ -6,8 +6,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .diff_guard import DiffGuard
-from .execution_policy import control_policy_for_mode
+from .policies.diff_guard import DiffGuard
+from .policies.execution_policy import control_policy_for_mode
 from .ledger import TaskLedger
 from .orchestrator_facades.orchestrator_active_run_facade import OrchestratorActiveRunFacadeMixin
 from .orchestrator_facades.orchestrator_background_facade import OrchestratorBackgroundFacadeMixin

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.diff_guard import DiffGuard
+from coding_orchestration.policies.diff_guard import DiffGuard
 
 
 class DiffGuardTest(unittest.TestCase):

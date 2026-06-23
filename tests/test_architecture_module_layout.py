@@ -121,6 +121,8 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ),
             ("prompt_builder.py", "prompting", "prompt_builder.py"),
             ("tool_*.py", "tools", "tool_operation_dispatcher.py tool_specs.py"),
+            ("diff_guard.py", "policies", "diff_guard.py"),
+            ("execution_policy.py", "policies", "execution_policy.py"),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):

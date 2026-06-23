@@ -440,6 +440,8 @@ coding_orchestration plugin
 
 阶段 285 目录治理事实：Tool contract/dispatcher 已收拢到 `coding_orchestration/tools/`，包括 `tool_specs.py` 和 `tool_operation_dispatcher.py`；该包只承接 Hermes native tools / future MCP tools 的 host-agnostic 规格合同和 `ToolSpec.operation_id` 分发，不迁 `plugin_tools.py` host 注册入口、CLI/Gateway diagnostic host shell、orchestrator tool façade、WorkItem/Task service、runner/workspace/git 或 run lifecycle。
 
+阶段 286 目录治理事实：policy/guard helper 已收拢到 `coding_orchestration/policies/`，包括 `diff_guard.py` 和 `execution_policy.py`；该包只承接 diff boundary audit 和 execution policy 归一化，不迁 `status_policy.py`、状态机、run diff guard host service、RunService timeout、runner/workspace/git 或 run lifecycle。
+
 阶段 282 目录治理事实：command catalog 纯数据和 Coding Mode command rewriter adapter 已收拢到 `coding_orchestration/commands/`；该包现在承接 `/coding` command facts、help/listing 文案、rewrite context、LLM rewrite prompt、JSON 解析和 fallback shape，不迁 Gateway route/controller、command executor、orchestrator façade、runner/workspace/git 或 run lifecycle。
 
 阶段 283 目录治理事实：report quality helper 已收拢到 `coding_orchestration/reports/`，包括 `report_contract.py`、`report_admission.py` 和 `run_log_compactor.py`；该包只承接结构化 report 完整性检查、交付拆解准入和 operator-facing run log compact，不迁 runner subprocess、report writer/loader 主体、状态推进、Gateway、workspace/git 或 run lifecycle。
@@ -908,7 +910,7 @@ task / feedback
   -> Codex 按策略在单次 run 内执行
 ```
 
-初始策略模型位于 `coding_orchestration/execution_policy.py`：
+初始策略模型位于 `coding_orchestration/policies/execution_policy.py`：
 
 - `fast_fix`：低风险小修复、ignore/config housekeeping、文案和明确单点反馈；默认 inline plan、minimal context、targeted verification，不启用浏览器 QA。
 - `standard_change`：普通功能或 UI 行为改动；默认 plan-only、project context、standard verification。

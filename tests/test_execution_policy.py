@@ -1,6 +1,6 @@
 import unittest
 
-from coding_orchestration.execution_policy import control_policy_for_mode
+from coding_orchestration.policies.execution_policy import control_policy_for_mode
 from coding_orchestration.models import RunMode
 
 

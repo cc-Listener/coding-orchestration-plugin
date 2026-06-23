@@ -175,6 +175,8 @@ project_map:
       reason: "SourceProjection 纯投影层，把 SourceResult / legacy source_context 映射为 prompt/context/status/manifest/run-preflight/dashboard source health/source-resolve diagnostic payload/task creation helper 稳定字段，并提供 context-index 序列化 payload；不读外部来源、不写 ledger、不推进状态、不改变 source_context 持久化。"
     - path: coding_orchestration/run/services/run_diff_guard_service.py
       reason: "Run diff guard observation host service，维护 before snapshot、changed files 观测、QA report artifact 过滤、policy violations 组合、plan-only 写入 violations 补充和 diff summary 写回；不写 ledger/report/manifest/summary、不启动 runner、不推进状态。"
+    - path: coding_orchestration/policies/
+      reason: "Policy/guard helper package，维护 DiffGuard diff boundary audit 和 ExecutionPolicy 归一化；不承载 status_policy、状态机、run diff guard host service、RunService timeout、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/run/services/run_dispatch_service.py
       reason: "Run dispatch host service，维护 checkpoint failure gate、runner.run 调度和 runner exception fallback；不写 ledger/report/manifest/summary、不执行 diff guard、不收集 QA evidence、不推进状态。"
     - path: coding_orchestration/run/services/run_status_transition_service.py
@@ -386,6 +388,10 @@ component_contract:
     - name: runner_router
       path: coding_orchestration/runner_router.py
       preferred: true
+    - name: policy_guard_helpers
+      path: coding_orchestration/policies/
+      preferred: true
+      note: "DiffGuard 和 ExecutionPolicy / control_policy_for_mode 的 owner；包根不得恢复 diff_guard.py 或 execution_policy.py。status_policy.py 仍是 run status/report policy owner。"
     - name: tool_operation_dispatcher
       path: coding_orchestration/tools/tool_operation_dispatcher.py
       preferred: true
@@ -843,6 +849,10 @@ component_contract:
       path: coding_orchestration/runner_router.py
       use_instead_of:
         - "按字符串直接实例化 runner。"
+    - name: policy_guard_helpers
+      path: coding_orchestration/policies/
+      use_instead_of:
+        - "在 coding_orchestration/ 包根新增 diff_guard.py、execution_policy.py 或同类策略 helper。"
     - name: CodexCliRunner
       path: coding_orchestration/runners/codex_cli.py
       use_instead_of:

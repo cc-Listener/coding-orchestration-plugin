@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 285：Tool contract/dispatcher 子包治理（complete）
+阶段 286：Policy/guard helper 子包治理（complete）
 
 ## 各阶段
+
+### 阶段 286：Policy/guard helper 子包治理
+- [x] 定域：只收拢 `diff_guard.py` 和 `execution_policy.py` 到 `coding_orchestration/policies/`，保持 diff 边界审计、execution policy 归一化和现有 host 注入行为不变；不迁 `status_policy.py`、状态机、run diff guard host service、RunService timeout、runner/workspace/git 或 run lifecycle。
+- [x] TDD：扩展模块布局架构测试，要求 policy/guard helper 不再散落在 `coding_orchestration/` 包根。
+- [x] RED：确认新增 focused test 在当前包根文件存在时失败。
+- [x] 实现：移动模块并更新 import / 文档路径。
+- [x] 验证：运行 focused GREEN、policy/diff guard/run service 相邻回归、py_compile、YAML、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步进度、发现、技术方案、项目地图、组件合同、约定、machine-readable context 和治理计划。
+- **状态：** complete
 
 ### 阶段 285：Tool contract/dispatcher 子包治理
 - [x] 定域：只收拢 `tool_specs.py` 和 `tool_operation_dispatcher.py` 到 `coding_orchestration/tools/`，保持 Hermes native tool 规格合同、operation_id 分发和 plugin_tools host 注册行为不变；不迁 `plugin_tools.py`、CLI/Gateway diagnostic host shell、orchestrator tool façade、WorkItem/Task service、runner/workspace/git 或 run lifecycle。
