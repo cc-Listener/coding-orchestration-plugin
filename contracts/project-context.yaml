@@ -351,6 +351,10 @@ component_contract:
       path: coding_orchestration/orchestrator_tool_facade.py
       preferred: true
       note: "Tool operation dispatcher façade、tool_* 入口、tool run/source preflight adapter 和 Project MCP / WorkItem 小包装 owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+    - name: orchestrator_diagnostics_facade
+      path: coding_orchestration/orchestrator_diagnostics_facade.py
+      preferred: true
+      note: "Diagnostics / dashboard façade、doctor/CLI wrapper、Meegle preflight fallback、dashboard status payload 和 preflight/source-resolve formatter wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
     - name: coding_diagnostics_command_executor
       path: coding_orchestration/coding_diagnostics_command_executor.py
       preferred: true
@@ -594,6 +598,10 @@ component_contract:
       path: coding_orchestration/orchestrator_tool_facade.py
       use_instead_of:
         - "在 orchestrator.py 主文件中继续新增或恢复 tool operation dispatcher façade、tool_* 入口、tool run/source preflight adapter 或 Project MCP / WorkItem 小包装。"
+    - name: orchestrator_diagnostics_facade
+      path: coding_orchestration/orchestrator_diagnostics_facade.py
+      use_instead_of:
+        - "在 orchestrator.py 主文件中继续新增或恢复 diagnostics / dashboard façade、doctor/CLI wrapper、Meegle preflight fallback、dashboard status payload 或 preflight/source-resolve formatter wrapper。"
     - name: task_status_presenter
       path: coding_orchestration/task_status_presenter.py
       use_instead_of:
