@@ -81,7 +81,7 @@ class ArchitectureGuardTest(unittest.TestCase):
         findings = scan_repository(REPO_ROOT)
 
         self.assertFalse([item for item in findings if item.is_failure])
-        self.assertTrue(any(item.code == "legacy_large_file" for item in findings))
+        self.assertTrue(any(item.code in {"legacy_large_file", "large_file_watch"} for item in findings))
 
     def test_resolved_legacy_test_flow_suite_is_not_exempted(self):
         self.assertNotIn("tests/test_orchestrator_run_flow.py", LINE_EXEMPTIONS)
@@ -460,6 +460,25 @@ class ArchitectureGuardTest(unittest.TestCase):
             "def _codex_attach_command(",
             "def _codex_resume_command(",
             "def _update_manifest_session_metadata(",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
+    def test_orchestrator_does_not_keep_prompt_context_facade_methods(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def _incremental_context_for_resumed_session(",
+            "def _wiki_docs_for_task(",
+            "def _write_prompt_context_artifacts(",
+            "def _context_dependency_tasks(",
+            "def _context_sibling_tasks(",
+            "def _is_source_doc_for_task(",
+            "def _confirmed_plan_for_task(",
+            "def _merge_test_context_for_task(",
+            "def _report_summary_markdown(",
+            "def _wiki_ref(",
         ]
         for name in forbidden:
             with self.subTest(name=name):

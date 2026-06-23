@@ -404,6 +404,7 @@
 - Task 34 后续切片只读确认：delivery/project/diagnostics/status/list command façade 已迁出；下一轮可选择普通 run/implement/QA command host shell 或 Gateway run-family 执行副作用下沉继续压 `orchestrator.py`。`start_run()`、active run reconcile、merge-test gates、source enrichment、runner/workspace/git 副作用和 delete/cancel/restore 清理逻辑仍留在现有边界；与 hard code / 大文件治理仍需分 commit。
 - Hard code / 大文件治理只读确认：近期可独立切入 architecture guard 配置化、canonical 文档/合同/skill 的真实 secret 扫描扩展、或 boundary hard-code 检查分层；这些应作为 guard/config/doc TDD 切片单独提交，不和 Task 34 command executor 混改。
 - Task 33 确认并修复：core skill 基本保持 host-agnostic；`hermes-coding-operator` 原先复制硬规则、意图分流、项目优先、需求拆解、任务下一步、反馈路由、长期记忆等通用 playbook，`hermes-coding-health-check` 原先复制 readiness 输出格式、硬规则和示例。当前两者已收敛为 core 引用 + Hermes `/coding` / native tool / doctor / preflight / 配置引用映射，通用规则归 `coding-operator-core` / `coding-health-core`。
+- Task 37 第二十切片确认：prompt/context façade wrapper 可以迁入 `orchestrator_prompt_context_facade.py`。mixin 承接 resumed session 增量上下文、wiki docs/refs、context artifacts、dependency/sibling task context、confirmed plan / merge-test context、report summary markdown 和 wiki ref 投影 wrapper；`orchestrator.py` 从 1090 行降到 914 行。context artifact service 纯写入、prompt projection、manifest 构造、`handle_gateway_event()`、active run reconcile、runner 调度、`start_run()` 和 run lifecycle 仍留在既有边界。
 
 ## 视觉/浏览器发现
 - 本轮没有新增浏览器或图片验证。
