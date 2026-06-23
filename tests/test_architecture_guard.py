@@ -86,6 +86,23 @@ class ArchitectureGuardTest(unittest.TestCase):
     def test_resolved_legacy_test_flow_suite_is_not_exempted(self):
         self.assertNotIn("tests/test_orchestrator_run_flow.py", LINE_EXEMPTIONS)
 
+    def test_orchestrator_does_not_keep_doctor_presenter_private_proxies(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def _doctor_lark_summary",
+            "def _doctor_project_mcp_summary",
+            "def _doctor_runtime_summary",
+            "def _doctor_codex_summary",
+            "def _doctor_display_scope",
+            "def _doctor_status_label",
+            "def _doctor_scope_login_hint",
+            "def _doctor_extract_rtk_command",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()

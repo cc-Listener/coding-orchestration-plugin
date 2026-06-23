@@ -9,16 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from .diff_guard import DiffGuard
-from .doctor_presenter import (
-    doctor_codex_summary,
-    doctor_display_scope,
-    doctor_extract_rtk_command,
-    doctor_lark_summary,
-    doctor_project_mcp_summary,
-    doctor_runtime_summary,
-    doctor_scope_login_hint,
-    doctor_status_label,
-)
 from .execution_policy import control_policy_for_mode
 from .feishu_copy import render_user_update
 from .feishu_project_reader import FeishuProjectReader
@@ -464,42 +454,6 @@ class CodingOrchestrator:
 
     def command_coding_doctor(self) -> str:
         return coding_diagnostics_command_executor.command_coding_doctor(self)
-
-    @staticmethod
-    def _doctor_lark_summary(result: dict[str, Any]) -> str:
-        return doctor_lark_summary(result)
-
-    @staticmethod
-    def _doctor_project_mcp_summary(result: dict[str, Any]) -> str:
-        return doctor_project_mcp_summary(result)
-
-    @staticmethod
-    def _doctor_runtime_summary(*, kanban_available: bool, runtime_available: bool) -> str:
-        return doctor_runtime_summary(kanban_available=kanban_available, runtime_available=runtime_available)
-
-    @staticmethod
-    def _doctor_codex_summary(*, default_runner: str, codex_backend: str, hermes_provider: str) -> str:
-        return doctor_codex_summary(
-            default_runner=default_runner,
-            codex_backend=codex_backend,
-            hermes_provider=hermes_provider,
-        )
-
-    @staticmethod
-    def _doctor_display_scope(scope: str) -> str:
-        return doctor_display_scope(scope)
-
-    @staticmethod
-    def _doctor_status_label(status: str) -> str:
-        return doctor_status_label(status)
-
-    @staticmethod
-    def _doctor_scope_login_hint(missing_scopes: list[str]) -> str:
-        return doctor_scope_login_hint(missing_scopes)
-
-    @staticmethod
-    def _doctor_extract_rtk_command(text: str) -> str:
-        return doctor_extract_rtk_command(text)
 
     def _meegle_preflight(self) -> dict[str, Any]:
         resolver = getattr(self, "source_resolver", None)

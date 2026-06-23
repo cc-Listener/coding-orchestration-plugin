@@ -104,7 +104,7 @@ project_map:
     - path: coding_orchestration/gateway_coding_mode_executor.py
       reason: "Gateway coding mode host shell，维护 coding mode enter/exit、pending rewrite 确认/取消、高置信度 rewrite direct execute、低置信度 handoff 和 rewrite context 装配；不拥有 Gateway route/controller、pending action executor、task 创建实现、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_diagnostics_command_executor.py
-      reason: "Coding diagnostics command executor host shell，维护 doctor / lark-preflight / project-mcp-preflight / source-resolve command-mode dispatch、Project MCP config/stdio readiness gate、Hermes runtime availability probe 和 Gateway immediate diagnostic 分支；不拥有 Gateway route、不实现 CLI direct dispatcher、不迁普通 status/list presentation、不触碰 runner/workspace/git 或 run lifecycle。"
+      reason: "Coding diagnostics command executor host shell，维护 doctor / lark-preflight / project-mcp-preflight / source-resolve command-mode dispatch、Project MCP config/stdio readiness gate、Hermes runtime availability probe、Gateway immediate diagnostic 分支和 doctor_presenter.py direct 文案调用；不拥有 Gateway route、不实现 CLI direct dispatcher、不迁普通 status/list presentation、不触碰 runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_task_list_command_executor.py
       reason: "Coding task list command executor host shell，维护普通 /coding list 与 Gateway list immediate 的 active status 查询、active task 标记、空列表文案和会话切换提示；不实现 task list presenter、Gateway route、CLI direct dispatcher、status reconcile、delivery/project/diagnostics、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_status_command_executor.py
@@ -340,6 +340,10 @@ component_contract:
     - name: coding_diagnostics_command_executor
       path: coding_orchestration/coding_diagnostics_command_executor.py
       preferred: true
+    - name: doctor_presenter
+      path: coding_orchestration/doctor_presenter.py
+      preferred: true
+      note: "doctor / lark-preflight / project-mcp-preflight / source-resolve 文案 owner；coding_diagnostics_command_executor.py direct 调用，不经 orchestrator `_doctor_*` 私有代理。"
     - name: coding_task_list_command_executor
       path: coding_orchestration/coding_task_list_command_executor.py
       preferred: true
@@ -542,7 +546,7 @@ component_contract:
     - name: coding_diagnostics_command_executor
       path: coding_orchestration/coding_diagnostics_command_executor.py
       use_instead_of:
-        - "在 orchestrator 中继续新增 doctor / lark-preflight / project-mcp-preflight / source-resolve command-level diagnostic host shell、Project MCP config/stdio readiness gate、Hermes runtime availability probe 或 Gateway immediate diagnostic 分支。"
+        - "在 orchestrator 中继续新增 doctor / lark-preflight / project-mcp-preflight / source-resolve command-level diagnostic host shell、Project MCP config/stdio readiness gate、Hermes runtime availability probe、Gateway immediate diagnostic 分支或 `_doctor_*` presenter 私有代理。"
     - name: coding_task_list_command_executor
       path: coding_orchestration/coding_task_list_command_executor.py
       use_instead_of:
