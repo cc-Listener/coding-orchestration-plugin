@@ -5,7 +5,7 @@ from typing import Any
 
 from ..presenters import feedback_presenter
 from ..models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
-from ..project_resolver import normalize_text as normalize_project_text
+from ..project.project_resolver import normalize_text as normalize_project_text
 from ..services import RunService
 
 

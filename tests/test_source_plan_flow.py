@@ -10,7 +10,7 @@ from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.integrations.knowledge.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import AgentRunStatus, RunMode
 from coding_orchestration.orchestrator import CodingOrchestrator
-from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
+from coding_orchestration.project.project_resolver import ProjectRegistry, ProjectResolver
 from coding_orchestration.source.source_projection import SourceProjection
 from tests.orchestrator_flow_fixtures import (
     FakeFeishuProjectReader,

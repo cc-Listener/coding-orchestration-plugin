@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from coding_orchestration.ledger import TaskLedger
-from coding_orchestration.project_workitem_binding import ProjectWorkitemIdentity
+from coding_orchestration.project.project_workitem_binding import ProjectWorkitemIdentity
 from coding_orchestration.services.workitem_service import WorkItemService
 
 

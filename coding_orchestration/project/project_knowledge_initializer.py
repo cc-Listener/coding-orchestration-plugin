@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .ports import KnowledgePort
+from ..ports import KnowledgePort
 from .project_knowledge_documents import ProjectKnowledgeDocumentBuilder
 from .project_knowledge_inventory import ProjectKnowledgeInventory
 from .project_resolver import Project

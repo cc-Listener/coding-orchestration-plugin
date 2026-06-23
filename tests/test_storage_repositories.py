@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Iterator
 
 from coding_orchestration.ledger import TaskLedger
-from coding_orchestration.project_workitem_binding import ProjectWorkitemIdentity
+from coding_orchestration.project.project_workitem_binding import ProjectWorkitemIdentity
 from coding_orchestration.storage.repositories import (
     ArtifactRepository,
     BindingRepository,

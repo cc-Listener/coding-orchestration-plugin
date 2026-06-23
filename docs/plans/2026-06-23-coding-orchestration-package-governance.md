@@ -251,18 +251,16 @@ rtk git commit -m "feat: 收拢 presenter 模块目录"
 ## Task 7: Project 子包治理
 
 **Files:**
-- Create: `coding_orchestration/project/__init__.py`
-- Create: `coding_orchestration/project/knowledge/__init__.py`
-- Create: `coding_orchestration/project/workitems/__init__.py`
-- Move: `project_resolver.py`
-- Move: `project_profile_catalog.py`
-- Move: `project_initialization_quality.py`
-- Move: `project_knowledge_initializer.py`
-- Move: `project_knowledge_inventory.py`
-- Move: `project_knowledge_documents.py`
-- Move: `project_knowledge_resolver.py`
-- Move: `project_intake.py`
-- Move: `project_workitem_binding.py`
+- Create: `coding_orchestration/project/__init__.py`（阶段 279 已完成）
+- Move: `project_resolver.py`（阶段 279 已收拢到 `coding_orchestration/project/`）
+- Move: `project_profile_catalog.py`（阶段 279 已收拢到 `coding_orchestration/project/`）
+- Move: `project_initialization_quality.py`（阶段 279 已收拢到 `coding_orchestration/project/`）
+- Move: `project_knowledge_initializer.py`（阶段 279 已收拢到 `coding_orchestration/project/`）
+- Move: `project_knowledge_inventory.py`（阶段 279 已收拢到 `coding_orchestration/project/`）
+- Move: `project_knowledge_documents.py`（阶段 279 已收拢到 `coding_orchestration/project/`）
+- Move: `project_knowledge_resolver.py`（阶段 279 已收拢到 `coding_orchestration/project/`）
+- Move: `project_intake.py`（阶段 279 已收拢到 `coding_orchestration/project/`）
+- Move: `project_workitem_binding.py`（阶段 279 已收拢到 `coding_orchestration/project/`）
 
 **Step 1:** Add architecture test requiring `project_*.py` to live under `project/`.
 

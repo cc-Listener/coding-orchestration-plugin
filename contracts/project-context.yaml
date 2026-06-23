@@ -115,7 +115,7 @@ project_map:
       reason: "Run report refinement projection helper，维护 diff guard / implementation commit missing blocked report 和 observed report status/details refinement，不执行 diff guard、workspace dirty check、report 写入或 ledger 推进。"
     - path: coding_orchestration/merge_test_readiness_service.py
       reason: "Blocked merge-test readiness 纯评估 service，只消费 task/run/workspace/session/report 事实并返回风险放行评估；不写 ledger、不推进状态、不触发 runner、不发送 Gateway 回复。"
-    - path: coding_orchestration/project_profile_catalog.py
+    - path: coding_orchestration/project/project_profile_catalog.py
       reason: "Project profile catalog，只读取 LLM Wiki project profile、registry project facts 和初始化质量评估，返回 profile/list/status 数据或文案；不写 profile、不绑定 active project、不发送 Gateway 回复。"
     - path: coding_orchestration/commands/project/project_command_executor.py
       reason: "Project command executor host shell，维护 /coding project list/init/use/status/clear 命令模式提示和 Gateway immediate project context 分支，调用注入的 profile upsert、active project binding、project formatter 与路径解析 callback；不拥有 Gateway route、不创建任务、不启动 runner、不推进状态、不实现 project profile catalog 纯规则。"
@@ -296,7 +296,7 @@ component_contract:
       path: coding_orchestration/merge_test_readiness_service.py
       preferred: true
     - name: project_profile_catalog
-      path: coding_orchestration/project_profile_catalog.py
+      path: coding_orchestration/project/project_profile_catalog.py
       preferred: true
     - name: gateway_rewrite_context
       path: coding_orchestration/gateway/gateway_rewrite_context.py

@@ -12,7 +12,7 @@ from ..feishu.feishu_messages import (
     render_task_needs_source_context,
 )
 from ..models import RunnerName, RunMode, TaskPhase, task_status_display, task_status_view
-from ..project_resolver import normalize_text as normalize_project_text
+from ..project.project_resolver import normalize_text as normalize_project_text
 from . import task_utils
 
 

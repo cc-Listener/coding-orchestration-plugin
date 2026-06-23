@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.project_initialization_quality import evaluate_project_initialization_quality
+from coding_orchestration.project.project_initialization_quality import evaluate_project_initialization_quality
 
 
 class ProjectInitializationQualityTest(unittest.TestCase):

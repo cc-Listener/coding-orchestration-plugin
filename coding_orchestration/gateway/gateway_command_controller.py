@@ -6,7 +6,7 @@ from collections.abc import Iterable, MutableMapping
 from dataclasses import dataclass
 from typing import Any
 
-from ..project_resolver import normalize_text as normalize_project_text
+from ..project.project_resolver import normalize_text as normalize_project_text
 
 
 CODING_COMMAND_RE = re.compile(r"^\s*/(coding)(?:\s+(.*)|\s*)$", re.I | re.S)

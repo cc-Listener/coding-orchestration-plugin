@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from ..project_workitem_binding import ProjectWorkitemIdentity
+from ..project.project_workitem_binding import ProjectWorkitemIdentity
 from .common import ConnectionFactory, row_to_project_workitem_binding
 
 

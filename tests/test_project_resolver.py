@@ -1,6 +1,6 @@
 import unittest
 
-from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
+from coding_orchestration.project.project_resolver import ProjectRegistry, ProjectResolver
 
 
 class ProjectResolverTest(unittest.TestCase):

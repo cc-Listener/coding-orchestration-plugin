@@ -58,7 +58,7 @@
 - Kanban create/status sync host helper、skipped/failed sync record 和 task status view 字段投影优先维护在 `coding_orchestration/integrations/kanban/kanban_sync_service.py`；真实工具映射继续归 `coding_orchestration/integrations/kanban/kanban_bridge.py`，状态机和 transition 仍归既有 run status 边界。
 - Active coding status 列表、取消态保护文案、cancelled task 恢复状态选择和 merged_test bugfix reopen 优先维护在 `coding_orchestration/task_lifecycle_guard_service.py`；状态转换合法性仍归状态机，runner/workspace/git 仍归既有 run 边界。
 - blocked task 是否可继续 merge-test 的 readiness 评估优先维护在 `coding_orchestration/merge_test_readiness_service.py`；该模块只消费 task/run/workspace/session/report 事实并返回评估 dict，不写 ledger、不推进状态、不触发 runner、不发送 Gateway 回复。
-- project profile 读取、registry fallback、别名/路径查找、动态来源计数和 project list/status 格式化优先维护在 `coding_orchestration/project_profile_catalog.py`；project init/upsert、active project binding 和 Gateway 回复副作用仍留在 orchestrator host 边界。
+- project profile 读取、registry fallback、别名/路径查找、动态来源计数和 project list/status 格式化优先维护在 `coding_orchestration/project/project_profile_catalog.py`；project init/upsert、active project binding 和 Gateway 回复副作用仍留在 orchestrator host 边界。
 - 通用 skill 规则维护在 `coding_orchestration/skills/coding-operator-core/` 和 `coding-health-core/`；Hermes 绑定映射维护在 `hermes-coding-operator/` 和 `hermes-coding-health-check/`。
 - Codex CLI 命令构造、resume、sandbox、结构化 report 读取在 `coding_orchestration/runners/codex_cli.py`。
 - 安装和卸载逻辑优先改 `coding_orchestration/integrations/install/install.py`，脚本只保留入口和用户输出。

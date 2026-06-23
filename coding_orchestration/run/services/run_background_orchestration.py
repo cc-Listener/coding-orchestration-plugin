@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ...models import AgentRunStatus, RunMode, TaskPhase, TaskStatus, normalize_agent_run_status
-from ...project_resolver import normalize_text as normalize_project_text
+from ...project.project_resolver import normalize_text as normalize_project_text
 
 
 def wait_for_background_run_completion(

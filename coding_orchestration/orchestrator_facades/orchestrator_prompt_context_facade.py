@@ -5,7 +5,7 @@ from typing import Any
 
 from ..models import RunMode
 from ..presenters import run_completion_presenter
-from ..project_resolver import normalize_text as normalize_project_text
+from ..project.project_resolver import normalize_text as normalize_project_text
 from ..run.artifacts import run_context_artifact_service, run_report_artifact_service
 
 

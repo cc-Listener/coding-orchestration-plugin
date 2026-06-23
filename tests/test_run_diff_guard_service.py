@@ -10,7 +10,7 @@ from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.integrations.knowledge.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import RunMode, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
-from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
+from coding_orchestration.project.project_resolver import ProjectRegistry, ProjectResolver
 from coding_orchestration.run.services.run_diff_guard_service import (
     RunDiffGuardObservation,
     observe_run_diff_guard,

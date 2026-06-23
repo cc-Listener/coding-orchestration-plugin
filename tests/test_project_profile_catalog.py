@@ -4,8 +4,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.project_profile_catalog import ProjectProfileCatalog
-from coding_orchestration.project_resolver import Project
+from coding_orchestration.project.project_profile_catalog import ProjectProfileCatalog
+from coding_orchestration.project.project_resolver import Project
 
 
 class FakeWiki:

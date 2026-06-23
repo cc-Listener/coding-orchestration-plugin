@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..project_workitem_binding import ProjectWorkitemIdentity
+from ..project.project_workitem_binding import ProjectWorkitemIdentity
 
 
 def redacted_project_payload(payload: dict[str, Any]) -> dict[str, Any]:

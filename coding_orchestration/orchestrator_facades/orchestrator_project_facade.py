@@ -3,12 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .. import project_profile_catalog
+from ..project import project_profile_catalog
 from ..gateway import gateway_active_context, gateway_project_context
 from ..models import MatchEvidence, ProjectResolveResult, TaskPhase, TaskStatus
-from ..project_knowledge_initializer import ProjectKnowledgeInitializer
-from ..project_resolver import Project
-from ..project_resolver import normalize_text as normalize_project_text
+from ..project.project_knowledge_initializer import ProjectKnowledgeInitializer
+from ..project.project_resolver import Project
+from ..project.project_resolver import normalize_text as normalize_project_text
 
 
 class OrchestratorProjectFacadeMixin:

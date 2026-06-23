@@ -4,6 +4,33 @@
 
 ## 会话：2026-06-23
 
+### 阶段 279：Project domain 子包治理
+- **状态：** complete
+- 背景：
+  - `project_resolver.py`、`project_profile_catalog.py`、`project_knowledge_*`、`project_intake.py` 和 `project_workitem_binding.py` 共同维护项目识别、项目画像读取、项目知识初始化/扫描/文档构造、Feishu Project intake rule 和 work item identity。
+  - 这些模块属于同一 project domain，放在包根会继续扩大根目录职责；收拢到 `coding_orchestration/project/` 后，Gateway/command/orchestrator façade 只通过 project package 消费领域能力。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 `project_*.py` 领域模块位于 `coding_orchestration/project/`。
+  - RED 已确认：focused test 先失败，失败点为 9 个 `project_*.py` 仍在包根。
+  - 新增 `coding_orchestration/project/__init__.py`，将 project resolver、profile catalog、initialization quality、intake、knowledge documents/initializer/inventory/resolver 和 workitem binding identity 移入 `coding_orchestration/project/`。
+  - 更新生产代码、测试和当前事实文档中的 import / canonical 路径。
+- 当前边界：
+  - `coding_orchestration/project/`：项目识别、project profile catalog、项目知识初始化/扫描/文档构造、Feishu Project intake rule 和 work item identity。
+  - 本切片未迁 ledger/storage schema、Gateway/command host shell、runner/workspace/git 或 run lifecycle。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为 9 个 `project_*.py` 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Project domain contract：`rtk python3 -m unittest tests.test_project_resolver tests.test_project_profile_catalog tests.test_project_initialization_quality tests.test_project_knowledge_initializer tests.test_project_knowledge_resolver tests.test_project_intake tests.test_project_workitem_binding tests.test_workitem_service tests.test_storage_repositories -v`：34 tests passed。
+  - Project/Gateway/run 相邻回归：`rtk python3 -m unittest tests.test_project_resolver tests.test_project_profile_catalog tests.test_project_initialization_quality tests.test_project_knowledge_initializer tests.test_project_knowledge_resolver tests.test_project_intake tests.test_project_workitem_binding tests.test_workitem_service tests.test_storage_repositories tests.test_gateway_project_task_flow tests.test_gateway_command_group_flow tests.test_gateway_feedback_flow tests.test_gateway_task_control_flow tests.test_gateway_change_continue_flow tests.test_gateway_safety_lifecycle_flow tests.test_gateway_rewrite_flow tests.test_orchestrator_run_flow tests.test_orchestrator_tools tests.test_run_status_transition_service tests.test_run_completion_writeback_service tests.test_run_reconcile_writeback_service -v`：114 tests passed。
+  - 文档合同回归：`rtk python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_module_layout -v`：17 tests passed。
+  - 编译检查：`rtk python3 -m py_compile ...`：passed。
+  - YAML 解析：`rtk python3 -c "import yaml; yaml.safe_load(open('contracts/project-context.yaml', encoding='utf-8')); print('yaml ok')"`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 包根还剩公共入口/策略/runner/workspace/run orchestration 及少量服务类模块；`run_orchestration_service.py` 和 runner/workspace/git 相关模块引用面更高，后续应继续按单域切片评估，不一次性大改。
+
 ### 阶段 278：Run manifest service 子包治理
 - **状态：** complete
 - 背景：

@@ -9,7 +9,7 @@ from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.integrations.knowledge.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
-from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
+from coding_orchestration.project.project_resolver import ProjectRegistry, ProjectResolver
 from coding_orchestration.presenters.run_completion_presenter import format_implementation_completion_message
 from tests.orchestrator_flow_fixtures import FakeRouter, FakeRunner, _write_workflow
 

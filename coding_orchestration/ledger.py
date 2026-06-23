@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
-from .project_workitem_binding import ProjectWorkitemIdentity
+from .project.project_workitem_binding import ProjectWorkitemIdentity
 from .storage.repositories import ArtifactRepository, BindingRepository, RunRepository, TaskRepository
 from .storage.schema import initialize_ledger_schema
 

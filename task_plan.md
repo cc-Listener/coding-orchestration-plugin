@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 278：Run manifest service 子包治理（complete）
+阶段 279：Project domain 子包治理（complete）
 
 ## 各阶段
+
+### 阶段 279：Project domain 子包治理
+- [x] 定域：只收拢 `project_*.py` 领域模块到 `coding_orchestration/project/`，保持项目识别、profile catalog、知识初始化/扫描/文档构造、Feishu Project intake 规则和 work item binding identity 行为不变；不迁 ledger/storage schema、Gateway/command host shell、runner/workspace/git 或 run lifecycle。
+- [x] TDD：扩展模块布局架构测试，要求 project domain 模块不再散落在 `coding_orchestration/` 包根。
+- [x] RED：确认新增 focused test 在当前包根文件存在时失败。
+- [x] 实现：移动模块并更新 import / 文档路径。
+- [x] 验证：运行 focused GREEN、project/domain/Gateway/run flow 相邻回归、py_compile、YAML、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步进度、发现、技术方案、项目地图、组件合同、约定、machine-readable context 和治理计划。
+- **状态：** complete
 
 ### 阶段 278：Run manifest service 子包治理
 - [x] 定域：只收拢 `run_manifest_service.py` 到 `coding_orchestration/run/services/`，保持 run-manifest 基础字段、启动期 manifest update projection、artifact record、Codex attach/resume 展示命令、manifest session metadata 字段投影、controlled bypass 权限 profile 和 source elevated plan 权限判断行为不变；不迁 run orchestration projection、artifact 文件写入、runner/workspace/git 或 run lifecycle。

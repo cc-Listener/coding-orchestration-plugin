@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .models import MatchEvidence, ProjectResolveResult
-from .ports import KnowledgePort
+from ..models import MatchEvidence, ProjectResolveResult
+from ..ports import KnowledgePort
 from .project_knowledge_initializer import ProjectKnowledgeInitializer
 from .project_resolver import Project, ProjectRegistry, ProjectResolver
 

@@ -7,8 +7,8 @@ from coding_orchestration.integrations.knowledge.llm_wiki_adapter import LocalLl
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.ports import SourceResult
-from coding_orchestration.project_workitem_binding import ProjectWorkitemIdentity
-from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
+from coding_orchestration.project.project_workitem_binding import ProjectWorkitemIdentity
+from coding_orchestration.project.project_resolver import ProjectRegistry, ProjectResolver
 
 
 class FakeFeishuProjectReader:

@@ -61,7 +61,7 @@ from . import (
     run_orchestration_service,
 )
 from .source import source_projection
-from .project_resolver import ProjectResolver
+from .project.project_resolver import ProjectResolver
 from .tool_operation_dispatcher import ToolOperationDispatcher
 from .symphony_compat.workflow_loader import WorkflowLoader
 

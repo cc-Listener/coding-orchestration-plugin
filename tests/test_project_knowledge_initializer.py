@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.project_knowledge_initializer import ProjectKnowledgeInitializer
-from coding_orchestration.project_resolver import Project
+from coding_orchestration.project.project_knowledge_initializer import ProjectKnowledgeInitializer
+from coding_orchestration.project.project_resolver import Project
 
 
 class ProjectKnowledgeInitializerTest(unittest.TestCase):

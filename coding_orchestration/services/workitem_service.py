@@ -6,8 +6,8 @@ from typing import Any, Callable
 
 from ..feishu.feishu_project_mcp import redact_secrets
 from ..models import AgentRunStatus, RunMode, TaskStatus
-from ..project_intake import ProjectIntakeRule
-from ..project_workitem_binding import ProjectWorkitemIdentity
+from ..project.project_intake import ProjectIntakeRule
+from ..project.project_workitem_binding import ProjectWorkitemIdentity
 from .workitem_utils import (
     project_mcp_items,
     project_mcp_payload,

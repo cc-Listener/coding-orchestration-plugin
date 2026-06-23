@@ -100,6 +100,13 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ("source_recovery.py", "source", "source_recovery.py"),
             ("source_resolver.py", "source", "source_resolver.py"),
             ("source_work_item_context.py", "source", "source_work_item_context.py"),
+            (
+                "project_*.py",
+                "project",
+                "project_initialization_quality.py project_intake.py project_knowledge_documents.py "
+                "project_knowledge_initializer.py project_knowledge_inventory.py project_knowledge_resolver.py "
+                "project_profile_catalog.py project_resolver.py project_workitem_binding.py",
+            ),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):

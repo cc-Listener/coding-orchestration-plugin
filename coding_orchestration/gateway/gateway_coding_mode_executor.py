@@ -8,7 +8,7 @@ from ..command_catalog import (
     allowed_top_level_actions,
     command_catalog_context,
 )
-from ..project_resolver import normalize_text as normalize_project_text
+from ..project.project_resolver import normalize_text as normalize_project_text
 from . import gateway_command_controller, gateway_rewrite_context, gateway_rewrite_presenter
 from ..presenters import run_start_presenter, task_list_presenter
 

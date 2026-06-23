@@ -18,8 +18,8 @@ from ..integrations.kanban.kanban_bridge import KanbanBridge
 from ..integrations.knowledge.run_summary_writer import RunSummaryWriter
 from ..integrations.knowledge.knowledge_adapter import LocalKnowledgeAdapter
 from ..ledger import TaskLedger
-from ..project_knowledge_resolver import ProjectKnowledgeResolver
-from ..project_resolver import ProjectRegistry
+from ..project.project_knowledge_resolver import ProjectKnowledgeResolver
+from ..project.project_resolver import ProjectRegistry
 from ..run.services.run_manifest_service import RunManifestService
 from ..runner_router import RunnerRouter
 from ..services import DeliveryService, RunService, TaskService, WorkItemService
