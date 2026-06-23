@@ -3,9 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration import run_report_artifact_service
+from coding_orchestration.run.artifacts import run_report_artifact_service
 from coding_orchestration.orchestrator import CodingOrchestrator
-from coding_orchestration.run_report_artifact_service import (
+from coding_orchestration.run.artifacts.run_report_artifact_service import (
     read_run_report_artifact,
     read_run_report_summary_markdown,
     write_run_report_artifact,

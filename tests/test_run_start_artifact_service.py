@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.run_start_artifact_service import write_run_start_artifacts
+from coding_orchestration.run.artifacts.run_start_artifact_service import write_run_start_artifacts
 
 
 class ManifestLike:

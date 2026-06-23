@@ -4,6 +4,34 @@
 
 ## 会话：2026-06-23
 
+### 阶段 258：Run artifact 子包治理第一切片
+- **状态：** complete
+- 背景：
+  - 阶段 252-257 已分别收拢 orchestrator façade、Gateway、coding command executor、Feishu、presenter 和 delivery/project command host shell。
+  - 本阶段继续治理 `coding_orchestration/` 包根散落文件，只处理 `run_artifact_paths.py` 与 6 个 `run_*_artifact_service.py`；不迁 `run_orchestration_service.py`、run projection/service、runner/workspace/git 或 `start_run()` 主体。
+- 执行的操作：
+  - 在 `tests/test_architecture_guard.py` 的模块族表中新增 `run/artifacts` 目录约束，锁定包根不得保留 `run_*artifact*.py`。
+  - RED 已确认：focused architecture test 先失败，失败点为包根仍存在 7 个 run artifact 模块。
+  - 新增 `coding_orchestration/run/__init__.py` 和 `coding_orchestration/run/artifacts/__init__.py`；迁移 `run_artifact_paths.py`、`run_context_artifact_service.py`、`run_start_artifact_service.py`、`run_manifest_artifact_service.py`、`run_stderr_artifact_service.py`、`run_report_artifact_service.py` 和 `run_summary_artifact_service.py`。
+  - 更新 `orchestrator.py`、orchestrator façade、run artifact tests 和当前事实文档 import/path。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前目录边界：
+  - `coding_orchestration/run/artifacts/`：fresh/existing run 的 `ArtifactSet` 路径合同，以及 run_dir context/start/manifest/stderr/report/summary artifact 文件读写。
+  - `coding_orchestration/` 包根：不再保留 `run_*artifact*.py`。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_repository_module_families_live_in_dedicated_packages -v` 先失败，失败点为 `run/artifacts` 子测试仍看到包根 7 个旧文件。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - Run artifact 自测：`rtk python3 -m unittest tests.test_run_artifact_paths tests.test_run_context_artifact_service tests.test_run_start_artifact_service tests.test_run_manifest_artifact_service tests.test_run_stderr_artifact_service tests.test_run_report_artifact_service tests.test_run_summary_artifact_service -v`：24 tests passed。
+  - Run/manifest/session/status/QA/merge-test 相邻回归：`rtk python3 -m unittest tests.test_run_manifest_service tests.test_run_manifest_session_writeback_service tests.test_run_orchestration_start_rules tests.test_run_orchestration_reconcile_rules tests.test_run_orchestration_service tests.test_run_session_projection tests.test_run_session_writeback_service tests.test_status_reconcile_flow tests.test_plan_run_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow -v`：111 tests passed。
+  - 旧生产/测试/当前事实文档 import/path 扫描：no matches。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/run/artifacts/*.py coding_orchestration/orchestrator.py coding_orchestration/orchestrator_facades/*.py tests/test_architecture_guard.py tests/test_run_artifact_paths.py tests/test_run_context_artifact_service.py tests/test_run_start_artifact_service.py tests/test_run_manifest_artifact_service.py tests/test_run_stderr_artifact_service.py tests/test_run_report_artifact_service.py tests/test_run_summary_artifact_service.py`：passed。
+  - YAML 解析：`rtk python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 995 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 本阶段只处理 run artifact 目录，不迁 run projection/service、source/project/integration 层；后续按治理计划继续独立切片。
+
 ### 阶段 257：剩余 command host shell 目录治理第一切片
 - **状态：** complete
 - 背景：

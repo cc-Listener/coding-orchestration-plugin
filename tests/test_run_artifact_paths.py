@@ -1,7 +1,7 @@
 import unittest
 from pathlib import Path
 
-from coding_orchestration.run_artifact_paths import (
+from coding_orchestration.run.artifacts.run_artifact_paths import (
     artifact_set_for_existing_run,
     artifact_set_for_run_dir,
 )

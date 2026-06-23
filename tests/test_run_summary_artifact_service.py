@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.run_summary_artifact_service import (
+from coding_orchestration.run.artifacts.run_summary_artifact_service import (
     read_run_summary_artifact,
     write_run_summary_artifact,
 )

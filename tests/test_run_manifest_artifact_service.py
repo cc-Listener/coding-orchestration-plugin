@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.run_manifest_artifact_service import write_run_manifest_artifact
+from coding_orchestration.run.artifacts.run_manifest_artifact_service import write_run_manifest_artifact
 
 
 class _ManifestObject:

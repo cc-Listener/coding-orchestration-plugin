@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.run_stderr_artifact_service import write_run_stderr_artifact
+from coding_orchestration.run.artifacts.run_stderr_artifact_service import write_run_stderr_artifact
 
 
 class RunStderrArtifactServiceTest(unittest.TestCase):

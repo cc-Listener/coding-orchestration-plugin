@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .models import ArtifactSet
+from ...models import ArtifactSet
 
 
 def artifact_set_for_run_dir(run_dir: Path) -> ArtifactSet:

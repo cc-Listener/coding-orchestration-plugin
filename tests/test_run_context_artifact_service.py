@@ -5,7 +5,7 @@ from pathlib import Path
 
 from coding_orchestration.context_assembler import ContextPackage
 from coding_orchestration.models import RunMode
-from coding_orchestration.run_context_artifact_service import (
+from coding_orchestration.run.artifacts.run_context_artifact_service import (
     read_run_execution_policy_artifact,
     write_run_context_artifacts,
 )
