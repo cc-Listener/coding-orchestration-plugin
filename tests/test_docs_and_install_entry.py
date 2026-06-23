@@ -239,7 +239,7 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         for expected in (
             "ToolOperationDispatcher",
             "plugin_tools.py",
-            "cli.py",
+            "cli/registration.py",
             "Gateway `/coding project-mcp-preflight`",
         ):
             with self.subTest(expected=expected):

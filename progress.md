@@ -4,6 +4,36 @@
 
 ## 会话：2026-06-23
 
+### 阶段 291：Hermes CLI registration 子包治理
+- **状态：** complete
+- 背景：
+  - `cli.py` 维护 Hermes CLI 子命令注册、tool-equivalent dispatcher fast path、Project MCP preflight host config gate 和 legacy `register_cli_command` fallback。
+  - 该职责属于 host-facing CLI registration 边界，不应继续散落在 `coding_orchestration/` 包根；普通 `/coding` command façade、diagnostics executor、Gateway route、ToolSpec/dispatcher 纯合同、runner/workspace/git 和 run lifecycle 不属于本切片。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求包根不再保留 `cli.py`，并要求 `coding_orchestration/cli/__init__.py` 与 `coding_orchestration/cli/registration.py` 存在。
+  - RED 已确认：focused layout test 先失败，失败点为包根旧文件 `cli.py` 仍存在。
+  - 将 `cli.py` 移入 `coding_orchestration/cli/registration.py`，新增 `coding_orchestration/cli/__init__.py` 保留 `from coding_orchestration.cli import register_cli` 和测试所需模块属性导出。
+  - 更新 `tests/test_docs_and_install_entry.py`、技术方案、项目地图、组件合同、约定和 machine-readable context 中的 canonical path。
+- 当前边界：
+  - `coding_orchestration/cli/registration.py`：只做 Hermes CLI registration、CLI args setup、tool-equivalent dispatcher fast path、Project MCP preflight config/command gate 和 legacy register fallback。
+  - `coding_orchestration/cli/__init__.py`：只做稳定导出，不承载业务逻辑。
+  - 普通 `/coding` command façade、diagnostics executor、Gateway route、ToolSpec/dispatcher 纯合同、runner/workspace/git 和 run lifecycle 均未迁移。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为包根旧文件 `cli.py`。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：2 tests passed。
+  - CLI/plugin/docs 相邻回归：`rtk python3 -m unittest tests.test_architecture_module_layout tests.test_coding_cli tests.test_plugin_registration tests.test_docs_and_install_entry -v`：41 tests passed。
+  - 编译检查：`rtk python3 -m compileall coding_orchestration tests`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 997 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 当前包根：
+  - `coding_orchestration/` 包根 `.py` 数量：8（不含 `__init__.py`）。
+  - 包根 `.py` 总行数：1892。
+  - 剩余包根文件：`config.py`、`ledger.py`、`models.py`、`orchestrator.py`、`ports.py`、`run_orchestration_service.py`、`runner_router.py`、`state_machine.py`。
+- 剩余风险：
+  - `runner_router.py` 仍是较低风险的下一片候选，可收拢到 `coding_orchestration/runners/`；`run_orchestration_service.py` 是 run helper owner，适合后续按 projection/service 边界继续拆；`models.py`、`ports.py`、`state_machine.py`、`ledger.py`、`config.py` 属于公共合同或兼容 façade，迁移需要更宽兼容策略。
+
 ### 阶段 290：Plugin tool registration 子包治理
 - **状态：** complete
 - 背景：

@@ -136,6 +136,13 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
                     expected=expected.split(),
                 )
 
+    def test_host_cli_registration_lives_in_cli_package(self):
+        package_root = REPO_ROOT / "coding_orchestration"
+
+        self.assertFalse((package_root / "cli.py").exists())
+        self.assertTrue((package_root / "cli" / "__init__.py").is_file())
+        self.assertTrue((package_root / "cli" / "registration.py").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()
