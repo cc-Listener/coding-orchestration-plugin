@@ -1,8 +1,8 @@
 import unittest
 
 from coding_orchestration.plugin_tools import register_coding_tools
-from coding_orchestration.tool_operation_dispatcher import ToolOperationDispatcher
-from coding_orchestration.tool_specs import coding_tool_specs
+from coding_orchestration.tools.tool_operation_dispatcher import ToolOperationDispatcher
+from coding_orchestration.tools.tool_specs import coding_tool_specs
 
 
 class RecordingContext:

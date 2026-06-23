@@ -62,7 +62,7 @@ project_map:
     orchestrator: coding_orchestration/orchestrator.py
     cli_registration: coding_orchestration/cli.py
     tool_registration: coding_orchestration/plugin_tools.py
-    tool_operation_dispatcher: coding_orchestration/tool_operation_dispatcher.py
+    tool_operation_dispatcher: coding_orchestration/tools/tool_operation_dispatcher.py
     plugin_manifest: coding_orchestration/plugin.yaml
     install_script: scripts/install_symlink.py
     uninstall_script: scripts/uninstall_legacy.py
@@ -387,7 +387,7 @@ component_contract:
       path: coding_orchestration/runner_router.py
       preferred: true
     - name: tool_operation_dispatcher
-      path: coding_orchestration/tool_operation_dispatcher.py
+      path: coding_orchestration/tools/tool_operation_dispatcher.py
       preferred: true
       note: "ToolOperationDispatcher 是 ToolSpec.operation_id 统一分发边界，供 plugin_tools.py、cli.py 和 Gateway `/coding project-mcp-preflight` diagnostic leaf 复用；future MCP tool 只有出现真实消费方后再接入。"
     - name: source_resolution

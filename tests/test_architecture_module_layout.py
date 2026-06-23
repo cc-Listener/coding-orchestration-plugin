@@ -120,6 +120,7 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
                 "context_assembler.py pre_llm_context.py",
             ),
             ("prompt_builder.py", "prompting", "prompt_builder.py"),
+            ("tool_*.py", "tools", "tool_operation_dispatcher.py tool_specs.py"),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):

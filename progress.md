@@ -4,6 +4,37 @@
 
 ## 会话：2026-06-23
 
+### 阶段 285：Tool contract/dispatcher 子包治理
+- **状态：** complete
+- 背景：
+  - `tool_specs.py` 维护 Hermes native tools / future MCP tools 可复用的 host-agnostic 工具规格合同。
+  - `tool_operation_dispatcher.py` 维护 `ToolSpec.operation_id` 到当前 service/façade handler 的 operation 分发。
+  - 两者同属 tool contract/dispatcher 边界，不应继续散落在 `coding_orchestration/` 包根；`plugin_tools.py` 继续作为 Hermes native tool host 注册入口留在包根。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 `tool_*.py` contract/dispatcher 位于 `coding_orchestration/tools/`。
+  - RED 已确认：focused layout test 先失败，失败点为 `tool_operation_dispatcher.py` 和 `tool_specs.py` 仍在包根。
+  - 新增 `coding_orchestration/tools/__init__.py`，将 `tool_specs.py` 和 `tool_operation_dispatcher.py` 移入 `coding_orchestration/tools/`。
+  - 更新 `plugin_tools.py`、orchestrator tool façade、orchestrator、tool 测试和当前事实文档中的 import / patch target / canonical 路径。
+- 当前边界：
+  - `coding_orchestration/tools/tool_specs.py`：只维护工具规格合同和 `coding_tool_specs()`，不做 Hermes host 注册或 CLI/Gateway 分发。
+  - `coding_orchestration/tools/tool_operation_dispatcher.py`：只按 `ToolSpec.operation_id` 分发到注入的 orchestrator/service handler，不持有 Hermes plugin 注册逻辑。
+  - `coding_orchestration/plugin_tools.py`：继续只做 Hermes native tool host payload 归一和 handler 包装，不维护 `operation_id -> CodingOrchestrator.tool_*` 方法映射。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为两个 `tool_*.py` 模块仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Tool/CLI/plugin 相邻回归：`rtk python3 -m unittest tests.test_tool_specs tests.test_tool_operation_dispatcher tests.test_plugin_registration tests.test_coding_cli tests.test_orchestrator_tools tests.test_workitem_service tests.test_docs_and_install_entry -v`：66 tests passed。
+  - 文档/布局回归：`rtk python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_module_layout -v`：17 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/tools/__init__.py coding_orchestration/tools/tool_specs.py coding_orchestration/tools/tool_operation_dispatcher.py coding_orchestration/plugin_tools.py coding_orchestration/orchestrator.py coding_orchestration/orchestrator_facades/orchestrator_tool_facade.py tests/test_tool_specs.py tests/test_tool_operation_dispatcher.py tests/test_architecture_module_layout.py`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed，输出 `yaml ok`。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 当前包根：
+  - `coding_orchestration/` 包根 `.py` 数量：15。
+  - 包根 `.py` 总行数：2619。
+- 剩余风险：
+  - 包根仍保留 `run_orchestration_service.py`、`workspace_checkpoint_service.py`、`runner_router.py`、`ledger.py`、`models.py`、`ports.py`、`status_policy.py`、`state_machine.py` 等核心或跨域模块；后续继续优先评估职责清晰、引用面可控的非核心 helper，避免一次性迁 runner/workspace/git/run lifecycle。
+
 ### 阶段 284：Prompt/context helper 子包治理
 - **状态：** complete
 - 背景：

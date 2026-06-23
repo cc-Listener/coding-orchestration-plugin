@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from .tool_operation_dispatcher import ToolOperationDispatcher
-from .tool_specs import ToolSpec, coding_tool_specs
+from .tools.tool_operation_dispatcher import ToolOperationDispatcher
+from .tools.tool_specs import ToolSpec, coding_tool_specs
 
 
 TOOLSET = "coding_orchestration"

@@ -438,6 +438,8 @@ coding_orchestration plugin
 
 阶段 284 目录治理事实：prompt/context helper 已收拢到 `coding_orchestration/prompting/`，包括 `prompt_builder.py`、`context_assembler.py` 和 `pre_llm_context.py`；该包只承接 PromptBuilder 组合、ContextAssembler 运行上下文组装和 pre-LLM active task context，不迁 `coding_orchestration/prompts/` 模板、run artifact/projection、manifest、runner/workspace/git 或 run lifecycle。
 
+阶段 285 目录治理事实：Tool contract/dispatcher 已收拢到 `coding_orchestration/tools/`，包括 `tool_specs.py` 和 `tool_operation_dispatcher.py`；该包只承接 Hermes native tools / future MCP tools 的 host-agnostic 规格合同和 `ToolSpec.operation_id` 分发，不迁 `plugin_tools.py` host 注册入口、CLI/Gateway diagnostic host shell、orchestrator tool façade、WorkItem/Task service、runner/workspace/git 或 run lifecycle。
+
 阶段 282 目录治理事实：command catalog 纯数据和 Coding Mode command rewriter adapter 已收拢到 `coding_orchestration/commands/`；该包现在承接 `/coding` command facts、help/listing 文案、rewrite context、LLM rewrite prompt、JSON 解析和 fallback shape，不迁 Gateway route/controller、command executor、orchestrator façade、runner/workspace/git 或 run lifecycle。
 
 阶段 283 目录治理事实：report quality helper 已收拢到 `coding_orchestration/reports/`，包括 `report_contract.py`、`report_admission.py` 和 `run_log_compactor.py`；该包只承接结构化 report 完整性检查、交付拆解准入和 operator-facing run log compact，不迁 runner subprocess、report writer/loader 主体、状态推进、Gateway、workspace/git 或 run lifecycle。

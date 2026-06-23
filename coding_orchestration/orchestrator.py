@@ -62,7 +62,7 @@ from . import (
 )
 from .source import source_projection
 from .project.project_resolver import ProjectResolver
-from .tool_operation_dispatcher import ToolOperationDispatcher
+from .tools.tool_operation_dispatcher import ToolOperationDispatcher
 from .symphony_compat.workflow_loader import WorkflowLoader
 
 @dataclass

@@ -11,6 +11,7 @@
   - Codex runner 使用可见 session，方便 CLI 查看
 
 ## 研究发现
+- 阶段 285 确认：Tool contract/dispatcher 已收拢到 `coding_orchestration/tools/`；包根不再承载 `tool_specs.py` 或 `tool_operation_dispatcher.py`，`plugin_tools.py` 继续只做 Hermes native tool host 注册和 payload 归一。
 - 阶段 284 确认：prompt/context helper 已收拢到 `coding_orchestration/prompting/`；包根不再承载 `prompt_builder.py`、`context_assembler.py` 或 `pre_llm_context.py`，`coding_orchestration/prompts/` 继续只承接 mode/source 模板。
 - 阶段 283 确认：结构化 report 完整性检查、交付拆解准入和 run log compact helper 已收拢到 `coding_orchestration/reports/`；包根不再承载 `report_contract.py`、`report_admission.py` 或 `run_log_compactor.py`。
 - 阶段 282 确认：`/coding` command catalog 纯数据和 Coding Mode command rewriter adapter 已收拢到 `coding_orchestration/commands/`；包根不再承载 `command_catalog.py` 或 `command_rewriter.py`。

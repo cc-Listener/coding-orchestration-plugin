@@ -1,6 +1,6 @@
 import unittest
 
-from coding_orchestration.tool_specs import coding_tool_specs
+from coding_orchestration.tools.tool_specs import coding_tool_specs
 
 
 class ToolSpecTest(unittest.TestCase):
