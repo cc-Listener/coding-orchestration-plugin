@@ -91,6 +91,7 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ("kanban_*.py", "integrations/kanban", "kanban_bridge.py kanban_sync_service.py"),
             ("install.py", "integrations/install", "install.py"),
             ("source_links.py", "source", "source_links.py"),
+            ("source_projection.py", "source", "source_projection.py"),
             ("source_recovery.py", "source", "source_recovery.py"),
             ("source_work_item_context.py", "source", "source_work_item_context.py"),
         ]

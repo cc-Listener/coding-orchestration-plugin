@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from coding_orchestration.ports import SourceResult
-from coding_orchestration.source_projection import (
+from coding_orchestration.source.source_projection import (
     source_projection_from_context,
     source_projection_from_result,
     source_projection_from_source,

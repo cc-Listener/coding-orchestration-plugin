@@ -59,8 +59,8 @@ from . import (
     run_orchestration_service,
     run_manifest_service,
     run_reconcile_writeback_service,
-    source_projection,
 )
+from .source import source_projection
 from .project_resolver import ProjectResolver
 from .tool_operation_dispatcher import ToolOperationDispatcher
 from .symphony_compat.workflow_loader import WorkflowLoader

@@ -1,1 +1,1 @@
-"""Source helper package."""
+"""Source package helpers and projections."""

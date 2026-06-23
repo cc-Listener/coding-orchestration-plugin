@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from ..source_projection import SourceProjection, source_projection_from_source
+from ..source.source_projection import SourceProjection, source_projection_from_source
 
 
 def source_block(source: dict[str, Any]) -> str:

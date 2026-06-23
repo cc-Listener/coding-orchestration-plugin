@@ -148,7 +148,7 @@ project_map:
     - path: coding_orchestration/source_context_repair_service.py
       reason: "Source context repair host service，维护 source context 读取、deferred source pre-run enrichment、既有 task context 修复、source summary 回写和项目上下文回填接线；不改 legacy source_context schema、不实现 source reader、不承载 source 权限策略、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/source/
-      reason: "Source helper package，维护 Feishu/Meegle URL 解析、deferred recovery payload 和 work item payload 归一化；不承载 source resolver、source projection、reader transport、ledger schema、runner/workspace/git 或 run lifecycle。"
+      reason: "Source package，维护 Feishu/Meegle URL 解析、deferred recovery payload、work item payload 归一化和 SourceProjection 稳定投影；不承载 source resolver、reader transport、ledger schema、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/integrations/kanban/kanban_bridge.py
       reason: "Kanban integration adapter，维护真实 Kanban 工具映射；不承载 task 创建同步、状态同步、状态机、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/integrations/kanban/kanban_sync_service.py
@@ -165,7 +165,7 @@ project_map:
       reason: "Gateway rewrite context 纯投影 helper，只消费已采集的 task/project/media/catalog 事实并返回 LLM rewrite context 与 next-step hint；不读 ledger、不持有 Gateway event、不调用 command_rewriter、不发送回复。"
     - path: coding_orchestration/commands/delivery/delivery_command_executor.py
       reason: "Delivery command executor host shell，维护 /coding breakdown、/coding analyze、/coding approve-breakdown、/coding materialize、/coding run <parent> --next、/coding status <parent> --delivery/--tree 用户可见分支和 decomposition / human decision / ledger / rollup callback 绑定；不承载 DeliveryService 纯规则、不实现 runner、不触碰 Gateway route 或 workspace/git 副作用。"
-    - path: coding_orchestration/source_projection.py
+    - path: coding_orchestration/source/source_projection.py
       reason: "SourceProjection 纯投影层，把 SourceResult / legacy source_context 映射为 prompt/context/status/manifest/run-preflight/dashboard source health/source-resolve diagnostic payload/task creation helper 稳定字段，并提供 context-index 序列化 payload；不读外部来源、不写 ledger、不推进状态、不改变 source_context 持久化。"
     - path: coding_orchestration/run/services/run_diff_guard_service.py
       reason: "Run diff guard observation host service，维护 before snapshot、changed files 观测、QA report artifact 过滤、policy violations 组合、plan-only 写入 violations 补充和 diff summary 写回；不写 ledger/report/manifest/summary、不启动 runner、不推进状态。"
@@ -515,7 +515,7 @@ component_contract:
       path: coding_orchestration/gateway/gateway_coding_mode_executor.py
       preferred: true
     - name: source_projection
-      path: coding_orchestration/source_projection.py
+      path: coding_orchestration/source/source_projection.py
       preferred: true
     - name: task_ledger
       path: coding_orchestration/ledger.py
@@ -842,7 +842,7 @@ component_contract:
       use_instead_of:
         - "在 coding_orchestration/ 包根新增 feishu_*.py，或把 Feishu Docx/Wiki reader、Project work item reader、Project MCP adapter 逻辑分散到 source resolver、orchestrator、service 或 runner。"
     - name: source_projection
-      path: coding_orchestration/source_projection.py
+      path: coding_orchestration/source/source_projection.py
       use_instead_of:
         - "在 prompt/context/status/manifest/run-preflight/dashboard source health/source-resolve diagnostic payload/task creation helper 消费层继续新增 reader-specific source_context 字段判断；先投影为 SourceProjection，再渲染、写入 context artifact、统计 source health、输出 source-resolve payload、决定 task creation helper 字段或决定 run 前 source refresh。"
     - name: validate_codex_semantic_report

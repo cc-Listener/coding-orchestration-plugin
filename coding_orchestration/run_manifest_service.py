@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .models import RunManifest, RunMode, RunnerName, TaskPhase
-from .source_projection import source_projection_from_source
+from .source.source_projection import source_projection_from_source
 
 
 CODEX_SESSION_RUNNERS = {

@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 from ..gateway.gateway_binding_service import event_source_for_ledger as gateway_event_source_for_ledger
-from .. import source_context_repair_service, source_projection
+from .. import source_context_repair_service
+from ..source import source_projection
 from ..services import CreatedTask, TaskService
 
 

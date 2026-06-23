@@ -211,7 +211,7 @@ class DocsAndInstallEntryTest(unittest.TestCase):
         self.assertIn("task creation helper", task_31_line)
         self.assertNotIn("仍可后续", task_31_line)
         for expected in (
-            "source_projection.py",
+            "source/source_projection.py",
             "TaskService",
             "run_manifest_service",
             "source_context_repair_service.py",

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from ...models import RunMode
-from ...source_projection import source_projection_from_source, source_projection_to_dict
+from ...source.source_projection import source_projection_from_source, source_projection_to_dict
 
 
 def json_dumps(data: Any) -> str:

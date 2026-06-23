@@ -4,7 +4,7 @@ from typing import Any
 
 from ..models import TaskStatus, canonical_task_status
 from ..source.source_links import extract_feishu_document_link, extract_feishu_project_link
-from ..source_projection import SourceProjection, source_projection_from_context, source_projection_from_source
+from ..source.source_projection import SourceProjection, source_projection_from_context, source_projection_from_source
 from ..source.source_recovery import feishu_document_lark_cli_command, feishu_document_recovery_action
 from ..state_machine import TaskStateMachine
 

@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 271：Source helper 子包治理第一切片（complete）
+阶段 272：Source projection 子包治理（complete）
 
 ## 各阶段
+
+### 阶段 272：Source projection 子包治理
+- [x] 定域：只收拢 `source_projection.py` 到 `coding_orchestration/source/`，保持 `SourceResult` / legacy `source_context` 到 `SourceProjection` 的稳定投影行为不变；不迁 `source_resolver.py`、`source_context_repair_service.py`、`meegle_reader.py`、reader、ledger schema、runner/workspace/git 或 run lifecycle。
+- [x] TDD：扩展模块布局架构测试，要求 source projection 不再散落在 `coding_orchestration/` 包根。
+- [x] RED：确认新增 focused test 在当前包根文件存在时失败。
+- [x] 实现：移动模块并更新 import / 文档路径。
+- [x] 验证：运行 focused GREEN、source projection 相邻回归、py_compile、YAML、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步进度、发现、技术方案、项目地图、组件合同、约定、machine-readable context 和治理计划。
+- **状态：** complete
 
 ### 阶段 271：Source helper 子包治理第一切片
 - [x] 定域：只收拢 `source_links.py`、`source_recovery.py` 和 `source_work_item_context.py` 到 `coding_orchestration/source/`，保持来源链接解析、deferred recovery payload 和 work item payload 归一化语义不变；不迁 `source_resolver.py`、`source_projection.py`、`source_context_repair_service.py`、reader、ledger schema、runner/workspace/git 或 run lifecycle。

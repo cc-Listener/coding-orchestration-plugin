@@ -11,7 +11,7 @@ from coding_orchestration.integrations.knowledge.llm_wiki_adapter import LocalLl
 from coding_orchestration.models import AgentRunStatus, RunMode
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
-from coding_orchestration.source_projection import SourceProjection
+from coding_orchestration.source.source_projection import SourceProjection
 from tests.orchestrator_flow_fixtures import (
     FakeFeishuProjectReader,
     FakeGatewayEvent,
@@ -54,7 +54,7 @@ class SourcePlanFlowTest(unittest.TestCase):
             }
 
             with patch(
-                "coding_orchestration.source_projection.source_projection_from_context",
+                "coding_orchestration.source.source_projection.source_projection_from_context",
                 return_value=SourceProjection(
                     ok=False,
                     status="failed",
