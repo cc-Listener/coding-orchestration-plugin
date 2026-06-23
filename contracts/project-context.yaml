@@ -199,6 +199,8 @@ project_map:
       reason: "Run session writeback host service，维护 start_run 与 active run reconcile 的 task session callback 调用；只消费 session update dict 并调用注入 callback，不直接持有 TaskLedger 或 storage repository。"
     - path: coding_orchestration/run/projections/run_prompt_projection.py
       reason: "Run prompt projection helper，维护首次/增量 prompt 构造选择和参数合同，不写 input-prompt.md、不生成 context artifact、不写 manifest、不启动 runner 或推进 ledger。"
+    - path: coding_orchestration/prompting/
+      reason: "Prompt/context helper package，维护 PromptBuilder、ContextAssembler 和 pre-LLM active task context；只组合 prompt/context，不承载 prompts 模板 owner、artifact 文件写入、manifest 构造、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/run/artifacts/run_context_artifact_service.py
       reason: "Run context artifact service，维护 wiki context、confirmed plan / implementation context、assembled context、run instructions、execution policy 和 context index 写入，以及 execution-policy.json 读取，只触达 run_dir context artifact。"
     - path: coding_orchestration/run/artifacts/run_start_artifact_service.py
@@ -347,6 +349,9 @@ component_contract:
       preferred: true
     - name: run_prompt_projection
       path: coding_orchestration/run/projections/run_prompt_projection.py
+      preferred: true
+    - name: prompting
+      path: coding_orchestration/prompting/
       preferred: true
     - name: run_context_artifact_service
       path: coding_orchestration/run/artifacts/run_context_artifact_service.py
@@ -566,6 +571,10 @@ component_contract:
       path: coding_orchestration/run/projections/run_prompt_projection.py
       use_instead_of:
         - "在 orchestrator 或 run_orchestration_service 中继续新增首次/增量 prompt 构造选择、prompt builder 参数拼装或 prompt 分支规则。"
+    - name: prompting
+      path: coding_orchestration/prompting/
+      use_instead_of:
+        - "在 coding_orchestration/ 包根继续放置 prompt_builder.py、context_assembler.py 或 pre_llm_context.py。"
     - name: run_context_artifact_service
       path: coding_orchestration/run/artifacts/run_context_artifact_service.py
       use_instead_of:

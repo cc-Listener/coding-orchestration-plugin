@@ -114,6 +114,12 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ("task_lifecycle_guard_service.py", "services", "task_lifecycle_guard_service.py"),
             ("background_run_notifier.py", "background", "background_run_notifier.py"),
             ("coding_background_run_executor.py", "background", "coding_background_run_executor.py"),
+            (
+                "*context*.py",
+                "prompting",
+                "context_assembler.py pre_llm_context.py",
+            ),
+            ("prompt_builder.py", "prompting", "prompt_builder.py"),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):

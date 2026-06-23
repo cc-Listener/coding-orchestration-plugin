@@ -4,6 +4,39 @@
 
 ## 会话：2026-06-23
 
+### 阶段 284：Prompt/context helper 子包治理
+- **状态：** complete
+- 背景：
+  - `prompt_builder.py` 维护 Codex visible prompt 组合和 run instructions 组合入口。
+  - `context_assembler.py` 维护运行上下文组装、context manifest 和当前 task/dependency/sibling 摘要。
+  - `pre_llm_context.py` 维护 Hermes pre-LLM active task context 注入。
+  - 三者同属 prompt/context helper 边界，不应继续散落在 `coding_orchestration/` 包根；`coding_orchestration/prompts/` 继续只承接 mode/source 模板。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 prompt/context helper 位于 `coding_orchestration/prompting/`。
+  - RED 已确认：focused test 先失败，失败点为 `context_assembler.py`、`pre_llm_context.py` 和 `prompt_builder.py` 仍在包根。
+  - 新增 `coding_orchestration/prompting/__init__.py`，将三个模块移入 `coding_orchestration/prompting/`。
+  - 更新 orchestrator、prompt/context 测试、run context artifact 测试和当前事实文档中的 import / patch target / canonical 路径。
+- 当前边界：
+  - `coding_orchestration/prompting/prompt_builder.py`：只做 prompt 组合和 run instructions 组合入口，不拥有 mode/source 模板规则。
+  - `coding_orchestration/prompting/context_assembler.py`：只组装 prompt context 与 context manifest，不写 ledger、不启动 runner、不推进状态。
+  - `coding_orchestration/prompting/pre_llm_context.py`：只构造 active task pre-LLM context 字符串，不执行 Gateway 命令、不写 ledger。
+  - `coding_orchestration/prompts/`：继续承接 run instructions 和 source block 模板。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为三个 prompt/context helper 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Prompt/context 相邻回归：`rtk python3 -m unittest tests.test_router_prompt_summary tests.test_context_assembler tests.test_pre_llm_context tests.test_run_context_artifact_service tests.test_run_prompt_projection tests.test_plan_run_flow tests.test_implementation_session_flow tests.test_ledger_wiki_orchestrator -v`：55 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/prompting/__init__.py coding_orchestration/prompting/prompt_builder.py coding_orchestration/prompting/context_assembler.py coding_orchestration/prompting/pre_llm_context.py coding_orchestration/orchestrator.py coding_orchestration/run/artifacts/run_context_artifact_service.py coding_orchestration/run/projections/run_prompt_projection.py tests/test_router_prompt_summary.py tests/test_context_assembler.py tests/test_pre_llm_context.py tests/test_run_context_artifact_service.py tests/test_architecture_module_layout.py`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed，输出 `yaml ok`。
+  - 文档/布局回归：`rtk python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_module_layout -v`：17 tests passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 当前包根：
+  - `coding_orchestration/` 包根 `.py` 数量：18。
+  - 包根 `.py` 总行数：2999。
+- 剩余风险：
+  - 包根仍保留 `run_orchestration_service.py`、`workspace_checkpoint_service.py`、`runner_router.py`、`ledger.py`、`models.py`、`ports.py`、`status_policy.py`、`state_machine.py` 等核心或跨域模块；后续继续按职责域和引用面评估，避免一次性迁 runner/workspace/git/run lifecycle。
+
 ### 阶段 283：Report quality helper 子包治理
 - **状态：** complete
 - 背景：

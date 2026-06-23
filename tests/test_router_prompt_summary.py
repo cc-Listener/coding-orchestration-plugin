@@ -7,7 +7,7 @@ from coding_orchestration.integrations.knowledge.llm_wiki_adapter import LocalLl
 from coding_orchestration.integrations.knowledge.knowledge_adapter import LocalKnowledgeAdapter
 from coding_orchestration.integrations.knowledge.run_summary_writer import RunSummaryWriter
 from coding_orchestration.models import RunMode
-from coding_orchestration.prompt_builder import PromptBuilder
+from coding_orchestration.prompting.prompt_builder import PromptBuilder
 from coding_orchestration.runner_router import RunnerRouter
 from coding_orchestration.symphony_compat.workflow_loader import WorkflowSpec
 

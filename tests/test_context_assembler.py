@@ -4,7 +4,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from coding_orchestration.context_assembler import ContextAssembler
+from coding_orchestration.prompting.context_assembler import ContextAssembler
 from coding_orchestration.models import RunMode, TaskKind
 
 
@@ -94,7 +94,7 @@ class ContextAssemblerTest(unittest.TestCase):
             }
 
             with patch(
-                "coding_orchestration.context_assembler.source_projection_from_source",
+                "coding_orchestration.prompting.context_assembler.source_projection_from_source",
                 return_value=SimpleNamespace(raw_fields_summary="projection summary"),
                 create=True,
             ):

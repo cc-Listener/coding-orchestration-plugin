@@ -2,18 +2,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import RunMode
-from .prompts.run_instructions import (
+from ..models import RunMode
+from ..prompts.run_instructions import (
     build_run_instructions as render_run_instructions,
     execution_contract as render_execution_contract,
     output_requirements as render_output_requirements,
     visible_mode_instruction as render_visible_mode_instruction,
 )
-from .prompts.source_block import (
+from ..prompts.source_block import (
     source_block as render_source_block,
     truncate_source_context_value as render_truncate_source_context_value,
 )
-from .symphony_compat.workflow_loader import WorkflowSpec
+from ..symphony_compat.workflow_loader import WorkflowSpec
 
 
 class PromptBuilder:

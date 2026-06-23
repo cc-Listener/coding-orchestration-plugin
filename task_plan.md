@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 283：Report quality helper 子包治理（complete）
+阶段 284：Prompt/context helper 子包治理（complete）
 
 ## 各阶段
+
+### 阶段 284：Prompt/context helper 子包治理
+- [x] 定域：只收拢 `prompt_builder.py`、`context_assembler.py` 和 `pre_llm_context.py` 到 `coding_orchestration/prompting/`，保持 prompt 组合、上下文组装和 pre-LLM active task context 行为不变；不迁 `prompts/` 模板、run artifact/projection、manifest、runner/workspace/git 或 run lifecycle。
+- [x] TDD：扩展模块布局架构测试，要求 prompt/context helper 不再散落在 `coding_orchestration/` 包根。
+- [x] RED：确认新增 focused test 在当前包根文件存在时失败。
+- [x] 实现：移动模块并更新 import / patch target / 文档路径。
+- [x] 验证：运行 focused GREEN、prompt/context 相邻回归、py_compile、YAML、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步进度、发现、技术方案、项目地图、组件合同、约定、machine-readable context 和治理计划。
+- **状态：** complete
 
 ### 阶段 283：Report quality helper 子包治理
 - [x] 定域：只收拢 `report_contract.py`、`report_admission.py` 和 `run_log_compactor.py` 到 `coding_orchestration/reports/`，保持结构化 report 完整性检查、交付拆解准入和 Codex run log 压缩行为不变；不迁 runner subprocess、report writer/loader 主体、状态推进、Gateway、workspace/git 或 run lifecycle。

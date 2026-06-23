@@ -9,7 +9,6 @@ from typing import Any
 from .diff_guard import DiffGuard
 from .execution_policy import control_policy_for_mode
 from .ledger import TaskLedger
-from .context_assembler import ContextAssembler
 from .orchestrator_facades.orchestrator_active_run_facade import OrchestratorActiveRunFacadeMixin
 from .orchestrator_facades.orchestrator_background_facade import OrchestratorBackgroundFacadeMixin
 from .orchestrator_facades.orchestrator_bootstrap_facade import OrchestratorBootstrapFacadeMixin
@@ -30,9 +29,10 @@ from .models import (
     RunMode,
     normalize_agent_run_status,
 )
-from .pre_llm_context import build_pre_llm_context
 from .ports import KnowledgePort
-from .prompt_builder import PromptBuilder
+from .prompting.context_assembler import ContextAssembler
+from .prompting.pre_llm_context import build_pre_llm_context
+from .prompting.prompt_builder import PromptBuilder
 from .run.artifacts import (
     run_context_artifact_service,
     run_manifest_artifact_service,

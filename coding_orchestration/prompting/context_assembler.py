@@ -5,8 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .models import RunMode
-from .source.source_projection import source_projection_from_source
+from ..models import RunMode
+from ..source.source_projection import source_projection_from_source
 
 
 @dataclass(frozen=True)
