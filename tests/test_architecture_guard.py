@@ -162,6 +162,44 @@ class ArchitectureGuardTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
+    def test_orchestrator_does_not_keep_tool_facade_methods(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def _build_tool_operation_dispatcher(",
+            "def dispatch_tool_operation(",
+            "def tool_task_create(",
+            "def tool_task_status(",
+            "def tool_task_run(",
+            "def _dispatch_tool_task_run(",
+            "def tool_source_resolve(",
+            "def _dispatch_tool_source_resolve(",
+            "def tool_lark_preflight(",
+            "def _dispatch_tool_lark_preflight(",
+            "def tool_project_mcp_preflight(",
+            "def tool_project_workitem_search(",
+            "def tool_project_workitem_create(",
+            "def tool_project_intake_sync(",
+            "def _create_project_bugfix_task(",
+            "def tool_project_bugfix_intake(",
+            "def _writeback_project_bugfix_completion(",
+            "def tool_project_wbs_update(",
+            "def tool_project_state_transition(",
+            "def _project_mcp_adapter(",
+            "def _redacted_project_payload(",
+            "def _record_project_mcp_audit(",
+            "def _project_mcp_tool_result(",
+            "def _project_mcp_payload(",
+            "def _project_mcp_states(",
+            "def _project_mcp_items(",
+            "def _project_related_story_key(",
+            "def _project_required_fields(",
+            "def _project_transitable_states(",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()

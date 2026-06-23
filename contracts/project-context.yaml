@@ -347,6 +347,10 @@ component_contract:
       path: coding_orchestration/orchestrator_command_facade.py
       preferred: true
       note: "普通 /coding ... command façade 分发表、command-level wrapper、delivery rollup/materialize helper、artifact purge callback 和 prepare-merge-test status callback owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+    - name: orchestrator_tool_facade
+      path: coding_orchestration/orchestrator_tool_facade.py
+      preferred: true
+      note: "Tool operation dispatcher façade、tool_* 入口、tool run/source preflight adapter 和 Project MCP / WorkItem 小包装 owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
     - name: coding_diagnostics_command_executor
       path: coding_orchestration/coding_diagnostics_command_executor.py
       preferred: true
@@ -586,6 +590,10 @@ component_contract:
       path: coding_orchestration/orchestrator_command_facade.py
       use_instead_of:
         - "在 orchestrator.py 主文件中继续新增或恢复普通 /coding ... command façade 分发表、command-level wrapper、delivery rollup/materialize helper、artifact purge callback 或 prepare-merge-test status callback。"
+    - name: orchestrator_tool_facade
+      path: coding_orchestration/orchestrator_tool_facade.py
+      use_instead_of:
+        - "在 orchestrator.py 主文件中继续新增或恢复 tool operation dispatcher façade、tool_* 入口、tool run/source preflight adapter 或 Project MCP / WorkItem 小包装。"
     - name: task_status_presenter
       path: coding_orchestration/task_status_presenter.py
       use_instead_of:
