@@ -44,13 +44,13 @@
 | Source context repair service | `from coding_orchestration.source import source_context_repair_service` | `coding_orchestration/source/source_context_repair_service.py` | `source/source_context_repair_service.py`、`orchestrator.py`、`source/source_projection.py`、`services/task_utils.py` | `read_source_context`、`repair_task_context_from_existing_task`、`enrich_deferred_source_context_before_run` |
 | Kanban sync service | `from coding_orchestration.integrations.kanban import kanban_sync_service` | `coding_orchestration/integrations/kanban/kanban_sync_service.py` | `integrations/kanban/kanban_sync_service.py`、`orchestrator.py`、`integrations/kanban/kanban_bridge.py`、`models.py` | `sync_task_to_kanban`、`sync_status_to_kanban`、`kanban_sync_skipped`、`kanban_sync_record_from_result` |
 | Task lifecycle guard service | `from coding_orchestration.services import task_lifecycle_guard_service` | `coding_orchestration/services/task_lifecycle_guard_service.py` | `services/task_lifecycle_guard_service.py`、`orchestrator.py`、`services/run_service.py`、`models.py` | `active_coding_statuses`、`task_is_cancelled`、`cancelled_task_message`、`restore_state_for_cancelled_task`、`reopen_merged_test_task_for_bugfix_if_needed` |
-| Hermes native tools | `from coding_orchestration.plugin_tools import register_coding_tools` | `coding_orchestration/plugin_tools.py` | `coding_orchestration/plugin_tools.py`、`tools/tool_operation_dispatcher.py` | `register_coding_tools` |
+| Hermes native tools | `from coding_orchestration.tools.plugin_tools import register_coding_tools` | `coding_orchestration/tools/plugin_tools.py` | `tools/plugin_tools.py`、`tools/tool_operation_dispatcher.py` | `register_coding_tools` |
 | Hermes CLI 子命令 | `from coding_orchestration.cli import register_cli` | `coding_orchestration/cli.py` | `coding_orchestration/cli.py` | `register_cli` |
 | 测试治理 | 按行为域选择 `tests/test_*`；不要从生产代码 import 测试 helper | `tests/` | `tests/test_orchestrator_run_flow.py` 只保留 smoke/transition/sandbox；旧私有 helper 断言迁到 service/policy/presenter/adapter contract tests；旧文件形态清理由 `tests/test_architecture_guard.py` 锁定；包根模块族目录归位由 `tests/test_architecture_module_layout.py` 维护；主 guard 测试增长缓冲由 `tests/test_architecture_guard_test_governance.py` 维护 | Test governance |
 | 发布 readiness gate | `rtk proxy python3 scripts/release_readiness.py` | `scripts/release_readiness.py` | 执行完整单测、architecture guard、`git diff --check`、敏感扫描和最小 Hermes smoke；本机未运行 Hermes 时允许显式 `--skip-hermes-smoke`，正式发布前补跑 smoke | `build_release_readiness_steps`、`run_release_readiness` |
 | 运行配置边界 | `from coding_orchestration.config import RuntimeConfig, ToolConfig` | `coding_orchestration/config.py` | `coding_orchestration/config.py` | `RuntimeConfig`、`ToolConfig` |
-| 工具规格合同 | `from coding_orchestration.tools.tool_specs import coding_tool_specs` | `coding_orchestration/tools/tool_specs.py` | `coding_orchestration/tools/tool_specs.py`、`plugin_tools.py` | `ToolSpec`、`coding_tool_specs` |
-| 工具 operation dispatcher | `from coding_orchestration.tools.tool_operation_dispatcher import ToolOperationDispatcher` | `coding_orchestration/tools/tool_operation_dispatcher.py` | `tools/tool_operation_dispatcher.py`、`orchestrator_facades/orchestrator_tool_facade.py`、`plugin_tools.py`、`cli.py`；Gateway `/coding project-mcp-preflight` diagnostic leaf 复用同一 operation 边界 | `ToolOperationDispatcher` |
+| 工具规格合同 | `from coding_orchestration.tools.tool_specs import coding_tool_specs` | `coding_orchestration/tools/tool_specs.py` | `coding_orchestration/tools/tool_specs.py`、`tools/plugin_tools.py` | `ToolSpec`、`coding_tool_specs` |
+| 工具 operation dispatcher | `from coding_orchestration.tools.tool_operation_dispatcher import ToolOperationDispatcher` | `coding_orchestration/tools/tool_operation_dispatcher.py` | `tools/tool_operation_dispatcher.py`、`orchestrator_facades/orchestrator_tool_facade.py`、`tools/plugin_tools.py`、`cli.py`；Gateway `/coding project-mcp-preflight` diagnostic leaf 复用同一 operation 边界 | `ToolOperationDispatcher` |
 | 端口合同 | `from coding_orchestration.ports import RunnerPort, WorkItemPort, SourceResult` | `coding_orchestration/ports.py` | `coding_orchestration/ports.py` | `HostPort`、`RunnerPort`、`SourcePort`、`SourceResult`、`WorkItemPort`、`LedgerPort` |
 | 任务状态模型 | `from coding_orchestration.models import TaskStatus, TaskPhase, RunMode` | `coding_orchestration/models.py` | `coding_orchestration/models.py` | `TaskStatus`、`TaskPhase`、`RunMode` |
 | 状态转换 | `from coding_orchestration.state_machine import TaskStateMachine` | `coding_orchestration/state_machine.py` | `coding_orchestration/state_machine.py` | `TaskStateMachine` |
@@ -146,7 +146,7 @@
 | `hermes-coding-operator`、`hermes-coding-health-check` | `coding_orchestration/skills/`、`coding_orchestration/__init__.py` |
 | `pre_gateway_dispatch`、`pre_llm_call` | `coding_orchestration/__init__.py`、`coding_orchestration/orchestrator.py` |
 | `RuntimeConfig`、`ToolConfig` | `coding_orchestration/config.py` |
-| `ToolSpec`、`coding_tool_specs`、`ToolOperationDispatcher` | `coding_orchestration/tools/tool_specs.py`、`coding_orchestration/tools/tool_operation_dispatcher.py`、`coding_orchestration/plugin_tools.py` |
+| `ToolSpec`、`coding_tool_specs`、`ToolOperationDispatcher` | `coding_orchestration/tools/tool_specs.py`、`coding_orchestration/tools/tool_operation_dispatcher.py`、`coding_orchestration/tools/plugin_tools.py` |
 | `DiffGuard`、`ExecutionPolicy`、`control_policy_for_mode` | `coding_orchestration/policies/diff_guard.py`、`coding_orchestration/policies/execution_policy.py` |
 | `CodexReuseStrategy`、`CodexBackendDecision` | `coding_orchestration/runners/codex_reuse.py`、`coding_orchestration/runner_router.py` |
 | `HostPort`、`RunnerPort`、`SourcePort`、`SourceResult`、`WorkItemPort` | `coding_orchestration/ports.py` |
@@ -192,7 +192,7 @@
 | `normalize_work_item_payload`、`coerce_work_item_context`、`extract_fields` | `coding_orchestration/source/source_work_item_context.py`、`tests/test_source_work_item_context.py` |
 | `extract_feishu_project_link`、`extract_feishu_document_link`、`extract_meegle_link` | `coding_orchestration/source/source_links.py` |
 | `feishu_document_failed_context`、`feishu_document_lark_cli_command`、`meegle_failed_context`、`meegle_cli_command` | `coding_orchestration/source/source_recovery.py` |
-| `FeishuProjectMcpAdapter`、`MCP_USER_TOKEN`、`coding_project_*` | `coding_orchestration/feishu/feishu_project_mcp.py`、`coding_orchestration/orchestrator.py`、`coding_orchestration/plugin_tools.py` |
+| `FeishuProjectMcpAdapter`、`MCP_USER_TOKEN`、`coding_project_*` | `coding_orchestration/feishu/feishu_project_mcp.py`、`coding_orchestration/orchestrator.py`、`coding_orchestration/tools/plugin_tools.py` |
 | `WorkItemService`、`project_related_story_key`、`project_mcp_items` | `coding_orchestration/services/workitem_service.py`、`coding_orchestration/services/workitem_utils.py` |
 | `project_workitem_bindings`、`source_workitem_key`、`branch_policy=inherit_root_branch` | `coding_orchestration/ledger.py`、`coding_orchestration/project/project_workitem_binding.py` |
 | `ProjectIntakeRule`、`coding_project_intake_sync`、`dry_run` | `coding_orchestration/project/project_intake.py`、`coding_orchestration/orchestrator.py` |
@@ -303,7 +303,7 @@
 - 不要在 runner 主流程里散落 Codex artifact 路径；通过 `coding_orchestration/runners/codex_artifacts.py` 维护 artifact contract，再由 `CodexCliRunner.collect_artifacts()` 暴露兼容入口。
 - 不要把通用意图分流、项目优先、任务状态下一步或 readiness 输出格式写回 Hermes binding skill；先维护 `coding-operator-core` / `coding-health-core`，再在 Hermes binding skill 中映射 `/coding`、Hermes CLI、`lark-cli` 和本地插件配置。
 - 不要把 Hermes 命令、运行根、内部账本路径或本机凭据写进 core skill；core skill 必须保持 host-agnostic。
-- 不要在 Hermes tool 注册层手写工具 schema 或 `operation_id -> CodingOrchestrator.tool_*` 方法映射；通过 `tools/ToolSpec` / `coding_tool_specs()` 维护工具定义，通过 `tools/ToolOperationDispatcher` 做 operation 分发，再由 `plugin_tools.py` 做 host 注册。
+- 不要在 Hermes tool 注册层手写工具 schema 或 `operation_id -> CodingOrchestrator.tool_*` 方法映射；通过 `tools/ToolSpec` / `coding_tool_specs()` 维护工具定义，通过 `tools/ToolOperationDispatcher` 做 operation 分发，再由 `tools/plugin_tools.py` 做 host 注册。
 - 不要在核心流程里散落默认运行路径、外部命令、飞书域名或 token env key；通过 `RuntimeConfig`、`ToolConfig` 或后续 adapter config 注入。
 - 不要让 core/application service import Hermes host、MCP transport 或 subprocess 细节；先定义 `ports.py` 中的端口，再由 adapter 实现。
 - 不要把 Feishu Project、Feishu Docx/Wiki 或 Meegle URL 解析写进 reader/CLI/MCP 代码；通过 `coding_orchestration/source/source_links.py` 的纯解析函数维护。

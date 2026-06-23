@@ -4,6 +4,36 @@
 
 ## 会话：2026-06-23
 
+### 阶段 290：Plugin tool registration 子包治理
+- **状态：** complete
+- 背景：
+  - `plugin_tools.py` 维护 Hermes native tool host 注册、ToolSpec schema 包装、operation dispatcher handler 绑定和 legacy `register_tool` fallback。
+  - 该职责与 `tool_specs.py`、`tool_operation_dispatcher.py` 同属 tool integration 边界，不应继续散落在 `coding_orchestration/` 包根；CLI、orchestrator tool façade、ToolSpec/dispatcher 纯合同、WorkItem/Task service、runner/workspace/git 和 run lifecycle 不属于本切片。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 plugin tool registration 位于 `coding_orchestration/tools/`。
+  - RED 已确认：focused layout test 先失败，失败点为 `plugin_tools.py` 仍在包根。
+  - 将 `plugin_tools.py` 移入 `coding_orchestration/tools/plugin_tools.py`，并在 `tools/__init__.py` 暴露 `register_coding_tools`。
+  - 更新 plugin 注册入口、tool dispatcher 测试和当前事实文档中的 import / canonical 路径。
+- 当前边界：
+  - `coding_orchestration/tools/plugin_tools.py`：只做 host payload 归一、ToolSpec schema 注册、dispatcher handler 包装和 Hermes host fallback，不维护工具 schema、不持有 orchestrator 方法名映射。
+  - `coding_orchestration/tools/tool_specs.py` / `tool_operation_dispatcher.py`：继续作为规格合同和 operation 分发 owner。
+  - `coding_orchestration/cli.py`、`orchestrator_facades/orchestrator_tool_facade.py`、WorkItem/Task service、runner/workspace/git 和 run lifecycle 均未迁移。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为包根旧文件。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Tool/plugin/docs 相邻回归：`rtk python3 -m unittest tests.test_architecture_module_layout tests.test_tool_operation_dispatcher tests.test_plugin_registration tests.test_orchestrator_tools tests.test_docs_and_install_entry -v`：45 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/__init__.py coding_orchestration/tools/__init__.py coding_orchestration/tools/plugin_tools.py tests/test_tool_operation_dispatcher.py tests/test_architecture_module_layout.py`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed，输出 `yaml ok`。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 当前包根：
+  - `coding_orchestration/` 包根 `.py` 数量：9（不含 `__init__.py`）。
+  - 包根 `.py` 总行数：2001。
+  - 剩余包根文件：`cli.py`、`config.py`、`ledger.py`、`models.py`、`orchestrator.py`、`ports.py`、`run_orchestration_service.py`、`runner_router.py`、`state_machine.py`。
+- 剩余风险：
+  - 剩余包根文件进一步偏向公共入口、核心模型/状态合同、ledger façade、runner/run orchestration owner 或配置/端口；后续可评估 CLI 入口、runner router 或 run orchestration helper 的独立目录切片，核心合同迁移需要更宽的兼容策略。
+
 ### 阶段 289：Workspace checkpoint service 子包治理
 - **状态：** complete
 - 背景：

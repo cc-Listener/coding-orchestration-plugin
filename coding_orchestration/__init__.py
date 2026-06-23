@@ -12,7 +12,7 @@ from typing import Any
 
 from .cli import register_cli
 from .orchestrator import CodingOrchestrator
-from .plugin_tools import register_coding_tools
+from .tools.plugin_tools import register_coding_tools
 
 
 _REGISTRY_FLAG = "_hermes_coding_orchestration_registered"

@@ -121,6 +121,7 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ),
             ("prompt_builder.py", "prompting", "prompt_builder.py"),
             ("tool_*.py", "tools", "tool_operation_dispatcher.py tool_specs.py"),
+            ("plugin_tools.py", "tools", "plugin_tools.py"),
             ("diff_guard.py", "policies", "diff_guard.py"),
             ("execution_policy.py", "policies", "execution_policy.py"),
             ("status_policy.py", "policies", "status_policy.py"),

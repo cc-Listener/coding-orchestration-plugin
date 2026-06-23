@@ -61,7 +61,7 @@ project_map:
     plugin_registration: coding_orchestration/__init__.py
     orchestrator: coding_orchestration/orchestrator.py
     cli_registration: coding_orchestration/cli.py
-    tool_registration: coding_orchestration/plugin_tools.py
+    tool_registration: coding_orchestration/tools/plugin_tools.py
     tool_operation_dispatcher: coding_orchestration/tools/tool_operation_dispatcher.py
     plugin_manifest: coding_orchestration/plugin.yaml
     install_script: scripts/install_symlink.py
@@ -409,7 +409,11 @@ component_contract:
     - name: tool_operation_dispatcher
       path: coding_orchestration/tools/tool_operation_dispatcher.py
       preferred: true
-      note: "ToolOperationDispatcher 是 ToolSpec.operation_id 统一分发边界，供 plugin_tools.py、cli.py 和 Gateway `/coding project-mcp-preflight` diagnostic leaf 复用；future MCP tool 只有出现真实消费方后再接入。"
+      note: "ToolOperationDispatcher 是 ToolSpec.operation_id 统一分发边界，供 tools/plugin_tools.py、cli.py 和 Gateway `/coding project-mcp-preflight` diagnostic leaf 复用；future MCP tool 只有出现真实消费方后再接入。"
+    - name: plugin_tools
+      path: coding_orchestration/tools/plugin_tools.py
+      preferred: true
+      note: "Hermes native tool host 注册层，只包装 ToolSpec schema、host payload 和 ToolOperationDispatcher handler，不维护工具 schema、orchestrator 方法名映射、CLI/Gateway diagnostic host shell、runner/workspace/git 或 run lifecycle。"
     - name: source_resolution
       path: coding_orchestration/source/source_resolver.py
       preferred: true
