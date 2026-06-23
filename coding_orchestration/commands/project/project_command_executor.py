@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .project_resolver import normalize_text as normalize_project_text
+from ...project_resolver import normalize_text as normalize_project_text
 
 
 def command_coding_project_list(host: Any, raw_args: str = "") -> str:

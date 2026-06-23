@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 256：Presenter 模块目录治理第一切片（complete）
+阶段 257：剩余 command host shell 目录治理第一切片（complete）
 
 ## 各阶段
+
+### 阶段 257：剩余 command host shell 目录治理第一切片
+- [x] 定域：只收拢 `delivery_command_executor.py` 和 `project_command_executor.py` 到 `coding_orchestration/commands/`，保持 delivery/project 命令 host shell 行为不变。
+- [x] TDD：新增架构测试，要求剩余 command host shell 不再散落在 `coding_orchestration/` 包根。
+- [x] RED：确认新增 focused architecture test 在旧目录布局下失败。
+- [x] 实现：创建 `coding_orchestration/commands/`，迁移 delivery/project command executor 并更新相对 import。
+- [x] 验证：运行 focused GREEN、py_compile、delivery/project/command/Gateway 相邻回归、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步目录约定、项目地图、组件合同、machine-readable context、进度和发现。
+- **状态：** complete
 
 ### 阶段 256：Presenter 模块目录治理第一切片
 - [x] 定域：只收拢 `coding_orchestration/*_presenter.py` 到专用子包，保持用户可见文案行为不变。

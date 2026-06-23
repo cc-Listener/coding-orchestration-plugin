@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from typing import Any
 
-from coding_orchestration import project_command_executor
+from coding_orchestration.commands.project import project_command_executor
 
 
 class RecordingProjectBindingService:

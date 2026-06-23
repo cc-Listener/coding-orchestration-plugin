@@ -124,6 +124,8 @@ class ArchitectureGuardTest(unittest.TestCase):
                 "coding_run_command_executor.py coding_status_command_executor.py "
                 "coding_task_control_command_executor.py coding_task_list_command_executor.py",
             ),
+            ("delivery_command_executor.py", "commands/delivery", "delivery_command_executor.py"),
+            ("project_command_executor.py", "commands/project", "project_command_executor.py"),
             ("feishu_*.py", "feishu", "feishu_copy.py feishu_document_reader.py feishu_messages.py feishu_project_mcp.py feishu_project_reader.py feishu_work_item_reader.py"),
             ("*_presenter.py", "presenters", "doctor_presenter.py feedback_presenter.py merge_test_presenter.py run_completion_presenter.py run_start_presenter.py task_list_presenter.py task_status_presenter.py"),
         ]

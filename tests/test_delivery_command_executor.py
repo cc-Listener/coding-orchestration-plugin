@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from typing import Any
 
-from coding_orchestration import delivery_command_executor
+from coding_orchestration.commands.delivery import delivery_command_executor
 from coding_orchestration.models import RunMode
 from coding_orchestration.services.delivery_service import DeliveryService
 

@@ -4,6 +4,30 @@
 
 ## 会话：2026-06-23
 
+### 阶段 257：剩余 command host shell 目录治理第一切片
+- **状态：** complete
+- 背景：
+  - 阶段 253/254 已分别收拢 Gateway 专属模块和普通 coding command executor；`delivery_command_executor.py` 与 `project_command_executor.py` 仍位于 `coding_orchestration/` 包根。
+  - 本阶段只处理 delivery/project command host shell 目录归属，不迁 `start_run()`、Gateway route、DeliveryService / project profile 纯规则、runner/workspace/git 或 run lifecycle。
+- 执行的操作：
+  - 在 `tests/test_architecture_guard.py` 的模块族表中新增 `commands/delivery` 与 `commands/project` 目录约束，锁定包根不得保留 `delivery_command_executor.py` 或 `project_command_executor.py`。
+  - RED 已确认：focused architecture test 先失败于两个子测试，失败点为包根仍存在 delivery/project command executor。
+  - 新增 `coding_orchestration/commands/__init__.py`、`commands/delivery/__init__.py` 和 `commands/project/__init__.py`；迁移 `delivery_command_executor.py` 到 `commands/delivery/`，迁移 `project_command_executor.py` 到 `commands/project/`。
+  - 更新 orchestrator command façade、Gateway façade、status command executor 和相邻测试 import。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前目录边界：
+  - `coding_orchestration/commands/delivery/`：delivery command host shell，维护 breakdown/analyze/approve/materialize/run-next/delivery status 用户可见分支和 host callback 绑定。
+  - `coding_orchestration/commands/project/`：project command host shell，维护 project list/init/use/status/clear 命令模式和 Gateway immediate project context 分支。
+  - `coding_orchestration/` 包根：不再保留 `delivery_command_executor.py` 或 `project_command_executor.py`。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_repository_module_families_live_in_dedicated_packages -v` 先失败，失败点为 `commands/delivery` 和 `commands/project` 子测试仍看到包根旧文件。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - Delivery/project 相邻回归：`rtk python3 -m unittest tests.test_delivery_command_executor tests.test_project_command_executor tests.test_delivery_flow tests.test_delivery_service tests.test_coding_status_command_executor tests.test_gateway_project_task_flow tests.test_gateway_rewrite_flow tests.test_gateway_binding_service -v`：77 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/commands/*.py coding_orchestration/commands/delivery/*.py coding_orchestration/commands/project/*.py coding_orchestration/orchestrator_facades/orchestrator_command_facade.py coding_orchestration/orchestrator_facades/orchestrator_gateway_facade.py coding_orchestration/coding_commands/coding_status_command_executor.py tests/test_architecture_guard.py tests/test_delivery_command_executor.py tests/test_project_command_executor.py`：passed。
+  - 旧生产/测试 import 和旧文档根路径扫描：no matches。
+- 剩余风险：
+  - 本阶段只处理 delivery/project command host shell 目录，不迁 `coding_background_run_executor.py`、run artifact/projection/service、source/project/integration 层；后续按治理计划继续独立切片。
+
 ### 阶段 256：Presenter 模块目录治理第一切片
 - **状态：** complete
 - 背景：

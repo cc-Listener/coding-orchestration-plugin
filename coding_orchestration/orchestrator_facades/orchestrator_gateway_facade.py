@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import project_command_executor
 from ..coding_commands import (
     coding_diagnostics_command_executor,
     coding_task_control_command_executor,
 )
+from ..commands.project import project_command_executor
 from ..gateway import (
     gateway_coding_mode_executor,
     gateway_command_controller,

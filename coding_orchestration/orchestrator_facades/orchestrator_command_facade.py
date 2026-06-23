@@ -7,10 +7,6 @@ from typing import Any
 from ..feishu.feishu_copy import render_user_update
 from ..models import TaskPhase, TaskStatus
 from ..services import DeliveryService
-from .. import (
-    delivery_command_executor,
-    project_command_executor,
-)
 from ..coding_commands import (
     coding_feedback_command_executor,
     coding_help_command_executor,
@@ -20,6 +16,8 @@ from ..coding_commands import (
     coding_task_control_command_executor,
     coding_task_list_command_executor,
 )
+from ..commands.delivery import delivery_command_executor
+from ..commands.project import project_command_executor
 from ..presenters import run_completion_presenter
 
 
