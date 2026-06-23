@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from coding_orchestration.install import install_from_current_repo, run_install_preflight
+from coding_orchestration.integrations.install import install_from_current_repo, run_install_preflight
 
 
 def _check_marker(ok: object) -> str:

@@ -12,7 +12,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from coding_orchestration.install import uninstall_hermes_coding_components
+from coding_orchestration.integrations.install import uninstall_hermes_coding_components
 
 
 STATUS_LABELS = {

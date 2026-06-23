@@ -4,6 +4,35 @@
 
 ## 会话：2026-06-23
 
+### 阶段 270：Install integration 子包治理
+- **状态：** complete
+- 背景：
+  - `install.py` 维护 Hermes plugin symlink install、install preflight、legacy/current uninstall dry-run/execute 和 Hermes Gateway restart 相关检查。
+  - 该职责属于 install integration 边界；脚本应只保留 CLI 入口和用户输出，不应承载安装/卸载业务规则。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 `install.py` 位于 `coding_orchestration/integrations/install/`。
+  - RED 已确认：focused test 先失败，失败点为包根仍存在 `install.py`。
+  - 新增 `coding_orchestration/integrations/install/__init__.py`，re-export 安装/卸载公开函数和数据结构。
+  - 将 `install.py` 移动到 `coding_orchestration/integrations/install/install.py`，并修正 `_check_lark()` 对 `SourceResolver` 的相对 import。
+  - 更新 `scripts/install_symlink.py`、`scripts/uninstall_legacy.py`、安装相关测试和当前事实文档路径。
+  - 同步项目地图、组件合同、约定、machine-readable context、技术方案、发现和目录治理计划。
+- 当前边界：
+  - `coding_orchestration/integrations/install/install.py`：install preflight、symlink install、legacy/current uninstall dry-run/execute。
+  - `scripts/install_symlink.py` / `scripts/uninstall_legacy.py`：CLI 入口和用户输出。
+  - 本切片未触碰真实 Hermes home、auth/token/.env、本地运行根内容、runner/workspace/git 或 run lifecycle。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为 `['install.py']` 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Install/docs 相邻回归：`rtk python3 -m unittest tests.test_install tests.test_docs_and_install_entry -v`：26 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/integrations/install/__init__.py coding_orchestration/integrations/install/install.py scripts/install_symlink.py scripts/uninstall_legacy.py tests/test_architecture_module_layout.py tests/test_install.py tests/test_docs_and_install_entry.py`：passed。
+  - YAML 解析：`rtk python3 -c "import yaml; yaml.safe_load(open('contracts/project-context.yaml', encoding='utf-8')); print('yaml ok')"`：passed。
+  - 当前事实旧路径扫描：`rtk rg -n "from coding_orchestration\\.install|coding_orchestration/install.py|coding_orchestration\\.install" coding_orchestration tests scripts docs/project-map.md docs/component-contract.md docs/conventions.md contracts/project-context.yaml task_plan.md findings.md PLUGIN_TECHNICAL_SOLUTION.md docs/plans/2026-06-23-coding-orchestration-package-governance.md`：no matches。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 本阶段不迁 runner/workspace/git、run lifecycle、真实 Hermes 配置文件写入或本地运行根内容；后续包根治理应继续按引用面拆分 project/source/runtime 小切片。
+
 ### 阶段 269：Knowledge adapter integration 子包治理
 - **状态：** complete
 - 背景：

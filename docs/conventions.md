@@ -60,7 +60,7 @@
 - project profile 读取、registry fallback、别名/路径查找、动态来源计数和 project list/status 格式化优先维护在 `coding_orchestration/project_profile_catalog.py`；project init/upsert、active project binding 和 Gateway 回复副作用仍留在 orchestrator host 边界。
 - 通用 skill 规则维护在 `coding_orchestration/skills/coding-operator-core/` 和 `coding-health-core/`；Hermes 绑定映射维护在 `hermes-coding-operator/` 和 `hermes-coding-health-check/`。
 - Codex CLI 命令构造、resume、sandbox、结构化 report 读取在 `coding_orchestration/runners/codex_cli.py`。
-- 安装和卸载逻辑优先改 `coding_orchestration/install.py`，脚本只保留入口和用户输出。
+- 安装和卸载逻辑优先改 `coding_orchestration/integrations/install/install.py`，脚本只保留入口和用户输出。
 
 ## 验证 Gate
 

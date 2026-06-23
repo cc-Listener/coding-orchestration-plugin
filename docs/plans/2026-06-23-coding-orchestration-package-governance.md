@@ -288,7 +288,7 @@ rtk git commit -m "feat: 收拢 presenter 模块目录"
 - Move: `knowledge_adapter.py`（阶段 269 已先行收拢到 `coding_orchestration/integrations/knowledge/`）
 - Move: `llm_wiki_adapter.py`（阶段 269 已先行收拢到 `coding_orchestration/integrations/knowledge/`）
 - Move: `run_summary_writer.py`（阶段 266 已先行收拢到 `coding_orchestration/integrations/knowledge/`）
-- Move: `install.py`
+- Move: `install.py`（阶段 270 已先行收拢到 `coding_orchestration/integrations/install/`）
 
 **Step 1:** Add architecture test requiring integration modules to live under `integrations/`.
 

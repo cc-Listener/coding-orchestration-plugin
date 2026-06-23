@@ -5,7 +5,7 @@ import unittest
 import subprocess
 from pathlib import Path
 
-from coding_orchestration.install import (
+from coding_orchestration.integrations.install import (
     collect_uninstall_actions,
     compute_plugin_link,
     ensure_plugin_symlink,

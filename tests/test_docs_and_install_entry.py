@@ -5,7 +5,7 @@ import sys
 import os
 from pathlib import Path
 
-from coding_orchestration.install import install_from_current_repo, read_hermes_feishu_app_id
+from coding_orchestration.integrations.install import install_from_current_repo, read_hermes_feishu_app_id
 
 
 class DocsAndInstallEntryTest(unittest.TestCase):

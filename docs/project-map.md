@@ -200,7 +200,7 @@ Feishu / Hermes Gateway
 | `coding_orchestration/runners/codex_cli.py`、`runners/codex_command.py`、`runners/codex_process.py`、`runners/codex_report.py`、`runners/codex_report_schema.py`、`runners/codex_report_loader.py`、`runners/codex_report_writer.py`、`runners/codex_artifacts.py` | Codex CLI 权限 flag、sandbox、resume、subprocess/cancel、report 字段策略、output schema、report 读取决策、report/summary 写入和 artifact 路径，改动可能影响安全边界。 |
 | `coding_orchestration/skills/coding-operator-core/`、`skills/coding-health-core/` | Skill core contract，必须保持 host-agnostic，不写 Hermes 命令、运行根、内部账本路径或本机凭据。 |
 | `coding_orchestration/skills/hermes-coding-operator/`、`skills/hermes-coding-health-check/` | Hermes binding skill，只负责 host 映射和用户可见修复命令；改动需配套 `tests/test_plugin_registration.py`。 |
-| `coding_orchestration/install.py`、`scripts/install_symlink.py`、`scripts/uninstall_legacy.py` | 会影响本机 Hermes 插件安装、卸载和 Gateway 重启，执行前需先 dry-run 或看清参数。 |
+| `coding_orchestration/integrations/install/install.py`、`scripts/install_symlink.py`、`scripts/uninstall_legacy.py` | 会影响本机 Hermes 插件安装、卸载和 Gateway 重启，执行前需先 dry-run 或看清参数。 |
 | `coding_orchestration/report_contract.py`、`report_admission.py` | 结构化 report 质量门，改动会影响任务是否可进入下一阶段。 |
 | `coding_orchestration/state_machine.py`、`status_policy.py`、`models.py` | 公共状态 contract，改动需同步测试和用户可见文案。 |
 

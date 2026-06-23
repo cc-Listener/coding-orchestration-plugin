@@ -217,8 +217,8 @@ project_map:
       reason: "Run project writeback host service，维护 completed run 的 Project/WorkItem writeback stale gate、payload 委托和 callback 调用，不直接持有 MCP/WorkItem adapter。"
     - path: coding_orchestration/runners/codex_cli.py
       reason: "Codex CLI sandbox、resume、report 输出和高权限 flag。"
-    - path: coding_orchestration/install.py
-      reason: "本机 Hermes 安装、卸载和 preflight 检查逻辑。"
+    - path: coding_orchestration/integrations/install/install.py
+      reason: "本机 Hermes 安装、卸载和 preflight 检查逻辑；脚本只保留入口和用户输出。"
     - path: coding_orchestration/report_contract.py
       reason: "结构化 runner report 质量门。"
     - path: coding_orchestration/state_machine.py

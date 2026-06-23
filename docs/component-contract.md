@@ -130,7 +130,7 @@
 | 交付拆解准入 | `from coding_orchestration.report_admission import admit_report` | `coding_orchestration/report_admission.py` | `coding_orchestration/report_admission.py` | `admit_report` |
 | Diff 边界审计 | `from coding_orchestration.diff_guard import DiffGuard` | `coding_orchestration/diff_guard.py` | `coding_orchestration/diff_guard.py` | `DiffGuard` |
 | 架构治理检查 | 命令入口 | `scripts/architecture_guard.py` | `scripts/architecture_guard.py`、`tests/test_architecture_guard.py`、`tests/test_architecture_module_layout.py`、`tests/test_architecture_guard_test_governance.py` | line count、hard code、boundary drift、secret scan findings、module layout、guard test growth buffer |
-| 安装/卸载逻辑 | `from coding_orchestration.install import run_install_preflight` | `coding_orchestration/install.py` | `coding_orchestration/install.py`、`scripts/install_symlink.py`、`scripts/uninstall_legacy.py` | `run_install_preflight`、`install_from_current_repo`、`uninstall_hermes_coding_components` |
+| 安装/卸载逻辑 | `from coding_orchestration.integrations.install import run_install_preflight` | `coding_orchestration/integrations/install/install.py` | `coding_orchestration/integrations/install/install.py`、`scripts/install_symlink.py`、`scripts/uninstall_legacy.py` | `run_install_preflight`、`install_from_current_repo`、`uninstall_hermes_coding_components` |
 | Dashboard API | `from coding_orchestration.dashboard.plugin_api import router` | `coding_orchestration/dashboard/plugin_api.py` | `coding_orchestration/dashboard/plugin_api.py` | `router` |
 
 ## 组件/符号可检索索引
@@ -231,11 +231,11 @@
 | `_implementation_workspace`、`_merge_test_workspace`、`_workspace_clean_checkpoint`、`_git_head`、`_source_branch_for_task`、`_source_base_branch_for_task`、`_collect_qa_artifacts` | `coding_orchestration/workspace_checkpoint_service.py`、`coding_orchestration/orchestrator.py` |
 | `_build_manifest`、`_artifact_record`、`_codex_attach_command`、`_codex_resume_command`、`_update_manifest_session_metadata`、`build_start_manifest_updates`、`build_manifest_session_fields` | `coding_orchestration/run_manifest_service.py`、`coding_orchestration/orchestrator.py` |
 | `visible_mode_instruction`、`build_run_instructions`、`source_block` | `coding_orchestration/prompts/run_instructions.py`、`coding_orchestration/prompts/source_block.py` |
-| `CODEX_CLI_COMMAND`、`--dangerously-bypass-approvals-and-sandbox` | `coding_orchestration/install.py`、`coding_orchestration/runners/codex_command.py`、`coding_orchestration/runners/codex_cli.py` |
+| `CODEX_CLI_COMMAND`、`--dangerously-bypass-approvals-and-sandbox` | `coding_orchestration/integrations/install/install.py`、`coding_orchestration/runners/codex_command.py`、`coding_orchestration/runners/codex_cli.py` |
 | `CodexProcessRunner`、`process_start_failed`、`duration_ms` | `coding_orchestration/runners/codex_process.py` |
 | `codex_invalid_output_schema`、`structured_report_missing`、`runner_timeout` | `coding_orchestration/runners/codex_report.py`、`coding_orchestration/runners/codex_cli.py` |
-| `run_install_preflight` | `coding_orchestration/install.py` |
-| `uninstall_hermes_coding_components` | `coding_orchestration/install.py` |
+| `run_install_preflight` | `coding_orchestration/integrations/install/install.py` |
+| `uninstall_hermes_coding_components` | `coding_orchestration/integrations/install/install.py` |
 | `ProjectInitializationQuality` | `coding_orchestration/project_initialization_quality.py` |
 | `ContextAssembler._BUDGETS` | `coding_orchestration/context_assembler.py` |
 

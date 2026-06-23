@@ -89,6 +89,7 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ("llm_wiki_adapter.py", "integrations/knowledge", "llm_wiki_adapter.py"),
             ("hermes_runtime.py", "integrations/hermes", "hermes_runtime.py"),
             ("kanban_*.py", "integrations/kanban", "kanban_bridge.py kanban_sync_service.py"),
+            ("install.py", "integrations/install", "install.py"),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):

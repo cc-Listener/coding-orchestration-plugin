@@ -427,6 +427,7 @@
 - Run background orchestration service 子包治理确认：`run_background_orchestration.py` 适合收拢到 `coding_orchestration/run/services/`；该模块仍只处理后台 queued/running 等待完成、后台启动失败状态收敛和 merge-test `human_required` pending action，不迁后台 run mode-specific 启动、通知 sender、runner/workspace/git、`start_run()` 或 run lifecycle 主体。
 - Run summary writer knowledge integration 子包治理确认：`RunSummaryWriter` 适合先收拢到 `coding_orchestration/integrations/knowledge/`，因为它只委托 `KnowledgePort.write_run_summary()`，不拥有 run summary payload projection、LLM Wiki 文档拼接、artifact、ledger 或状态推进；`knowledge_adapter.py` / `llm_wiki_adapter.py` 引用面更大，应后续独立切片迁移。
 - Knowledge adapter integration 子包治理确认：`LocalKnowledgeAdapter` 与 `LocalLlmWikiAdapter` 适合收拢到 `coding_orchestration/integrations/knowledge/`；前者只封装 KnowledgePort 本地实现，后者只维护本地 LLM Wiki Markdown layout 与 legacy index 兼容，不迁 project knowledge resolver/initializer/inventory、TaskService、runner/workspace/git、run lifecycle 或本地运行根内容。
+- Install integration 子包治理确认：安装/卸载逻辑适合收拢到 `coding_orchestration/integrations/install/`；`scripts/install_symlink.py` 和 `scripts/uninstall_legacy.py` 继续只做 CLI 入口和用户输出，`install.py` 仍只维护 preflight、symlink install、legacy/current uninstall dry-run/execute，不触碰 auth/token/.env 内容写入、runner/workspace/git 或 run lifecycle。
 - Hermes runtime integration 子包治理确认：`HermesRuntime` 适合收拢到 `coding_orchestration/integrations/hermes/`，因为它只包装 Hermes terminal background dispatch 和 dispatch start result；runner 选择、Codex command 构造、report 读取、bootstrap 注入和 run lifecycle 仍留在既有 owner。
 
 ## 视觉/浏览器发现
