@@ -500,6 +500,26 @@ class ArchitectureGuardTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
+    def test_orchestrator_does_not_keep_runtime_facade_methods(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def _extract_flag(",
+            "def _strip_flags(",
+            "def _project_name_for_path(",
+            "def _workflow_for_project(",
+            "def _plan_report_session_fields(",
+            "def _latest_execution_policy_decision(",
+            "def _timeout_seconds_for_mode(",
+            "def _policy_timeout_seconds(",
+            "def _policy_uses_targeted_verification(",
+            "def _runner_failed_result(",
+            "def _checkpoint_failed_result(",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()

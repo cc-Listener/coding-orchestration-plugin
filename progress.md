@@ -4,6 +4,31 @@
 
 ## 会话：2026-06-23
 
+### 阶段 249：Task 37 Orchestrator 500 行治理第二十二切片
+- **状态：** complete
+- 背景：
+  - 阶段 248 已把 merge-test readiness façade 迁入 `orchestrator_merge_test_facade.py`；`orchestrator.py` 仍直接承载末尾 runtime/failure façade wrapper，包括 flag helper、project/workflow wrapper、plan report session/execution policy/timeout wrapper、runner failed result 和 checkpoint failed result。
+  - 本阶段选择 runtime/failure façade 作为低风险 host wrapper 切片；不迁 `start_run()` 主体、runner dispatch、artifact service 纯写入、workspace/git/checkpoint 实现或 run lifecycle。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_guard.py`，要求 `orchestrator.py` 不再直接定义 runtime/failure façade wrapper。
+  - RED 已确认：focused architecture test 先失败于 `orchestrator.py` 仍定义 11 个 runtime/failure façade wrapper。
+  - 新增 `coding_orchestration/orchestrator_runtime_facade.py`，用 `OrchestratorRuntimeFacadeMixin` 承接 runtime/failure façade wrapper。
+  - `CodingOrchestrator` 改为继承 `OrchestratorRuntimeFacadeMixin`，删除主文件内对应 runtime/failure façade 实现和迁移后的无用 import。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：661 行。
+  - `coding_orchestration/orchestrator_runtime_facade.py`：119 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_orchestrator_does_not_keep_runtime_facade_methods -v` 先失败 11 个 subTest，失败点为 runtime/failure façade wrapper 仍在 `orchestrator.py`。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/orchestrator_runtime_facade.py tests/test_architecture_guard.py`：passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_run_service tests.test_run_dispatch_service tests.test_run_orchestration_start_rules tests.test_run_orchestration_plan_report_session tests.test_run_session_projection tests.test_command_run_flow tests.test_status_reconcile_flow tests.test_task_service -v`：76 tests passed。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：41 tests passed。
+  - YAML 解析：`rtk proxy python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 661 lines`。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 992 tests passed，敏感扫描 no findings。
+- 剩余风险：
+  - 500 行是长期目标；本阶段未迁 `handle_gateway_event()`、active run reconcile、`start_run()` 主体、runner dispatch、workspace/git/checkpoint、artifact service 纯写入或 run lifecycle。
+
 ### 阶段 248：Task 37 Orchestrator 500 行治理第二十一切片
 - **状态：** complete
 - 背景：
