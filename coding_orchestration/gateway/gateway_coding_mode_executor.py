@@ -10,7 +10,7 @@ from ..command_catalog import (
 )
 from ..project_resolver import normalize_text as normalize_project_text
 from . import gateway_command_controller, gateway_rewrite_context, gateway_rewrite_presenter
-from .. import run_start_presenter, task_list_presenter
+from ..presenters import run_start_presenter, task_list_presenter
 
 
 _CODING_MODE_ENTER_RE = gateway_command_controller.CODING_MODE_ENTER_RE

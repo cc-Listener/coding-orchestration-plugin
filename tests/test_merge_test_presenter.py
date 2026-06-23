@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from coding_orchestration import merge_test_presenter
+from coding_orchestration.presenters import merge_test_presenter
 from coding_orchestration.models import TaskStatus
 
 

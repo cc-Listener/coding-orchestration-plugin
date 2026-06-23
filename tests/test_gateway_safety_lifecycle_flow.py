@@ -14,7 +14,7 @@ from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_knowledge_resolver import ProjectKnowledgeResolver
 from coding_orchestration.project_workitem_binding import ProjectWorkitemIdentity
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
-from coding_orchestration.run_completion_presenter import format_stale_run_completion_message
+from coding_orchestration.presenters.run_completion_presenter import format_stale_run_completion_message
 from coding_orchestration.runners.base import RunResult
 from tests.orchestrator_flow_fixtures import (
     AsyncFailingGateway,

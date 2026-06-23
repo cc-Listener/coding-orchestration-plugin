@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskStatus
-from coding_orchestration.task_status_presenter import (
+from coding_orchestration.presenters.task_status_presenter import (
     completion_notification_status_display,
     format_task_status_details,
     kanban_sync_status_display,

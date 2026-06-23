@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from coding_orchestration import feedback_presenter
+from coding_orchestration.presenters import feedback_presenter
 
 
 class FeedbackPresenterTest(unittest.TestCase):

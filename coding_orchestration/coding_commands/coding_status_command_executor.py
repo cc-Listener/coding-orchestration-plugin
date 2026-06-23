@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import delivery_command_executor, task_status_presenter
+from .. import delivery_command_executor
+from ..presenters import task_status_presenter
 
 
 def command_coding_status(host: Any, raw_args: str) -> str:

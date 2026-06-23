@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .doctor_presenter import format_lark_preflight, format_project_mcp_preflight, format_source_resolve
-from .task_status_presenter import format_task_status_payload
+from .presenters.doctor_presenter import format_lark_preflight, format_project_mcp_preflight, format_source_resolve
+from .presenters.task_status_presenter import format_task_status_payload
 
 
 def register_cli(ctx: Any, orchestrator: Any) -> None:

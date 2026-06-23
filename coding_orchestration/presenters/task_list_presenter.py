@@ -4,8 +4,8 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .models import task_status_display
-from .project_resolver import normalize_text as normalize_project_text
+from ..models import task_status_display
+from ..project_resolver import normalize_text as normalize_project_text
 
 
 def format_task_list(tasks: list[dict[str, Any]], active_id: str | None = None) -> str:

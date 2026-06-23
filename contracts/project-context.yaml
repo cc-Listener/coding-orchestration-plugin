@@ -124,25 +124,25 @@ project_map:
     - path: coding_orchestration/gateway/gateway_command_controller.py
       reason: "Gateway command controller 纯规则层，维护显式 /coding / /commands 解析、命令归一化、route metadata、handler key、reply mode、task id 来源、merge-test 参数、rewrite canonical command、确认/取消词、dedupe 和授权探测；Task 29 完成后不得承载 ledger、runner、消息发送、状态推进或 run lifecycle。"
     - path: coding_orchestration/gateway/gateway_command_executor.py
-      reason: "Gateway custom route host shell，维护 task/run/delivery/implementation/QA/prepare-merge-test/merge-test route metadata 到 host action 的分发，并 direct 调用 run_start_presenter.py 与 merge_test_presenter.py 渲染对应用户可见文案；不承载 controller 纯解析规则，不拥有 runner/workspace/git/run lifecycle。"
+      reason: "Gateway custom route host shell，维护 task/run/delivery/implementation/QA/prepare-merge-test/merge-test route metadata 到 host action 的分发，并 direct 调用 presenters/run_start_presenter.py 与 presenters/merge_test_presenter.py 渲染对应用户可见文案；不承载 controller 纯解析规则，不拥有 runner/workspace/git/run lifecycle。"
     - path: coding_orchestration/gateway/gateway_pending_action_executor.py
       reason: "Gateway pending action host shell，维护确认/取消、latest human_required fallback、取消任务 gate 和确认后显式命令续接；不拥有 controller 纯解析规则、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/gateway/gateway_active_context.py
       reason: "Gateway active context host helper，维护 active project 回填缺项目 task 和 human decision 记录；不负责 active binding 存取、项目初始化、项目画像或 runner/workspace/git/run lifecycle。"
     - path: coding_orchestration/gateway/gateway_coding_mode_executor.py
-      reason: "Gateway coding mode host shell，维护 coding mode enter/exit、pending rewrite 确认/取消、高置信度 rewrite direct execute、低置信度 handoff、rewrite context 装配、gateway_rewrite_presenter.py direct 文案调用和 task_list_presenter.py direct task label 调用；不拥有 Gateway route/controller、pending action executor、task 创建实现、runner/workspace/git 或 run lifecycle。"
+      reason: "Gateway coding mode host shell，维护 coding mode enter/exit、pending rewrite 确认/取消、高置信度 rewrite direct execute、低置信度 handoff、rewrite context 装配、gateway_rewrite_presenter.py direct 文案调用和 presenters/task_list_presenter.py direct task label 调用；不拥有 Gateway route/controller、pending action executor、task 创建实现、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_commands/coding_diagnostics_command_executor.py
-      reason: "Coding diagnostics command executor host shell，维护 doctor / lark-preflight / project-mcp-preflight / source-resolve command-mode dispatch、Project MCP config/stdio readiness gate、Hermes runtime availability probe、Gateway immediate diagnostic 分支和 doctor_presenter.py direct 文案调用；不拥有 Gateway route、不实现 CLI direct dispatcher、不迁普通 status/list presentation、不触碰 runner/workspace/git 或 run lifecycle。"
+      reason: "Coding diagnostics command executor host shell，维护 doctor / lark-preflight / project-mcp-preflight / source-resolve command-mode dispatch、Project MCP config/stdio readiness gate、Hermes runtime availability probe、Gateway immediate diagnostic 分支和 presenters/doctor_presenter.py direct 文案调用；不拥有 Gateway route、不实现 CLI direct dispatcher、不迁普通 status/list presentation、不触碰 runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_commands/coding_task_list_command_executor.py
       reason: "Coding task list command executor host shell，维护普通 /coding list 与 Gateway list immediate 的 active status 查询、active task 标记、空列表文案和会话切换提示；不实现 task list presenter、Gateway route、CLI direct dispatcher、status reconcile、delivery/project/diagnostics、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_commands/coding_status_command_executor.py
-      reason: "Coding status command executor host shell，维护普通 /coding status <task_id> 与 Gateway status immediate 的参数解析、active task fallback、active run reconcile callback、delivery/tree status 委托和 task_status_presenter.py direct 调用；不拥有 active run reconcile 实现、不实现 delivery status executor 或 TaskStatus presenter、不触碰 Gateway route、CLI direct dispatcher、runner/workspace/git 或 run lifecycle。"
+      reason: "Coding status command executor host shell，维护普通 /coding status <task_id> 与 Gateway status immediate 的参数解析、active task fallback、active run reconcile callback、delivery/tree status 委托和 presenters/task_status_presenter.py direct 调用；不拥有 active run reconcile 实现、不实现 delivery status executor 或 TaskStatus presenter、不触碰 Gateway route、CLI direct dispatcher、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_commands/coding_run_command_executor.py
-      reason: "Coding run command executor host shell，维护普通 /coding run <task_id>、/coding implement <task_id> 和 /coding qa <task_id> 的同步 command-mode task gate、human decision、QA request、start_run callback 接线和 run_completion_presenter direct call；不拥有 /coding run <parent> --next、Gateway 异步启动、start_run 实现、active run reconcile、workspace/checkpoint/git、merge-test gates、delete/cancel/restore 或 run lifecycle。"
+      reason: "Coding run command executor host shell，维护普通 /coding run <task_id>、/coding implement <task_id> 和 /coding qa <task_id> 的同步 command-mode task gate、human decision、QA request、start_run callback 接线和 presenters/run_completion_presenter direct call；不拥有 /coding run <parent> --next、Gateway 异步启动、start_run 实现、active run reconcile、workspace/checkpoint/git、merge-test gates、delete/cancel/restore 或 run lifecycle。"
     - path: coding_orchestration/coding_commands/coding_merge_test_command_executor.py
-      reason: "Coding merge-test command executor host shell，维护普通 prepare-merge-test / merge-test command 分支、blocked risk release 接线、QA 风险确认、merge-test run 启动 callback、merge_test_presenter direct call 和 run_completion_presenter direct call；不拥有 workspace/git/checkpoint 实现、blocked readiness 纯评估、QA evidence 观测、start_run 实现或 run lifecycle。"
+      reason: "Coding merge-test command executor host shell，维护普通 prepare-merge-test / merge-test command 分支、blocked risk release 接线、QA 风险确认、merge-test run 启动 callback、presenters/merge_test_presenter direct call 和 presenters/run_completion_presenter direct call；不拥有 workspace/git/checkpoint 实现、blocked readiness 纯评估、QA evidence 观测、start_run 实现或 run lifecycle。"
     - path: coding_orchestration/coding_background_run_executor.py
-      reason: "Coding background run executor host shell，维护 Gateway 后台 plan-only / implementation / QA / merge-test mode-specific 启动、run_completion_presenter direct message 选择、失败通知和 completion notification callback 接线；不拥有 start_run、后台等待完成、失败状态收敛、merge-test pending action、runner/workspace/git/checkpoint 或 run lifecycle。"
+      reason: "Coding background run executor host shell，维护 Gateway 后台 plan-only / implementation / QA / merge-test mode-specific 启动、presenters/run_completion_presenter direct message 选择、失败通知和 completion notification callback 接线；不拥有 start_run、后台等待完成、失败状态收敛、merge-test pending action、runner/workspace/git/checkpoint 或 run lifecycle。"
     - path: coding_orchestration/source_context_repair_service.py
       reason: "Source context repair host service，维护 source context 读取、deferred source pre-run enrichment、既有 task context 修复、source summary 回写和项目上下文回填接线；不改 legacy source_context schema、不实现 source reader、不承载 source 权限策略、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/kanban_sync_service.py
@@ -150,7 +150,7 @@ project_map:
     - path: coding_orchestration/task_lifecycle_guard_service.py
       reason: "Task lifecycle guard service，维护 active coding status 列表、取消态保护文案、cancelled task 恢复状态选择和 merged_test bugfix reopen 写回；不改状态机、不承载 runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_commands/coding_feedback_command_executor.py
-      reason: "Coding feedback command executor host shell，维护普通 /coding continue/change/bugfix 命令模式占位、Gateway active task feedback 分流、feedback human decision / draft knowledge 记录 helper 和 bugfix replan 选择规则；direct 调用 feedback_presenter.py 渲染用户可见反馈文案，并通过 host callback 调用 Project clarification、后台 plan/implementation 启动和 merged-test reopen，不拥有 Gateway route/controller、后台 runner 实现、start_run、workspace/checkpoint/git、merge-test gates、source enrichment 或 Project MCP 写回。"
+      reason: "Coding feedback command executor host shell，维护普通 /coding continue/change/bugfix 命令模式占位、Gateway active task feedback 分流、feedback human decision / draft knowledge 记录 helper 和 bugfix replan 选择规则；direct 调用 presenters/feedback_presenter.py 渲染用户可见反馈文案，并通过 host callback 调用 Project clarification、后台 plan/implementation 启动和 merged-test reopen，不拥有 Gateway route/controller、后台 runner 实现、start_run、workspace/checkpoint/git、merge-test gates、source enrichment 或 Project MCP 写回。"
     - path: coding_orchestration/coding_commands/coding_task_control_command_executor.py
       reason: "Coding task control command executor host shell，维护普通 /coding use/exit/cancel/restore/delete/complete command-mode 分支和 Gateway use/exit task binding shell；delete artifact 清理通过 host callback，不拥有 Gateway route/controller、文件系统清理实现、runner/workspace/git、merge-test gates 或 run lifecycle。"
     - path: coding_orchestration/feishu/
@@ -337,15 +337,15 @@ component_contract:
       path: coding_orchestration/run_start_artifact_service.py
       preferred: true
     - name: run_start_presenter
-      path: coding_orchestration/run_start_presenter.py
+      path: coding_orchestration/presenters/run_start_presenter.py
       preferred: true
       note: "plan-only/implementation/QA 启动 ACK、active-run 重复启动和 cannot-start 文案的 owner；gateway_command_executor.py、gateway_coding_mode_executor.py、coding_run_command_executor.py 与 RunService 直接调用，不经 CodingOrchestrator 私有代理。"
     - name: feedback_presenter
-      path: coding_orchestration/feedback_presenter.py
+      path: coding_orchestration/presenters/feedback_presenter.py
       preferred: true
       note: "/coding continue/change/bugfix 反馈、需求变更、图片未捕获和人工澄清文案的 owner；coding_feedback_command_executor.py 直接调用，不经 CodingOrchestrator 私有代理。"
     - name: merge_test_presenter
-      path: coding_orchestration/merge_test_presenter.py
+      path: coding_orchestration/presenters/merge_test_presenter.py
       preferred: true
       note: "prepare/merge-test 状态提示、blocked/QA 风险确认、风险放行说明和 merge-test 启动 ACK 文案的 owner；coding_merge_test_command_executor.py 与 gateway_command_executor.py 直接调用，不经 CodingOrchestrator 私有代理。"
     - name: run_artifact_paths
@@ -433,21 +433,21 @@ component_contract:
       path: coding_orchestration/coding_commands/coding_diagnostics_command_executor.py
       preferred: true
     - name: doctor_presenter
-      path: coding_orchestration/doctor_presenter.py
+      path: coding_orchestration/presenters/doctor_presenter.py
       preferred: true
       note: "doctor / lark-preflight / project-mcp-preflight / source-resolve 文案 owner；coding_diagnostics_command_executor.py direct 调用，不经 orchestrator `_doctor_*` 私有代理。"
     - name: coding_task_list_command_executor
       path: coding_orchestration/coding_commands/coding_task_list_command_executor.py
       preferred: true
     - name: task_list_presenter
-      path: coding_orchestration/task_list_presenter.py
+      path: coding_orchestration/presenters/task_list_presenter.py
       preferred: true
       note: "/coding list 任务摘要、项目标签和描述摘要 owner；coding_task_list_command_executor.py 与 gateway_coding_mode_executor.py direct 调用，不经 orchestrator `_format_task_list` / `_task_*label` 私有代理。"
     - name: coding_status_command_executor
       path: coding_orchestration/coding_commands/coding_status_command_executor.py
       preferred: true
     - name: task_status_presenter
-      path: coding_orchestration/task_status_presenter.py
+      path: coding_orchestration/presenters/task_status_presenter.py
       preferred: true
       note: "/coding status 详情、Kanban/完成回传、QA 缺口和 latest QA helper owner；coding_status_command_executor.py direct 调用，不经 orchestrator `_format_task_status_details` / status display / latest QA / QA health 私有代理；`_read_report_json` 暂保留为跨模块 host callback。"
     - name: coding_run_command_executor
@@ -544,11 +544,11 @@ component_contract:
       use_instead_of:
         - "在 orchestrator 中继续新增 report.schema.json、input-prompt.md 或 run-manifest.json 启动 artifact 文件写入逻辑。"
     - name: run_start_presenter
-      path: coding_orchestration/run_start_presenter.py
+      path: coding_orchestration/presenters/run_start_presenter.py
       use_instead_of:
         - "在 orchestrator 中继续新增或恢复 _plan_only_started_message、_implementation_started_message、_active_run_already_running_message、_cannot_start_run_message 等 run start 文案私有代理。"
     - name: feedback_presenter
-      path: coding_orchestration/feedback_presenter.py
+      path: coding_orchestration/presenters/feedback_presenter.py
       use_instead_of:
         - "在 orchestrator 中继续新增或恢复 _missing_feedback_media_message、_plan_feedback_received_message、_blocked_plan_feedback_received_message、_requirement_change_received_message、_requirement_change_queued_message、_implementation_feedback_received_message、_runtime_feedback_received_message、_human_clarification_received_message 或 _human_clarification_project_resolved_message 等 feedback 文案私有代理。"
     - name: run_manifest_artifact_service
@@ -657,7 +657,7 @@ component_contract:
         - "在 orchestrator 中继续新增普通 /coding list 或 Gateway list immediate host shell 的 active status 查询、active task 标记、空列表文案或会话切换提示。"
         - "通过 CodingOrchestrator._format_task_list、_task_project_label 或 _task_description_label 私有代理渲染 list 任务摘要、项目标签或描述摘要。"
     - name: task_list_presenter
-      path: coding_orchestration/task_list_presenter.py
+      path: coding_orchestration/presenters/task_list_presenter.py
       use_instead_of:
         - "在 orchestrator 中继续新增或恢复 _format_task_list、_task_project_label 或 _task_description_label 等 task list presenter 私有代理。"
     - name: coding_status_command_executor
@@ -717,7 +717,7 @@ component_contract:
       use_instead_of:
         - "在 orchestrator.py 主文件中继续新增或恢复 completed active run reconcile host shell 或 agent run lookup helper。"
     - name: task_status_presenter
-      path: coding_orchestration/task_status_presenter.py
+      path: coding_orchestration/presenters/task_status_presenter.py
       use_instead_of:
         - "在 orchestrator 中继续新增或恢复 _format_task_status_details、_kanban_sync_status_display、_completion_notification_status_display、_latest_qa_run 或 _qa_health_score_from_report_path 等 task status presenter 私有代理。"
     - name: coding_run_command_executor

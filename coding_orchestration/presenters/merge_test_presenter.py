@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import task_status_display
+from ..models import task_status_display
 
 
 def prepare_merge_test_ready_message(task_id: str, task: dict[str, Any]) -> str:

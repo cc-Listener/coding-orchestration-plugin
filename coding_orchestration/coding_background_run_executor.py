@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from . import background_run_notifier, run_completion_presenter
+from . import background_run_notifier
 from .models import RunMode
+from .presenters import run_completion_presenter
 
 
 def start_background_plan_only(host: Any, task_id: str, gateway: Any, event: Any) -> None:

@@ -4,7 +4,7 @@ import unittest
 from unittest import mock
 
 from coding_orchestration.coding_commands import coding_merge_test_command_executor
-from coding_orchestration import merge_test_presenter
+from coding_orchestration.presenters import merge_test_presenter
 from coding_orchestration.models import RunMode, TaskPhase, TaskStatus
 
 

@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from .models import RunMode, task_status_display
+from ..models import RunMode, task_status_display
 
 
 def format_task_status_details(task: dict[str, Any], *, include_branch: bool) -> str:

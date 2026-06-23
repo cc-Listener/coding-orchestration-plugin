@@ -3,8 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .. import run_completion_presenter, run_context_artifact_service, run_report_artifact_service
+from .. import run_context_artifact_service, run_report_artifact_service
 from ..models import RunMode
+from ..presenters import run_completion_presenter
 from ..project_resolver import normalize_text as normalize_project_text
 
 

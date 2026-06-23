@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from .. import feedback_presenter
+from ..presenters import feedback_presenter
 from ..models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
 from ..project_resolver import normalize_text as normalize_project_text
 from ..services import RunService

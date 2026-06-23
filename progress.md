@@ -4,6 +4,36 @@
 
 ## 会话：2026-06-23
 
+### 阶段 256：Presenter 模块目录治理第一切片
+- **状态：** complete
+- 背景：
+  - 阶段 252/253/254/255 已分别收拢 orchestrator façade、Gateway、coding command executor 和 Feishu 模块。
+  - 本阶段继续治理 `coding_orchestration/` 包根散落文件，只处理 7 个 `*_presenter.py`；不迁 Gateway rewrite presenter、不迁 delivery/project/background command、runner/workspace/git 或 run lifecycle。
+- 执行的操作：
+  - 在 `tests/test_architecture_guard.py` 的模块族表中新增 presenter 目录约束，锁定包根不得保留 `doctor_presenter.py`、`feedback_presenter.py`、`merge_test_presenter.py`、`run_completion_presenter.py`、`run_start_presenter.py`、`task_list_presenter.py` 或 `task_status_presenter.py`。
+  - RED 已确认：focused architecture test 先失败，失败点为包根仍存在 7 个 presenter 文件。
+  - 新增 `coding_orchestration/presenters/__init__.py`，迁移 7 个 presenter 模块，并更新生产代码、orchestrator façade、测试 import 和 mock patch 路径。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前目录边界：
+  - `coding_orchestration/presenters/`：doctor/preflight/source-resolve、run start、run completion、feedback、merge-test、task list 和 task status 用户可见文案。
+  - `coding_orchestration/gateway/gateway_rewrite_presenter.py`：仍归 Gateway 子包，服务 Coding Mode rewrite 文案。
+  - `coding_orchestration/` 包根：不再保留 `*_presenter.py`。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_repository_module_families_live_in_dedicated_packages -v` 先失败，失败点为 root presenter list 包含 7 个旧路径文件。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - Presenter 回归：`rtk python3 -m unittest tests.test_feedback_presenter tests.test_merge_test_presenter tests.test_run_start_presenter tests.test_run_completion_presenter tests.test_task_list_presenter tests.test_task_status_presenter -v`：22 tests passed。
+  - Command/Gateway/status 相邻回归：`rtk python3 -m unittest tests.test_coding_diagnostics_command_executor tests.test_coding_feedback_command_executor tests.test_coding_merge_test_command_executor tests.test_coding_run_command_executor tests.test_coding_status_command_executor tests.test_coding_task_list_command_executor tests.test_gateway_command_executor tests.test_gateway_coding_mode_executor tests.test_status_reconcile_flow tests.test_implementation_result_flow tests.test_plan_run_flow tests.test_merge_test_blocked_flow tests.test_merge_test_qa_gate_flow tests.test_gateway_safety_lifecycle_flow tests.test_coding_background_run_executor -v`：97 tests passed。
+  - 旧生产/测试 import 扫描：no matches。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/presenters/*.py coding_orchestration/orchestrator_facades/*.py coding_orchestration/coding_commands/*.py coding_orchestration/gateway/*.py coding_orchestration/cli.py coding_orchestration/coding_background_run_executor.py tests/test_architecture_guard.py`：passed。
+  - YAML 解析：`rtk python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 995 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 遇到的错误：
+  - 首次 presenter 批量回归命令误包含不存在的 `tests.test_doctor_presenter`，导致 unittest loader error；已改为仓库实际存在的 presenter tests 重跑通过。
+- 剩余风险：
+  - 本阶段只处理 presenter 目录，不迁 `delivery_command_executor.py`、`project_command_executor.py`、`coding_background_run_executor.py`、run artifact/projection/service、source/project/integration 层；后续按治理计划继续独立切片。
+
 ### 阶段 255：Feishu 模块目录治理第一切片
 - **状态：** complete
 - 背景：

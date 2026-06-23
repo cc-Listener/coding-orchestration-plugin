@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 
 from coding_orchestration.gateway import gateway_coding_mode_executor
-from coding_orchestration import run_start_presenter
+from coding_orchestration.presenters import run_start_presenter
 
 
 class FakeGateway:

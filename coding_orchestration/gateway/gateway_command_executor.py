@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from . import gateway_command_controller
-from .. import merge_test_presenter, run_start_presenter
+from ..presenters import merge_test_presenter, run_start_presenter
 from ..models import RunMode, TaskPhase, TaskStatus
 
 

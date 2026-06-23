@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from coding_orchestration.models import TaskStatus
-from coding_orchestration.run_completion_presenter import (
+from coding_orchestration.presenters.run_completion_presenter import (
     completion_risk_note,
     dedupe_texts,
     format_implementation_completion_message,
