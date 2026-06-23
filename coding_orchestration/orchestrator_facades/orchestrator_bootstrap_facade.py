@@ -21,7 +21,7 @@ from ..ledger import TaskLedger
 from ..project.project_knowledge_resolver import ProjectKnowledgeResolver
 from ..project.project_resolver import ProjectRegistry
 from ..run.services.run_manifest_service import RunManifestService
-from ..runner_router import RunnerRouter
+from ..runners.router import RunnerRouter
 from ..services import DeliveryService, RunService, TaskService, WorkItemService
 from ..source.source_resolver import SourceResolver
 from ..symphony_compat.workspace_manager import WorkspaceManager

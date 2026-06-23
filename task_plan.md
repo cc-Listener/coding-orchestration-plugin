@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 291：Hermes CLI registration 子包治理（complete）
+阶段 292：Runner router 子包治理（complete）
 
 ## 各阶段
+
+### 阶段 292：Runner router 子包治理
+- [x] 定域：只收拢 `runner_router.py` 到 `coding_orchestration/runners/router.py`，保持默认 runner 构造、`RunnerUnavailable`、`RunnerRouter.select_runner()`、Hermes runtime 注入和 Codex backend decision 接线行为不变；不迁 runner implementations、Codex command/process/report、Hermes runtime adapter、auth 检测、workspace/git 或 run lifecycle。
+- [x] TDD：扩展模块布局架构测试，要求 runner router 不再散落在 `coding_orchestration/` 包根，并更新直接 import 消费方。
+- [x] RED：确认新增 focused test 在当前包根文件存在时失败。
+- [x] 实现：移动模块并更新 import / 文档路径。
+- [x] 验证：运行 focused GREEN、runner/router/Hermes runtime 相邻回归、py_compile、YAML、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步进度、发现、技术方案、项目地图、组件合同、约定、machine-readable context 和治理计划。
+- **状态：** complete
 
 ### 阶段 291：Hermes CLI registration 子包治理
 - [x] 定域：只收拢 `cli.py` 到 `coding_orchestration/cli/registration.py`，保持 Hermes CLI 子命令注册、tool-equivalent dispatcher fast path、Project MCP preflight host config gate 和 legacy register_cli_command fallback 行为不变；不迁普通 `/coding` command façade、diagnostics executor、Gateway route、ToolSpec/dispatcher 纯合同、runner/workspace/git 或 run lifecycle。

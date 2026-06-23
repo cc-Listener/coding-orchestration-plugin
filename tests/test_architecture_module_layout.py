@@ -143,6 +143,12 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
         self.assertTrue((package_root / "cli" / "__init__.py").is_file())
         self.assertTrue((package_root / "cli" / "registration.py").is_file())
 
+    def test_runner_router_lives_in_runners_package(self):
+        package_root = REPO_ROOT / "coding_orchestration"
+
+        self.assertFalse((package_root / "runner_router.py").exists())
+        self.assertTrue((package_root / "runners" / "router.py").is_file())
+
 
 if __name__ == "__main__":
     unittest.main()

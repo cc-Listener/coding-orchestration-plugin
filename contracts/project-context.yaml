@@ -392,7 +392,7 @@ component_contract:
       path: coding_orchestration/run/services/run_manifest_service.py
       preferred: true
     - name: runner_router
-      path: coding_orchestration/runner_router.py
+      path: coding_orchestration/runners/router.py
       preferred: true
     - name: codex_reuse_strategy
       path: coding_orchestration/runners/codex_reuse.py
@@ -868,7 +868,7 @@ component_contract:
         - "在 orchestrator 中继续新增 Gateway coding mode enter/exit、pending rewrite 确认/取消、高置信度 rewrite direct execute、低置信度 handoff 或 rewrite context 装配。"
         - "通过 CodingOrchestrator._rewrite_* 私有代理渲染 Coding Mode rewrite 确认、补充或 handoff 文案。"
     - name: RunnerRouter
-      path: coding_orchestration/runner_router.py
+      path: coding_orchestration/runners/router.py
       use_instead_of:
         - "按字符串直接实例化 runner。"
     - name: codex_reuse_strategy

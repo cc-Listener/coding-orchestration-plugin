@@ -4,6 +4,36 @@
 
 ## 会话：2026-06-23
 
+### 阶段 292：Runner router 子包治理
+- **状态：** complete
+- 背景：
+  - `runner_router.py` 维护默认 runner 构造、`RunnerUnavailable`、`RunnerRouter.select_runner()`、Hermes runtime 注入和 Codex backend decision 接线。
+  - 该职责属于 runner package 边界，不应继续散落在 `coding_orchestration/` 包根；runner implementations、Codex command/process/report、Hermes runtime adapter、auth 检测、workspace/git 和 run lifecycle 不属于本切片。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求包根不再保留 `runner_router.py`，并要求 `coding_orchestration/runners/router.py` 存在。
+  - RED 已确认：focused layout test 先失败，失败点为包根旧文件 `runner_router.py` 仍存在。
+  - 将 `runner_router.py` 移入 `coding_orchestration/runners/router.py`，更新 orchestrator bootstrap façade 和 runner 相关测试 import。
+  - 更新 `coding_orchestration/runners/__init__.py`，导出 `RunnerRouter` / `RunnerUnavailable`。
+  - 更新技术方案、项目地图、组件合同和 machine-readable context 中的 canonical path。
+- 当前边界：
+  - `coding_orchestration/runners/router.py`：只做 runner 配置读取、默认 runner 构造、capability 选择、Hermes runtime 注入和 Codex backend decision 接线。
+  - `coding_orchestration/runners/codex_cli.py`、`codex_command.py`、`codex_process.py`、`codex_report*.py`、`generic_cli.py`、`hermes_autonomous_codex.py` 和 `integrations/hermes/hermes_runtime.py` 继续作为各自 owner。
+  - workspace/git、checkpoint、状态推进、runner dispatch service 和 run lifecycle 均未迁移。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为包根旧文件 `runner_router.py`。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout tests.test_router_prompt_summary tests.test_hermes_runtime_runner -v`：27 tests passed。
+  - 编译检查：`rtk python3 -m compileall coding_orchestration tests`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 998 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 当前包根：
+  - `coding_orchestration/` 包根 `.py` 数量：7（不含 `__init__.py`）。
+  - 包根 `.py` 总行数：1796。
+  - 剩余包根文件：`config.py`、`ledger.py`、`models.py`、`orchestrator.py`、`ports.py`、`run_orchestration_service.py`、`state_machine.py`。
+- 剩余风险：
+  - 剩余包根文件已基本进入公共合同、兼容 façade 或 run orchestration owner 区域；下一步应优先评估 `run_orchestration_service.py` 的可拆 projection/service 余量，`models.py`、`ports.py`、`state_machine.py`、`ledger.py` 和 `config.py` 需要更明确的兼容策略后再迁。
+
 ### 阶段 291：Hermes CLI registration 子包治理
 - **状态：** complete
 - 背景：
