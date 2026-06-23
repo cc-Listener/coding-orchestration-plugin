@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 234：Task 37 Orchestrator 500 行治理第七切片（complete）
+阶段 235：Task 37 Orchestrator 500 行治理第八切片（complete）
 
 ## 各阶段
 
@@ -1573,6 +1573,14 @@
 - [x] RED：focused tests 先失败于 executor 仍依赖 host task-list presenter wrapper、`orchestrator.py` 仍定义 task-list presenter wrapper。
 - [x] 实现：删除 `CodingOrchestrator` 内 task list presenter 文案代理，保留 `coding_task_list_command_executor.py` / `task_list_presenter.py` 的真实 owner。
 - [x] 验证：运行 focused tests、相邻回归、py_compile、文档/架构测试、YAML 解析、architecture guard、diff check 和 release readiness no-smoke。
+- **状态：** complete
+
+### 阶段 235：Task 37 Orchestrator 500 行治理第八切片
+- [x] 定域：只清理 task status presenter 展示/QA helper 私有代理；保留仍被 pending-action 和 background orchestration 使用的 `_read_report_json` host callback，不触碰 active run reconcile、delivery/tree status、runner/workspace/git、run lifecycle 或状态机。
+- [x] TDD：扩展 status executor 和架构测试，要求 `coding_status_command_executor.py` 直接消费 `task_status_presenter.py`，且 `orchestrator.py` 不再保留 `_format_task_status_details` / status display / latest QA / QA health 私有代理。
+- [x] RED：focused tests 先失败于 executor 仍调用 host task-status presenter wrapper、`orchestrator.py` 仍定义 task-status presenter wrapper。
+- [x] 实现：`coding_status_command_executor.py` 直接调用 `task_status_presenter.format_task_status_details()`，`CodingOrchestrator._qa_evidence_for_merge_test()` 直接调用 `task_status_presenter.latest_qa_run()`，删除对应私有代理。
+- [x] 验证：运行 focused tests、status/presenter/reconcile/pending/background 相邻回归、py_compile、文档/架构测试、YAML 解析、architecture guard、diff check 和 release readiness no-smoke。
 - **状态：** complete
 
 ### 阶段 192：Task 34 本地项目解析 helper 第一切片

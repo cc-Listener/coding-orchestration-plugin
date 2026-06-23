@@ -29,15 +29,13 @@ class FakeStatusHost:
         self.active_task_id = ""
         self.reconcile_results: dict[str, dict | None] = {}
         self.reconcile_calls: list[tuple[str, dict]] = []
-        self.format_calls: list[tuple[str, bool]] = []
 
     def _reconcile_completed_active_run(self, task_id: str, *, task: dict):
         self.reconcile_calls.append((task_id, task))
         return self.reconcile_results.get(task_id)
 
     def _format_task_status_details(self, task: dict, *, include_branch: bool) -> str:
-        self.format_calls.append((task["task_id"], include_branch))
-        return f"status:{task['task_id']}:branch={include_branch}"
+        raise AssertionError("host task status presenter proxy should not be used")
 
     def _active_task_id_for_event(self, event) -> str:
         return self.active_task_id
@@ -51,7 +49,6 @@ class CodingStatusCommandExecutorTest(unittest.TestCase):
         self.assertEqual(executor.command_coding_status(host, "missing"), "未找到任务：missing")
 
         self.assertEqual(host.reconcile_calls, [])
-        self.assertEqual(host.format_calls, [])
 
     def test_command_status_reconciles_completed_active_run_before_formatting_without_branch(self):
         host = FakeStatusHost()
@@ -60,9 +57,9 @@ class CodingStatusCommandExecutorTest(unittest.TestCase):
         message = executor.command_coding_status(host, "task_done")
 
         self.assertIn("[task_done] 已自动回收后台执行：run_done", message)
-        self.assertIn("status:task_done:branch=False", message)
+        self.assertIn("[task_done] 状态：运行中(running)", message)
+        self.assertNotIn("源分支：", message)
         self.assertEqual(host.reconcile_calls[0][0], "task_done")
-        self.assertEqual(host.format_calls, [("task_done", False)])
 
     def test_command_status_delegates_delivery_flags_after_reconcile_gate(self):
         host = FakeStatusHost()
@@ -89,8 +86,13 @@ class CodingStatusCommandExecutorTest(unittest.TestCase):
 
         message = executor.status_for_event(host, "", SimpleNamespace())
 
-        self.assertEqual(message, "status:task_1:branch=True")
-        self.assertEqual(host.format_calls, [("task_1", True)])
+        self.assertEqual(
+            message,
+            "[task_1] 状态：已规划(planned)\n"
+            "项目：未确定\n"
+            "源分支：未创建\n"
+            "工作区：未创建",
+        )
 
     def test_gateway_status_with_flags_reuses_command_status_path(self):
         host = FakeStatusHost()

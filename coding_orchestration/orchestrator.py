@@ -1267,28 +1267,8 @@ class CodingOrchestrator:
         return TaskService.source_status_from_context(context)
 
     @staticmethod
-    def _format_task_status_details(task: dict[str, Any], *, include_branch: bool) -> str:
-        return task_status_presenter.format_task_status_details(task, include_branch=include_branch)
-
-    @staticmethod
-    def _kanban_sync_status_display(kanban_sync: dict[str, Any]) -> str:
-        return task_status_presenter.kanban_sync_status_display(kanban_sync)
-
-    @staticmethod
-    def _completion_notification_status_display(notification: dict[str, Any]) -> str:
-        return task_status_presenter.completion_notification_status_display(notification)
-
-    @staticmethod
-    def _latest_qa_run(task: dict[str, Any]) -> dict[str, Any] | None:
-        return task_status_presenter.latest_qa_run(task)
-
-    @staticmethod
     def _read_report_json(path_value: Any) -> dict[str, Any]:
         return task_status_presenter.read_report_json(path_value)
-
-    @staticmethod
-    def _qa_health_score_from_report_path(path_value: Any) -> str:
-        return task_status_presenter.qa_health_score_from_report_path(path_value)
 
     def _continue_active_task(self, raw_args: str, event: Any, gateway: Any) -> str:
         return coding_feedback_command_executor.continue_active_task(self, raw_args, event, gateway)
@@ -2195,7 +2175,7 @@ class CodingOrchestrator:
 
     @staticmethod
     def _qa_evidence_for_merge_test(task: dict[str, Any]) -> dict[str, str]:
-        qa_run = CodingOrchestrator._latest_qa_run(task)
+        qa_run = task_status_presenter.latest_qa_run(task)
         if not qa_run:
             return {
                 "status": "missing",

@@ -4,6 +4,33 @@
 
 ## 会话：2026-06-23
 
+### 阶段 235：Task 37 Orchestrator 500 行治理第八切片
+- **状态：** complete
+- 背景：
+  - 阶段 228-234 已清理 run completion、run start、feedback、merge-test、doctor、Gateway rewrite 和 task list presenter 私有代理；`orchestrator.py` 仍保留 task status presenter 展示/QA helper 代理。
+  - 本阶段继续清理已有明确 owner 的 presentation 代理；保留仍作为跨模块 host callback 的 `_read_report_json`，不触碰 active run reconcile、delivery/tree status、pending action、background orchestration、runner/workspace/git、run lifecycle 或状态机。
+- 执行的操作：
+  - 扩展 `tests/test_coding_status_command_executor.py`，要求普通/Gateway status 不再依赖 host `_format_task_status_details` wrapper，而是 direct 消费 `task_status_presenter.py`。
+  - 扩展 `tests/test_architecture_guard.py`，要求 `orchestrator.py` 不再定义 `_format_task_status_details`、`_kanban_sync_status_display`、`_completion_notification_status_display`、`_latest_qa_run` 和 `_qa_health_score_from_report_path`。
+  - RED 已确认：focused tests 先失败于 status executor 仍调用 host task-status presenter proxy，以及 `CodingOrchestrator` 仍保留 5 个 task status presenter wrapper。
+  - 修改 `coding_status_command_executor.py`，status 详情渲染改为 direct 调用 `task_status_presenter.format_task_status_details()`。
+  - 删除 `CodingOrchestrator` 内 task status presenter 展示/QA helper 私有代理；`_qa_evidence_for_merge_test()` 改为 direct 调用 `task_status_presenter.latest_qa_run()`。
+  - 同步 `PLUGIN_TECHNICAL_SOLUTION.md`、`docs/project-map.md`、`docs/component-contract.md`、`docs/conventions.md`、`contracts/project-context.yaml`、`task_plan.md` 和 `findings.md`。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：2741 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_coding_status_command_executor.CodingStatusCommandExecutorTest.test_gateway_status_uses_active_task_fallback_and_formats_with_branch tests.test_architecture_guard.ArchitectureGuardTest.test_orchestrator_does_not_keep_task_status_presenter_private_proxies -v` 先失败于 host status presenter proxy 被调用，且 5 个 task-status presenter wrapper 仍存在。
+  - Focused GREEN：上述两个 focused tests 重跑通过，2 tests passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_coding_status_command_executor tests.test_task_status_presenter tests.test_status_reconcile_flow tests.test_gateway_pending_action_executor tests.test_run_background_orchestration -v`：24 tests passed。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/coding_status_command_executor.py tests/test_architecture_guard.py tests/test_coding_status_command_executor.py`：passed。
+  - 文档/架构测试：`rtk proxy python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_guard -v`：27 tests passed。
+  - YAML 解析：`rtk proxy python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，仅 watch `coding_orchestration/orchestrator.py: 2741 lines`。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 978 tests passed，敏感扫描 no findings。
+- 剩余风险：
+  - 500 行是长期目标；本阶段未迁 `_read_report_json` host callback、active run reconcile、delivery/tree status、pending action、background orchestration、runner/workspace/git、`start_run()`、run lifecycle 或状态机核心。
+
 ### 阶段 234：Task 37 Orchestrator 500 行治理第七切片
 - **状态：** complete
 - 背景：

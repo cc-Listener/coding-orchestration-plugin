@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import delivery_command_executor
+from . import delivery_command_executor, task_status_presenter
 
 
 def command_coding_status(host: Any, raw_args: str) -> str:
@@ -21,7 +21,7 @@ def command_coding_status(host: Any, raw_args: str) -> str:
         return "\n".join(
             [
                 f"[{task_id}] 已自动回收后台执行：{reconciled['run_id']}",
-                host._format_task_status_details(task, include_branch=False),
+                task_status_presenter.format_task_status_details(task, include_branch=False),
             ]
         )
     if delivery_view or tree_view:
@@ -31,7 +31,7 @@ def command_coding_status(host: Any, raw_args: str) -> str:
             task=task,
             tree_view=tree_view,
         )
-    return host._format_task_status_details(task, include_branch=False)
+    return task_status_presenter.format_task_status_details(task, include_branch=False)
 
 
 def status_for_event(host: Any, raw_args: str, event: Any) -> str:
@@ -51,7 +51,7 @@ def status_for_event(host: Any, raw_args: str, event: Any) -> str:
         return "\n".join(
             [
                 f"[{task_id}] 已自动回收后台执行：{reconciled['run_id']}",
-                host._format_task_status_details(task, include_branch=True),
+                task_status_presenter.format_task_status_details(task, include_branch=True),
             ]
         )
-    return host._format_task_status_details(task, include_branch=True)
+    return task_status_presenter.format_task_status_details(task, include_branch=True)

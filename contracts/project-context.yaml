@@ -108,7 +108,7 @@ project_map:
     - path: coding_orchestration/coding_task_list_command_executor.py
       reason: "Coding task list command executor host shell，维护普通 /coding list 与 Gateway list immediate 的 active status 查询、active task 标记、空列表文案和会话切换提示；不实现 task list presenter、Gateway route、CLI direct dispatcher、status reconcile、delivery/project/diagnostics、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_status_command_executor.py
-      reason: "Coding status command executor host shell，维护普通 /coding status <task_id> 与 Gateway status immediate 的参数解析、active task fallback、active run reconcile callback、delivery/tree status 委托和 status presenter 调用；不拥有 active run reconcile 实现、不实现 delivery status executor 或 TaskStatus presenter、不触碰 Gateway route、CLI direct dispatcher、runner/workspace/git 或 run lifecycle。"
+      reason: "Coding status command executor host shell，维护普通 /coding status <task_id> 与 Gateway status immediate 的参数解析、active task fallback、active run reconcile callback、delivery/tree status 委托和 task_status_presenter.py direct 调用；不拥有 active run reconcile 实现、不实现 delivery status executor 或 TaskStatus presenter、不触碰 Gateway route、CLI direct dispatcher、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_run_command_executor.py
       reason: "Coding run command executor host shell，维护普通 /coding run <task_id>、/coding implement <task_id> 和 /coding qa <task_id> 的同步 command-mode task gate、human decision、QA request、start_run callback 接线和 run_completion_presenter direct call；不拥有 /coding run <parent> --next、Gateway 异步启动、start_run 实现、active run reconcile、workspace/checkpoint/git、merge-test gates、delete/cancel/restore 或 run lifecycle。"
     - path: coding_orchestration/coding_merge_test_command_executor.py
@@ -358,6 +358,10 @@ component_contract:
     - name: coding_status_command_executor
       path: coding_orchestration/coding_status_command_executor.py
       preferred: true
+    - name: task_status_presenter
+      path: coding_orchestration/task_status_presenter.py
+      preferred: true
+      note: "/coding status 详情、Kanban/完成回传、QA 缺口和 latest QA helper owner；coding_status_command_executor.py direct 调用，不经 orchestrator `_format_task_status_details` / status display / latest QA / QA health 私有代理；`_read_report_json` 暂保留为跨模块 host callback。"
     - name: coding_run_command_executor
       path: coding_orchestration/coding_run_command_executor.py
       preferred: true
@@ -572,6 +576,10 @@ component_contract:
       path: coding_orchestration/coding_status_command_executor.py
       use_instead_of:
         - "在 orchestrator 中继续新增普通 /coding status <task_id> 或 Gateway status immediate host shell 的参数解析、active task fallback、delivery/tree flag 分流、active run reconcile callback 接线或 status presenter 调用。"
+    - name: task_status_presenter
+      path: coding_orchestration/task_status_presenter.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增或恢复 _format_task_status_details、_kanban_sync_status_display、_completion_notification_status_display、_latest_qa_run 或 _qa_health_score_from_report_path 等 task status presenter 私有代理。"
     - name: coding_run_command_executor
       path: coding_orchestration/coding_run_command_executor.py
       use_instead_of:

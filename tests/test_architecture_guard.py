@@ -128,6 +128,20 @@ class ArchitectureGuardTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
+    def test_orchestrator_does_not_keep_task_status_presenter_private_proxies(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def _format_task_status_details(",
+            "def _kanban_sync_status_display",
+            "def _completion_notification_status_display",
+            "def _latest_qa_run",
+            "def _qa_health_score_from_report_path",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()
