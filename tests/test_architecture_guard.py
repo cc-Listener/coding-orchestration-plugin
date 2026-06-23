@@ -484,6 +484,22 @@ class ArchitectureGuardTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
+    def test_orchestrator_does_not_keep_merge_test_facade_methods(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def _merge_test_blocker(",
+            "def _release_blocked_task_for_merge_test_if_allowed(",
+            "def _blocked_task_merge_test_assessment(",
+            "def _latest_implementation_run(",
+            "def _source_branch_for_blocked_merge_test(",
+            "def _disallowed_blocked_merge_test_reason(",
+            "def _qa_evidence_for_merge_test(",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()

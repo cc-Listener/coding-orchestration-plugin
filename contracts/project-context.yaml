@@ -99,6 +99,8 @@ project_map:
       reason: "Orchestrator manifest façade mixin，维护 existing/fresh artifact set、run manifest 构造、Codex attach/resume 命令、session id 读取、runner manifest name 和 manifest session metadata 写回 wrapper；CodingOrchestrator 只继承 mixin 保留兼容方法名，不承载 manifest 纯规则、artifact service、handle_gateway_event、active run reconcile、runner 调度、start_run 或 run lifecycle。"
     - path: coding_orchestration/orchestrator_prompt_context_facade.py
       reason: "Orchestrator prompt/context façade mixin，维护 resumed session 增量上下文、wiki docs/refs、context artifacts、dependency/sibling task context、confirmed plan / merge-test context、report summary markdown 和 wiki ref 投影 wrapper；CodingOrchestrator 只继承 mixin 保留兼容方法名，不承载 context artifact service 纯写入、prompt projection、manifest 构造、runner 调度、start_run 或 run lifecycle。"
+    - path: coding_orchestration/orchestrator_merge_test_facade.py
+      reason: "Orchestrator merge-test façade mixin，维护 merge-test blocker、blocked task 风险放行 host 写回、blocked assessment fact collection、latest implementation run/source branch/disallowed reason wrapper 和 QA evidence wrapper；CodingOrchestrator 只继承 mixin 保留兼容方法名，不承载 merge-test readiness 纯评估规则、workspace/git/checkpoint 实现、runner 调度、start_run 或 run lifecycle。"
     - path: coding_orchestration/run_orchestration_service.py
       reason: "Observed run report、stale completion 观测、execution policy decision 读取、run-level diff guard violations 组合、verification limitations fallback projection、completion report payload、agent run record、reconciled agent run record、reconcile result payload、existing run mode/changed files 规则、merge-test run record、project writeback payload、start_run result payload 和 run completion 投影 helper；兼容 re-export run report refinement、run start selection、run session 与 run prompt projection。"
     - path: coding_orchestration/run_failure_report_projection.py
@@ -397,6 +399,10 @@ component_contract:
       path: coding_orchestration/orchestrator_prompt_context_facade.py
       preferred: true
       note: "Prompt/context façade、resumed session 增量上下文、wiki docs/refs、context artifacts、dependency/sibling task context、confirmed plan / merge-test context、report summary markdown 和 wiki ref 投影 wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
+    - name: orchestrator_merge_test_facade
+      path: coding_orchestration/orchestrator_merge_test_facade.py
+      preferred: true
+      note: "Merge-test façade、merge-test blocker、blocked task 风险放行 host 写回、blocked assessment fact collection、latest implementation run/source branch/disallowed reason wrapper 和 QA evidence wrapper owner；CodingOrchestrator 只继承 mixin，不在 orchestrator.py 主文件直接定义这些方法。"
     - name: coding_diagnostics_command_executor
       path: coding_orchestration/coding_diagnostics_command_executor.py
       preferred: true
@@ -664,6 +670,14 @@ component_contract:
       path: coding_orchestration/orchestrator_manifest_facade.py
       use_instead_of:
         - "在 orchestrator.py 主文件中继续新增或恢复 existing/fresh artifact set、run manifest 构造、Codex attach/resume 命令、session id 读取、runner manifest name 或 manifest session metadata 写回 wrapper。"
+    - name: orchestrator_prompt_context_facade
+      path: coding_orchestration/orchestrator_prompt_context_facade.py
+      use_instead_of:
+        - "在 orchestrator.py 主文件中继续新增或恢复 resumed session 增量上下文、wiki docs/refs、context artifacts、dependency/sibling task context、confirmed plan / merge-test context、report summary markdown 或 wiki ref 投影 wrapper。"
+    - name: orchestrator_merge_test_facade
+      path: coding_orchestration/orchestrator_merge_test_facade.py
+      use_instead_of:
+        - "在 orchestrator.py 主文件中继续新增或恢复 merge-test blocker、blocked task 风险放行 host 写回、blocked assessment fact collection、latest implementation run/source branch/disallowed reason wrapper 或 QA evidence wrapper。"
     - name: task_status_presenter
       path: coding_orchestration/task_status_presenter.py
       use_instead_of:
