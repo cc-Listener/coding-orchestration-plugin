@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.codex_reuse import CodexReuseStrategy
+from coding_orchestration.runners.codex_reuse import CodexReuseStrategy
 from coding_orchestration.runners.hermes_autonomous_codex import HermesAutonomousCodexRunner
 
 

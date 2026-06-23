@@ -442,6 +442,8 @@ coding_orchestration plugin
 
 阶段 286 目录治理事实：policy/guard helper 已收拢到 `coding_orchestration/policies/`，包括 `diff_guard.py` 和 `execution_policy.py`；该包只承接 diff boundary audit 和 execution policy 归一化，不迁 `status_policy.py`、状态机、run diff guard host service、RunService timeout、runner/workspace/git 或 run lifecycle。
 
+阶段 287 目录治理事实：Codex reuse runner helper 已收拢到 `coding_orchestration/runners/codex_reuse.py`；该模块只承接 Hermes terminal Codex CLI、Hermes openai-codex provider 和 direct Codex CLI fallback 的 backend decision，不迁 `runner_router.py`、runner implementations、Hermes runtime adapter、auth 检测、runner/workspace/git 或 run lifecycle。
+
 阶段 282 目录治理事实：command catalog 纯数据和 Coding Mode command rewriter adapter 已收拢到 `coding_orchestration/commands/`；该包现在承接 `/coding` command facts、help/listing 文案、rewrite context、LLM rewrite prompt、JSON 解析和 fallback shape，不迁 Gateway route/controller、command executor、orchestrator façade、runner/workspace/git 或 run lifecycle。
 
 阶段 283 目录治理事实：report quality helper 已收拢到 `coding_orchestration/reports/`，包括 `report_contract.py`、`report_admission.py` 和 `run_log_compactor.py`；该包只承接结构化 report 完整性检查、交付拆解准入和 operator-facing run log compact，不迁 runner subprocess、report writer/loader 主体、状态推进、Gateway、workspace/git 或 run lifecycle。

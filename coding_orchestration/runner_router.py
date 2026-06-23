@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from .codex_reuse import CodexReuseStrategy
+from .runners.codex_reuse import CodexReuseStrategy
 from .models import RunMode
 from .runners.codex_cli import CodexCliRunner
 from .runners.generic_cli import GenericCliRunner

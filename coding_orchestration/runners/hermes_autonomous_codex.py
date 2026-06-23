@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ..codex_reuse import CodexReuseStrategy
+from .codex_reuse import CodexReuseStrategy
 from ..models import RunnerCapabilities
 from .codex_cli import CodexCliRunner
 

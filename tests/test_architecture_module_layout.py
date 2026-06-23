@@ -123,6 +123,7 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ("tool_*.py", "tools", "tool_operation_dispatcher.py tool_specs.py"),
             ("diff_guard.py", "policies", "diff_guard.py"),
             ("execution_policy.py", "policies", "execution_policy.py"),
+            ("codex_reuse.py", "runners", "codex_reuse.py"),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):

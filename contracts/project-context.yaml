@@ -388,6 +388,10 @@ component_contract:
     - name: runner_router
       path: coding_orchestration/runner_router.py
       preferred: true
+    - name: codex_reuse_strategy
+      path: coding_orchestration/runners/codex_reuse.py
+      preferred: true
+      note: "CodexReuseStrategy 和 CodexBackendDecision 的 owner；只做 Hermes terminal Codex CLI、Hermes openai-codex provider、direct Codex CLI fallback 的 backend decision，不读取 runner router 配置、不检测 auth、不承载 runner/workspace/git 或 run lifecycle。"
     - name: policy_guard_helpers
       path: coding_orchestration/policies/
       preferred: true
@@ -849,6 +853,10 @@ component_contract:
       path: coding_orchestration/runner_router.py
       use_instead_of:
         - "按字符串直接实例化 runner。"
+    - name: codex_reuse_strategy
+      path: coding_orchestration/runners/codex_reuse.py
+      use_instead_of:
+        - "在 coding_orchestration/ 包根继续放置 codex_reuse.py，或把 Codex backend reuse decision 写进 runner_router、Hermes runtime adapter、auth 检测、runner/workspace/git 或 run lifecycle。"
     - name: policy_guard_helpers
       path: coding_orchestration/policies/
       use_instead_of:
