@@ -1,6 +1,6 @@
 import unittest
 
-from coding_orchestration import coding_task_list_command_executor
+from coding_orchestration.coding_commands import coding_task_list_command_executor
 
 
 class FakeLedger:

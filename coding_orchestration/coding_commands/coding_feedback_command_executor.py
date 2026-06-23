@@ -3,10 +3,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from . import feedback_presenter
-from .models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
-from .project_resolver import normalize_text as normalize_project_text
-from .services import RunService
+from .. import feedback_presenter
+from ..models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
+from ..project_resolver import normalize_text as normalize_project_text
+from ..services import RunService
 
 
 def command_coding_continue(host: Any, raw_args: str) -> str:

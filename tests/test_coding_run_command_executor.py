@@ -1,7 +1,7 @@
 import unittest
 from unittest import mock
 
-from coding_orchestration import coding_run_command_executor
+from coding_orchestration.coding_commands import coding_run_command_executor
 from coding_orchestration import run_start_presenter
 from coding_orchestration.models import RunMode, TaskPhase
 

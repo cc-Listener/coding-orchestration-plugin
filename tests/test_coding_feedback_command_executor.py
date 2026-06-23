@@ -2,7 +2,7 @@ import unittest
 from unittest import mock
 from unittest.mock import ANY
 
-from coding_orchestration import coding_feedback_command_executor
+from coding_orchestration.coding_commands import coding_feedback_command_executor
 from coding_orchestration import feedback_presenter
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
 

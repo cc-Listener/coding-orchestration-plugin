@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from coding_orchestration import coding_status_command_executor as executor
+from coding_orchestration.coding_commands import coding_status_command_executor as executor
 
 
 class FakeLedger:

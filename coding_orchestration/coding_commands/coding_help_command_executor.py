@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .command_catalog import command_help_lines, command_listing_lines
+from ..command_catalog import command_help_lines, command_listing_lines
 
 
 def command_coding_help(host: Any, raw_args: str = "") -> str:

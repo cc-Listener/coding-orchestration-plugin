@@ -3,14 +3,14 @@ from __future__ import annotations
 import shutil
 from typing import Any
 
-from .doctor_presenter import (
+from ..doctor_presenter import (
     format_lark_preflight,
     format_project_mcp_preflight as render_project_mcp_preflight,
     format_source_resolve as render_source_resolve,
     render_doctor_summary,
 )
-from .feishu_project_mcp import FeishuProjectMcpConfig
-from .models import RunMode
+from ..feishu_project_mcp import FeishuProjectMcpConfig
+from ..models import RunMode
 
 
 def command_coding_cli(host: Any, args: Any = None) -> str:

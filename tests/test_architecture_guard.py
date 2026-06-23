@@ -85,54 +85,54 @@ class ArchitectureGuardTest(unittest.TestCase):
     def test_resolved_legacy_test_flow_suite_is_not_exempted(self):
         self.assertNotIn("tests/test_orchestrator_run_flow.py", LINE_EXEMPTIONS)
 
-    def test_orchestrator_facade_modules_live_in_dedicated_package(self):
+    def _assert_modules_live_in_dedicated_package(self, *, glob_pattern: str, package: str, expected: list[str]):
         package_root = REPO_ROOT / "coding_orchestration"
-        facade_root = package_root / "orchestrator_facades"
-        expected_facades = [
-            "orchestrator_active_run_facade.py",
-            "orchestrator_background_facade.py",
-            "orchestrator_bootstrap_facade.py",
-            "orchestrator_command_facade.py",
-            "orchestrator_diagnostics_facade.py",
-            "orchestrator_gateway_facade.py",
-            "orchestrator_manifest_facade.py",
-            "orchestrator_merge_test_facade.py",
-            "orchestrator_project_facade.py",
-            "orchestrator_prompt_context_facade.py",
-            "orchestrator_runtime_facade.py",
-            "orchestrator_status_policy_facade.py",
-            "orchestrator_task_runtime_facade.py",
-            "orchestrator_task_source_facade.py",
-            "orchestrator_tool_facade.py",
-            "orchestrator_workspace_facade.py",
-        ]
+        nested_root = package_root / package
 
-        root_facades = sorted(path.name for path in package_root.glob("orchestrator_*_facade.py"))
-        nested_facades = sorted(path.name for path in facade_root.glob("orchestrator_*_facade.py"))
-
-        self.assertEqual([], root_facades)
-        self.assertEqual(expected_facades, nested_facades)
-
-    def test_gateway_modules_live_in_dedicated_package(self):
-        package_root = REPO_ROOT / "coding_orchestration"
-        gateway_root = package_root / "gateway"
-        expected_gateway_modules = [
-            "gateway_active_context.py",
-            "gateway_binding_service.py",
-            "gateway_coding_mode_executor.py",
-            "gateway_command_controller.py",
-            "gateway_command_executor.py",
-            "gateway_pending_action_executor.py",
-            "gateway_project_context.py",
-            "gateway_rewrite_context.py",
-            "gateway_rewrite_presenter.py",
-        ]
-
-        root_modules = sorted(path.name for path in package_root.glob("gateway_*.py"))
-        nested_modules = sorted(path.name for path in gateway_root.glob("gateway_*.py"))
+        root_modules = sorted(path.name for path in package_root.glob(glob_pattern))
+        nested_modules = sorted(path.name for path in nested_root.glob(glob_pattern))
 
         self.assertEqual([], root_modules)
-        self.assertEqual(expected_gateway_modules, nested_modules)
+        self.assertEqual(expected, nested_modules)
+
+    def test_orchestrator_facade_modules_live_in_dedicated_package(self):
+        self._assert_modules_live_in_dedicated_package(
+            glob_pattern="orchestrator_*_facade.py",
+            package="orchestrator_facades",
+            expected=(
+                "orchestrator_active_run_facade.py orchestrator_background_facade.py "
+                "orchestrator_bootstrap_facade.py orchestrator_command_facade.py "
+                "orchestrator_diagnostics_facade.py orchestrator_gateway_facade.py "
+                "orchestrator_manifest_facade.py orchestrator_merge_test_facade.py "
+                "orchestrator_project_facade.py orchestrator_prompt_context_facade.py "
+                "orchestrator_runtime_facade.py orchestrator_status_policy_facade.py "
+                "orchestrator_task_runtime_facade.py orchestrator_task_source_facade.py "
+                "orchestrator_tool_facade.py orchestrator_workspace_facade.py"
+            ).split(),
+        )
+
+    def test_gateway_modules_live_in_dedicated_package(self):
+        self._assert_modules_live_in_dedicated_package(
+            glob_pattern="gateway_*.py",
+            package="gateway",
+            expected=(
+                "gateway_active_context.py gateway_binding_service.py gateway_coding_mode_executor.py "
+                "gateway_command_controller.py gateway_command_executor.py gateway_pending_action_executor.py "
+                "gateway_project_context.py gateway_rewrite_context.py gateway_rewrite_presenter.py"
+            ).split(),
+        )
+
+    def test_coding_command_executors_live_in_dedicated_package(self):
+        self._assert_modules_live_in_dedicated_package(
+            glob_pattern="coding_*_command_executor.py",
+            package="coding_commands",
+            expected=(
+                "coding_diagnostics_command_executor.py coding_feedback_command_executor.py "
+                "coding_help_command_executor.py coding_merge_test_command_executor.py "
+                "coding_run_command_executor.py coding_status_command_executor.py "
+                "coding_task_control_command_executor.py coding_task_list_command_executor.py"
+            ).split(),
+        )
 
     def test_orchestrator_does_not_keep_doctor_presenter_private_proxies(self):
         source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")

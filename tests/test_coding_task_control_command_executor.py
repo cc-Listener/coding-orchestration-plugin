@@ -1,6 +1,6 @@
 import unittest
 
-from coding_orchestration import coding_task_control_command_executor
+from coding_orchestration.coding_commands import coding_task_control_command_executor
 from coding_orchestration.models import TaskPhase, TaskStatus
 
 

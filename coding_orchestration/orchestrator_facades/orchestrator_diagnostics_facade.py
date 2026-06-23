@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .. import coding_diagnostics_command_executor, source_projection
+from .. import source_projection
+from ..coding_commands import coding_diagnostics_command_executor
 from ..feishu_project_mcp import FeishuProjectMcpConfig
 from ..models import AgentRunStatus, task_status_view
 

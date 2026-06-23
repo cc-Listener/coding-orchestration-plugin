@@ -4,6 +4,34 @@
 
 ## 会话：2026-06-23
 
+### 阶段 254：Coding command executor 目录治理第一切片
+- **状态：** complete
+- 背景：
+  - 阶段 253 已把 Gateway 专属模块收拢到 `coding_orchestration/gateway/`。
+  - 本阶段继续治理 `coding_orchestration/` 包根散落文件，只处理 8 个 `coding_*_command_executor.py`；不迁 `delivery_command_executor.py`、`project_command_executor.py`、`coding_background_run_executor.py`、runner/workspace/git 或 run lifecycle。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_guard.py`，新增 `test_coding_command_executors_live_in_dedicated_package`，锁定包根不得保留 `coding_*_command_executor.py`。
+  - RED 已确认：focused architecture test 先失败，失败点为包根仍存在 8 个 coding command executor。
+  - 新增 `coding_orchestration/coding_commands/__init__.py`，迁移 diagnostics、feedback、help、merge-test、run、status、task-control 和 task-list command executor。
+  - 更新 orchestrator façade 和 command executor 单测 import，保持原函数名、命令 host shell 行为和测试文件名不变。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前目录边界：
+  - `coding_orchestration/coding_commands/`：8 个普通 `/coding` command executor 和 `__init__.py`。
+  - `coding_orchestration/` 包根：不再保留 `coding_*_command_executor.py`。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_coding_command_executors_live_in_dedicated_package -v` 先失败，失败点为 root command executor list 包含 8 个旧路径文件。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/coding_commands/*.py coding_orchestration/orchestrator_facades/*.py tests/test_architecture_guard.py`：passed。
+  - Command/Gateway 相邻回归：`rtk proxy python3 -m unittest tests.test_coding_diagnostics_command_executor tests.test_coding_feedback_command_executor tests.test_coding_help_command_executor tests.test_coding_merge_test_command_executor tests.test_coding_run_command_executor tests.test_coding_status_command_executor tests.test_coding_task_control_command_executor tests.test_coding_task_list_command_executor tests.test_command_run_flow tests.test_gateway_command_group_flow tests.test_gateway_task_control_flow tests.test_gateway_feedback_flow tests.test_gateway_change_continue_flow tests.test_gateway_natural_language_command_flow tests.test_merge_test_basic_flow tests.test_merge_test_blocked_flow tests.test_merge_test_qa_gate_flow tests.test_cancel_restore_flow tests.test_completion_flow tests.test_coding_cli tests.test_plugin_registration tests.test_architecture_guard -v`：168 tests passed。
+  - 架构测试：`rtk proxy python3 -m unittest tests.test_architecture_guard -v`：30 tests passed。
+  - YAML 解析：`rtk proxy python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 旧路径扫描：`rtk rg -n 'from coding_orchestration import coding_(diagnostics|feedback|help|merge_test|run|status|task_control|task_list)_command_executor|from \\. import coding_(diagnostics|feedback|help|merge_test|run|status|task_control|task_list)_command_executor|coding_orchestration/coding_(diagnostics|feedback|help|merge_test|run|status|task_control|task_list)_command_executor\\.py' coding_orchestration tests docs/project-map.md docs/component-contract.md docs/conventions.md contracts/project-context.yaml PLUGIN_TECHNICAL_SOLUTION.md`：no matches。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，no findings；`tests/test_architecture_guard.py` 已压回 597 行，未新增 large-file watch。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 997 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 本阶段只处理普通 coding command executor。`feishu_*`、`delivery_command_executor.py`、`project_command_executor.py`、`coding_background_run_executor.py` 和 source adapter / background / project 目录治理仍需后续独立切片。
+
 ### 阶段 253：Gateway 模块目录治理第一切片
 - **状态：** complete
 - 背景：

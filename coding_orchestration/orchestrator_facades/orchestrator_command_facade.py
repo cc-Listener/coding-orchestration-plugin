@@ -8,6 +8,11 @@ from ..feishu_copy import render_user_update
 from ..models import TaskPhase, TaskStatus
 from ..services import DeliveryService
 from .. import (
+    delivery_command_executor,
+    project_command_executor,
+    run_completion_presenter,
+)
+from ..coding_commands import (
     coding_feedback_command_executor,
     coding_help_command_executor,
     coding_merge_test_command_executor,
@@ -15,9 +20,6 @@ from .. import (
     coding_status_command_executor,
     coding_task_control_command_executor,
     coding_task_list_command_executor,
-    delivery_command_executor,
-    project_command_executor,
-    run_completion_presenter,
 )
 
 
