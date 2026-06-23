@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 235：Task 37 Orchestrator 500 行治理第八切片（complete）
+阶段 236：Task 37 Orchestrator 500 行治理第九切片（complete）
 
 ## 各阶段
 
@@ -1581,6 +1581,14 @@
 - [x] RED：focused tests 先失败于 executor 仍调用 host task-status presenter wrapper、`orchestrator.py` 仍定义 task-status presenter wrapper。
 - [x] 实现：`coding_status_command_executor.py` 直接调用 `task_status_presenter.format_task_status_details()`，`CodingOrchestrator._qa_evidence_for_merge_test()` 直接调用 `task_status_presenter.latest_qa_run()`，删除对应私有代理。
 - [x] 验证：运行 focused tests、status/presenter/reconcile/pending/background 相邻回归、py_compile、文档/架构测试、YAML 解析、architecture guard、diff check 和 release readiness no-smoke。
+- **状态：** complete
+
+### 阶段 236：Task 37 Orchestrator 500 行治理第九切片
+- [x] 定域：迁出普通 `/coding ...` command façade 分发表、command-level wrapper 和 delivery/task-control command callback helper；不迁 Gateway route、tool operation dispatcher、task creation/source helper、active run reconcile、runner/workspace/git、`start_run()` 或 run lifecycle。
+- [x] TDD：扩展架构测试，要求 `orchestrator.py` 不再直接定义 `command_coding()`、普通 command wrapper 和 prepare-merge-test status callback。
+- [x] RED：focused architecture test 先失败于 `orchestrator.py` 仍定义 11 个 command façade 方法。
+- [x] 实现：新增 `orchestrator_command_facade.py`，用 `OrchestratorCommandFacadeMixin` 承接普通 command façade；`CodingOrchestrator` 继承 mixin，删除主文件内对应实现并清理无用 import。
+- [x] 验证：运行 focused architecture test、py_compile 和普通 command/delivery/run 相邻回归；提交前需继续跑文档/架构测试、YAML 解析、architecture guard、diff check 和 release readiness no-smoke。
 - **状态：** complete
 
 ### 阶段 192：Task 34 本地项目解析 helper 第一切片

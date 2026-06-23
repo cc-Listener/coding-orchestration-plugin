@@ -142,6 +142,26 @@ class ArchitectureGuardTest(unittest.TestCase):
             with self.subTest(name=name):
                 self.assertNotIn(name, source)
 
+    def test_orchestrator_does_not_keep_command_facade_methods(self):
+        source = (REPO_ROOT / "coding_orchestration" / "orchestrator.py").read_text(encoding="utf-8")
+
+        forbidden = [
+            "def command_coding(",
+            "def command_coding_help(",
+            "def command_coding_list(",
+            "def command_coding_project_list(",
+            "def command_coding_use(",
+            "def command_coding_status(",
+            "def command_coding_run(",
+            "def command_coding_implement(",
+            "def command_prepare_merge_test(",
+            "def command_coding_complete(",
+            "def _status_update_for_prepare_merge_test(",
+        ]
+        for name in forbidden:
+            with self.subTest(name=name):
+                self.assertNotIn(name, source)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,6 +4,28 @@
 
 ## 会话：2026-06-23
 
+### 阶段 236：Task 37 Orchestrator 500 行治理第九切片
+- **状态：** complete
+- 背景：
+  - 阶段 228-235 已清理多个 presenter 私有代理；`orchestrator.py` 仍直接承载普通 `/coding ...` command façade 大分发表、command wrapper 和部分 delivery/task-control callback helper。
+  - 本阶段选择 command façade 作为高收益切片；不迁 Gateway route、tool operation dispatcher、task creation/source helper、active run reconcile、runner/workspace/git、`start_run()` 或 run lifecycle。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_guard.py`，要求 `orchestrator.py` 不再定义 `command_coding()`、普通 command wrapper 和 prepare-merge-test status callback。
+  - RED 已确认：focused architecture test 先失败于 `orchestrator.py` 仍定义 11 个 command façade 方法。
+  - 新增 `coding_orchestration/orchestrator_command_facade.py`，用 `OrchestratorCommandFacadeMixin` 承接普通 command façade 分发表、command-level wrapper、delivery rollup/materialize helper、artifact purge callback 和 prepare-merge-test status callback。
+  - `CodingOrchestrator` 改为继承 `OrchestratorCommandFacadeMixin`，删除主文件内对应 command façade 实现并清理迁移后的无用 import。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：2466 行。
+  - `coding_orchestration/orchestrator_command_facade.py`：293 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_orchestrator_does_not_keep_command_facade_methods -v` 先失败 11 个 subTest，失败点为 command façade 方法仍在 `orchestrator.py`。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/orchestrator_command_facade.py tests/test_architecture_guard.py`：passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_coding_cli tests.test_coding_task_list_command_executor tests.test_coding_status_command_executor tests.test_coding_run_command_executor tests.test_coding_merge_test_command_executor tests.test_coding_feedback_command_executor tests.test_coding_task_control_command_executor tests.test_delivery_command_executor tests.test_command_run_flow -v`：71 tests passed。
+  - 迁移后 import 清理复核：`rtk proxy python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_orchestrator_does_not_keep_command_facade_methods tests.test_coding_cli tests.test_delivery_command_executor tests.test_command_run_flow -v`：39 tests passed。
+- 剩余风险：
+  - 500 行是长期目标；本阶段未迁 Gateway route、tool operation dispatcher、task creation/source helper、active run reconcile、runner/workspace/git、`start_run()`、run lifecycle 或状态机核心。
+
 ### 阶段 235：Task 37 Orchestrator 500 行治理第八切片
 - **状态：** complete
 - 背景：
