@@ -8,7 +8,7 @@ from pathlib import Path
 
 from coding_orchestration.presenters import merge_test_presenter
 from coding_orchestration.ledger import TaskLedger
-from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
+from coding_orchestration.integrations.knowledge.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import AgentRunStatus, ArtifactSet, RunMode, TaskPhase, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver

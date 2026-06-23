@@ -16,7 +16,7 @@ from ..gateway.gateway_binding_service import GatewayBindingService
 from ..integrations.hermes.hermes_runtime import HermesRuntime
 from ..integrations.kanban.kanban_bridge import KanbanBridge
 from ..integrations.knowledge.run_summary_writer import RunSummaryWriter
-from ..knowledge_adapter import LocalKnowledgeAdapter
+from ..integrations.knowledge.knowledge_adapter import LocalKnowledgeAdapter
 from ..ledger import TaskLedger
 from ..project_knowledge_resolver import ProjectKnowledgeResolver
 from ..project_resolver import ProjectRegistry

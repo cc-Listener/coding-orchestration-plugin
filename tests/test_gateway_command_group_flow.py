@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from coding_orchestration.ledger import TaskLedger
-from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
+from coding_orchestration.integrations.knowledge.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.command_rewriter import HermesCommandRewriter
 from coding_orchestration.models import AgentRunStatus, ArtifactSet, RunMode, TaskKind, TaskPhase, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator

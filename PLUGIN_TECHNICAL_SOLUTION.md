@@ -446,7 +446,9 @@ coding_orchestration plugin
 
 阶段 265 目录治理事实：`coding_orchestration/run/services/` 已继续收拢 background run host orchestration service；该模块仍只处理后台 queued/running 等待完成、后台启动失败状态收敛和 merge-test `human_required` pending action 映射，不迁后台启动/通知 executor、runner/workspace/git、`start_run()` 或 run lifecycle 主体。
 
-阶段 266 目录治理事实：`coding_orchestration/integrations/knowledge/` 已开始收拢 knowledge integration 边界，首片迁入 `RunSummaryWriter` 端口委托；该模块仍只调用注入的 `KnowledgePort.write_run_summary()`，不拼接 LLM Wiki 文档、不读取 run artifact、不写 ledger、不推进状态。`knowledge_adapter.py` 和 `llm_wiki_adapter.py` 留待后续独立切片。
+阶段 269 目录治理事实：`coding_orchestration/integrations/knowledge/` 已继续收拢 `LocalKnowledgeAdapter` 与 `LocalLlmWikiAdapter`；前者维护 KnowledgePort 本地实现，后者维护本地 LLM Wiki Markdown layout 和 legacy index 兼容。二者不迁 project knowledge resolver/initializer/inventory、TaskService、runner/workspace/git、run lifecycle 或本地运行根内容。
+
+阶段 266 目录治理事实：`coding_orchestration/integrations/knowledge/` 已开始收拢 knowledge integration 边界，首片迁入 `RunSummaryWriter` 端口委托；该模块仍只调用注入的 `KnowledgePort.write_run_summary()`，不拼接 LLM Wiki 文档、不读取 run artifact、不写 ledger、不推进状态。
 
 阶段 267 目录治理事实：`coding_orchestration/integrations/hermes/` 已开始收拢 Hermes integration 边界，首片迁入 `HermesRuntime`；该 adapter 只包装 Hermes terminal background dispatch 和 dispatch start result，不拥有 runner 选择、Codex command 构造、report 读取或 run lifecycle。
 

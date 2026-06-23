@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from coding_orchestration.ledger import TaskLedger
-from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
+from coding_orchestration.integrations.knowledge.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
 from coding_orchestration.services.task_service import TaskService
 

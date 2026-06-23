@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""KnowledgePort adapter backed by the local LLM Wiki integration."""
+
 from pathlib import Path
 from typing import Any
 

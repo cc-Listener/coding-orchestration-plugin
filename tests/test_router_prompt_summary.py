@@ -3,8 +3,8 @@ import unittest
 from unittest.mock import patch
 from pathlib import Path
 
-from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
-from coding_orchestration.knowledge_adapter import LocalKnowledgeAdapter
+from coding_orchestration.integrations.knowledge.llm_wiki_adapter import LocalLlmWikiAdapter
+from coding_orchestration.integrations.knowledge.knowledge_adapter import LocalKnowledgeAdapter
 from coding_orchestration.integrations.knowledge.run_summary_writer import RunSummaryWriter
 from coding_orchestration.models import RunMode
 from coding_orchestration.prompt_builder import PromptBuilder

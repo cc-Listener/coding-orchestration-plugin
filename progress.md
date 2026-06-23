@@ -4,6 +4,34 @@
 
 ## 会话：2026-06-23
 
+### 阶段 269：Knowledge adapter integration 子包治理
+- **状态：** complete
+- 背景：
+  - `LocalKnowledgeAdapter` 是本地 LLM Wiki 的 `KnowledgePort` 实现，封装 search/read/upsert/source-task lookup/delete、kind lookup 和 run summary 文档写入。
+  - `LocalLlmWikiAdapter` 维护本地 LLM Wiki Markdown layout、frontmatter 读写、derived pages 和 legacy index 兼容；该职责属于 knowledge integration 边界，不应继续散落在包根。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 `knowledge_adapter.py` 和 `llm_wiki_adapter.py` 位于 `coding_orchestration/integrations/knowledge/`。
+  - RED 已确认：focused test 先失败，失败点为包根仍存在 `knowledge_adapter.py` / `llm_wiki_adapter.py`。
+  - 将 `knowledge_adapter.py` 和 `llm_wiki_adapter.py` 移动到 `coding_orchestration/integrations/knowledge/`，并保留与 `run_summary_writer.py` 同一 knowledge integration 子包。
+  - 更新 `orchestrator_bootstrap_facade.py`、相关测试 import 和当前事实文档的路径。
+  - 同步项目地图、组件合同、约定、machine-readable context、技术方案、发现和目录治理计划。
+- 当前边界：
+  - `coding_orchestration/integrations/knowledge/knowledge_adapter.py`：本地 `KnowledgePort` adapter。
+  - `coding_orchestration/integrations/knowledge/llm_wiki_adapter.py`：本地 LLM Wiki Markdown layout adapter。
+  - `coding_orchestration/project_knowledge_resolver.py` / `project_knowledge_initializer.py` / `project_knowledge_inventory.py`：项目知识消费、初始化和仓库扫描，未迁入本切片。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为 `['knowledge_adapter.py']` 和 `['llm_wiki_adapter.py']` 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Knowledge / Project resolver / Run summary 相邻回归：`rtk python3 -m unittest tests.test_knowledge_adapter tests.test_router_prompt_summary tests.test_project_knowledge_resolver tests.test_project_knowledge_initializer tests.test_orchestrator_config -v`：27 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/integrations/knowledge/__init__.py coding_orchestration/integrations/knowledge/knowledge_adapter.py coding_orchestration/integrations/knowledge/llm_wiki_adapter.py coding_orchestration/integrations/knowledge/run_summary_writer.py coding_orchestration/orchestrator_facades/orchestrator_bootstrap_facade.py tests/test_architecture_module_layout.py tests/test_knowledge_adapter.py tests/test_router_prompt_summary.py tests/test_project_knowledge_resolver.py`：passed。
+  - YAML 解析：`rtk python3 -c "import yaml; yaml.safe_load(open('contracts/project-context.yaml', encoding='utf-8')); print('yaml ok')"`：passed。
+  - 当前事实旧路径扫描：`rtk rg -n "from coding_orchestration\\.llm_wiki_adapter|from coding_orchestration\\.knowledge_adapter|from \\.\\.knowledge_adapter|coding_orchestration/knowledge_adapter.py|coding_orchestration/llm_wiki_adapter.py" coding_orchestration tests docs/project-map.md docs/component-contract.md docs/conventions.md contracts/project-context.yaml task_plan.md findings.md PLUGIN_TECHNICAL_SOLUTION.md docs/plans/2026-06-23-coding-orchestration-package-governance.md`：no matches。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 本阶段不迁 `install.py`、project knowledge resolver/initializer/inventory、TaskService、runner/workspace/git、run lifecycle 或本地运行根内容；后续 integration/install 包治理继续按引用面拆分独立切片。
+
 ### 阶段 268：Kanban integration 子包治理
 - **状态：** complete
 - 背景：

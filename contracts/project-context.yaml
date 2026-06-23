@@ -203,6 +203,10 @@ project_map:
       reason: "Run summary writeback host service，维护 completed run 与 active run reconcile 的 summary writer callback 调用；消费 summary projection 并调用注入 writer，不直接持有 Knowledge adapter。"
     - path: coding_orchestration/integrations/knowledge/run_summary_writer.py
       reason: "Run summary writer knowledge integration helper，只委托注入的 KnowledgePort.write_run_summary，不拼接 LLM Wiki 文档、不读写 artifact/ledger、不启动 runner 或推进状态。"
+    - path: coding_orchestration/integrations/knowledge/knowledge_adapter.py
+      reason: "KnowledgePort 本地实现，封装本地 LLM Wiki search/read/upsert/source-task lookup/delete、kind lookup 和 run summary 文档写入；不拥有 Project knowledge resolver/initializer、ledger、runner 或 run lifecycle。"
+    - path: coding_orchestration/integrations/knowledge/llm_wiki_adapter.py
+      reason: "本地 LLM Wiki Markdown layout adapter，维护 wiki/raw/.llm-wiki 文件布局、frontmatter 读写和 legacy index 兼容；不复制运行根内容到仓库、不推进 task/run 状态。"
     - path: coding_orchestration/run/services/run_background_orchestration.py
       reason: "后台 run 等待完成、后台启动失败状态收敛和 merge-test human_required pending action host orchestration helper。"
     - path: coding_orchestration/run_manifest_service.py
@@ -596,6 +600,14 @@ component_contract:
       path: coding_orchestration/integrations/knowledge/run_summary_writer.py
       use_instead_of:
         - "在包根继续新增或恢复 run summary writer 端口委托逻辑。"
+    - name: knowledge_adapter
+      path: coding_orchestration/integrations/knowledge/knowledge_adapter.py
+      use_instead_of:
+        - "在包根继续新增或恢复 KnowledgePort 本地 adapter。"
+    - name: llm_wiki_adapter
+      path: coding_orchestration/integrations/knowledge/llm_wiki_adapter.py
+      use_instead_of:
+        - "在包根继续新增或恢复本地 LLM Wiki Markdown layout adapter。"
     - name: run_artifact_paths
       path: coding_orchestration/run/artifacts/run_artifact_paths.py
       use_instead_of:

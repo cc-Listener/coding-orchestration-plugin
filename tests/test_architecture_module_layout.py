@@ -85,6 +85,8 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ("run_status_transition_service.py", "run/services", "run_status_transition_service.py"),
             ("run_background_orchestration.py", "run/services", "run_background_orchestration.py"),
             ("run_summary_writer.py", "integrations/knowledge", "run_summary_writer.py"),
+            ("knowledge_adapter.py", "integrations/knowledge", "knowledge_adapter.py"),
+            ("llm_wiki_adapter.py", "integrations/knowledge", "llm_wiki_adapter.py"),
             ("hermes_runtime.py", "integrations/hermes", "hermes_runtime.py"),
             ("kanban_*.py", "integrations/kanban", "kanban_bridge.py kanban_sync_service.py"),
         ]

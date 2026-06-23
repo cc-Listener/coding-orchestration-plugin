@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Local LLM Wiki Markdown layout integration."""
+
 import json
 import re
 import uuid

@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.knowledge_adapter import LocalKnowledgeAdapter
+from coding_orchestration.integrations.knowledge.knowledge_adapter import LocalKnowledgeAdapter
 from coding_orchestration.ports import KnowledgePort
 
 
