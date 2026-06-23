@@ -4,6 +4,31 @@
 
 ## 会话：2026-06-23
 
+### 阶段 251：Task 37 Orchestrator 500 行治理第二十四切片
+- **状态：** complete
+- 背景：
+  - 阶段 250 已把 completed active run reconcile host shell 迁入 `orchestrator_active_run_facade.py`；`orchestrator.py` 仍直接承载 bootstrap/runtime binding façade wrapper。
+  - 本阶段选择 bootstrap/runtime binding façade 作为低风险 host wrapper 切片；不迁 `handle_gateway_event()`、`pre_llm_call()`、`start_run()` 主体、runner dispatch、workspace/git/checkpoint 实现或 run lifecycle。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_guard.py`，要求 `orchestrator.py` 不再直接定义 bootstrap façade wrapper。
+  - RED 已确认：focused architecture test 先失败于 `orchestrator.py` 仍定义 `__post_init__`、`set_dispatch_tool`、`from_default_config` 和 `_default_runtime_root`。
+  - 新增 `coding_orchestration/orchestrator_bootstrap_facade.py`，用 `OrchestratorBootstrapFacadeMixin` 承接初始化、默认配置、运行根和 Hermes runtime binding。
+  - `CodingOrchestrator` 改为继承 `OrchestratorBootstrapFacadeMixin`，删除主文件内对应 bootstrap façade 实现和迁移后的无用 import。
+- 当前行数：
+  - `coding_orchestration/orchestrator.py`：467 行。
+  - `coding_orchestration/orchestrator_bootstrap_facade.py`：129 行。
+- 已验证：
+  - RED：`rtk proxy python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_orchestrator_does_not_keep_bootstrap_facade_methods -v` 先失败 4 个 subTest，失败点为 bootstrap façade wrapper 仍在 `orchestrator.py`。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - 编译检查：`rtk proxy python3 -m py_compile coding_orchestration/orchestrator.py coding_orchestration/orchestrator_bootstrap_facade.py tests/test_architecture_guard.py`：passed。
+  - 相邻回归：`rtk proxy python3 -m unittest tests.test_orchestrator_run_flow tests.test_gateway_trigger tests.test_gateway_command_group_flow tests.test_coding_cli tests.test_plugin_registration tests.test_docs_and_install_entry tests.test_architecture_guard -v`：79 tests passed。
+  - YAML 解析：`rtk proxy python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk proxy git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 994 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - Task 37 的 500 行治理目标已达成；更深层 run lifecycle、runner/workspace/git、Gateway 入口或 `start_run()` 主体解耦仍需后续独立切片处理，不能粗暴搬迁。
+
 ### 阶段 250：Task 37 Orchestrator 500 行治理第二十三切片
 - **状态：** complete
 - 背景：
