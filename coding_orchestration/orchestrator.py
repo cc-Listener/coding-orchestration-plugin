@@ -1244,17 +1244,6 @@ class CodingOrchestrator:
     def _format_task_list_for_event(self, event: Any) -> str:
         return coding_task_list_command_executor.task_list_for_event(self, event)
 
-    def _format_task_list(self, tasks: list[dict[str, Any]], active_id: str | None = None) -> str:
-        return coding_task_list_command_executor.format_task_list(tasks, active_id=active_id)
-
-    @staticmethod
-    def _task_project_label(task: dict[str, Any]) -> str:
-        return coding_task_list_command_executor.task_project_label(task)
-
-    @staticmethod
-    def _task_description_label(task: dict[str, Any]) -> str:
-        return coding_task_list_command_executor.task_description_label(task)
-
     def _status_for_event(self, raw_args: str, event: Any) -> str:
         return coding_status_command_executor.status_for_event(self, raw_args, event)
 

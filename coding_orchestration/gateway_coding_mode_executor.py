@@ -10,6 +10,7 @@ from .command_catalog import (
 )
 from .project_resolver import normalize_text as normalize_project_text
 from . import gateway_command_controller, gateway_rewrite_context, gateway_rewrite_presenter, run_start_presenter
+from . import task_list_presenter
 
 
 _CODING_MODE_ENTER_RE = gateway_command_controller.CODING_MODE_ENTER_RE
@@ -187,8 +188,8 @@ def coding_rewrite_context(host: Any, text: str, event: Any) -> dict[str, Any]:
         recommended_skill=_RECOMMENDED_OPERATOR_SKILL,
         command_catalog=command_catalog_context(),
         allowed_commands=coding_rewrite_allowed_commands(),
-        project_label=host._task_project_label,
-        summary_label=host._task_description_label,
+        project_label=task_list_presenter.task_project_label,
+        summary_label=task_list_presenter.task_description_label,
     )
 
 

@@ -102,7 +102,7 @@ project_map:
     - path: coding_orchestration/gateway_active_context.py
       reason: "Gateway active context host helper，维护 active project 回填缺项目 task 和 human decision 记录；不负责 active binding 存取、项目初始化、项目画像或 runner/workspace/git/run lifecycle。"
     - path: coding_orchestration/gateway_coding_mode_executor.py
-      reason: "Gateway coding mode host shell，维护 coding mode enter/exit、pending rewrite 确认/取消、高置信度 rewrite direct execute、低置信度 handoff、rewrite context 装配和 gateway_rewrite_presenter.py direct 文案调用；不拥有 Gateway route/controller、pending action executor、task 创建实现、runner/workspace/git 或 run lifecycle。"
+      reason: "Gateway coding mode host shell，维护 coding mode enter/exit、pending rewrite 确认/取消、高置信度 rewrite direct execute、低置信度 handoff、rewrite context 装配、gateway_rewrite_presenter.py direct 文案调用和 task_list_presenter.py direct task label 调用；不拥有 Gateway route/controller、pending action executor、task 创建实现、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_diagnostics_command_executor.py
       reason: "Coding diagnostics command executor host shell，维护 doctor / lark-preflight / project-mcp-preflight / source-resolve command-mode dispatch、Project MCP config/stdio readiness gate、Hermes runtime availability probe、Gateway immediate diagnostic 分支和 doctor_presenter.py direct 文案调用；不拥有 Gateway route、不实现 CLI direct dispatcher、不迁普通 status/list presentation、不触碰 runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/coding_task_list_command_executor.py
@@ -351,6 +351,10 @@ component_contract:
     - name: coding_task_list_command_executor
       path: coding_orchestration/coding_task_list_command_executor.py
       preferred: true
+    - name: task_list_presenter
+      path: coding_orchestration/task_list_presenter.py
+      preferred: true
+      note: "/coding list 任务摘要、项目标签和描述摘要 owner；coding_task_list_command_executor.py 与 gateway_coding_mode_executor.py direct 调用，不经 orchestrator `_format_task_list` / `_task_*label` 私有代理。"
     - name: coding_status_command_executor
       path: coding_orchestration/coding_status_command_executor.py
       preferred: true
@@ -559,6 +563,11 @@ component_contract:
       path: coding_orchestration/coding_task_list_command_executor.py
       use_instead_of:
         - "在 orchestrator 中继续新增普通 /coding list 或 Gateway list immediate host shell 的 active status 查询、active task 标记、空列表文案或会话切换提示。"
+        - "通过 CodingOrchestrator._format_task_list、_task_project_label 或 _task_description_label 私有代理渲染 list 任务摘要、项目标签或描述摘要。"
+    - name: task_list_presenter
+      path: coding_orchestration/task_list_presenter.py
+      use_instead_of:
+        - "在 orchestrator 中继续新增或恢复 _format_task_list、_task_project_label 或 _task_description_label 等 task list presenter 私有代理。"
     - name: coding_status_command_executor
       path: coding_orchestration/coding_status_command_executor.py
       use_instead_of:

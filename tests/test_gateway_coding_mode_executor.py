@@ -154,6 +154,18 @@ class GatewayCodingModeExecutorTest(unittest.TestCase):
         self.assertIsNone(result)
         self.assertEqual(rewriter.calls, [])
 
+    def test_rewrite_context_uses_task_list_presenter_without_host_label_wrappers(self):
+        host = FakeHost()
+        host._task_project_label = mock.Mock(side_effect=AssertionError("host project label proxy should not be used"))
+        host._task_description_label = mock.Mock(side_effect=AssertionError("host description label proxy should not be used"))
+
+        context = gateway_coding_mode_executor.coding_rewrite_context(host, "看看任务", object())
+
+        self.assertEqual(context["known_tasks"][0]["project"], "未确定")
+        self.assertEqual(context["known_tasks"][0]["summary"], "修复列表筛选")
+        host._task_project_label.assert_not_called()
+        host._task_description_label.assert_not_called()
+
     def test_high_confidence_rewrite_executes_canonical_command(self):
         host = FakeHost(
             rewriter=FakeRewriter(
