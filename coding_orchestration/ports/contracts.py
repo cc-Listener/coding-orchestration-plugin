@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from .models import ArtifactSet, RunMode
+from ..models import ArtifactSet, RunMode
 
 
 @dataclass(frozen=True)

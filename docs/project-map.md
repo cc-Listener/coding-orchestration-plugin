@@ -56,7 +56,7 @@
 | `coding_orchestration/tools/tool_specs.py` | Hermes native tools / future MCP tools 的 host-agnostic 工具规格合同。 |
 | `coding_orchestration/tools/tool_operation_dispatcher.py` | `ToolOperationDispatcher`：按 `ToolSpec.operation_id` 分发到当前 service/façade handler；`orchestrator_facades/orchestrator_tool_facade.py` 只负责 host façade 接线；`tools/plugin_tools.py` Hermes native tool 注册层只做 host payload 归一和 handler 包装，不持有 orchestrator 方法名映射；`cli/registration.py` 的 tool-equivalent 命令和 Gateway `/coding project-mcp-preflight` diagnostic leaf 复用同一 operation 边界。 |
 | `coding_orchestration/cli/registration.py` | Hermes CLI 子命令注册入口；纯 tool-equivalent 命令直接走 `dispatch_tool_operation()`，普通 `status <task_id>` 只读取 `task.status` payload，`project-mcp-preflight` 额外保留 host config 与 stdio command readiness gate；`coding_orchestration.cli` 作为稳定导出包保留 `register_cli`。 |
-| `coding_orchestration/ports.py` | 逐步拆分核心域和 adapter 的端口合同，覆盖 host、runner、source、work item、ledger、knowledge 和 runtime；`SourceResult` 是 source 读取的稳定结果合同。 |
+| `coding_orchestration/ports/contracts.py` | 逐步拆分核心域和 adapter 的端口合同；通过 `coding_orchestration.ports` 保留稳定导出，覆盖 host、runner、source、work item、ledger、knowledge 和 runtime；`SourceResult` 是 source 读取的稳定结果合同。 |
 | `coding_orchestration/models.py` | 公共枚举和数据结构：任务状态、phase、run mode、runner capability、artifact contract。 |
 | `coding_orchestration/state_machine.py` | 任务状态转换规则，以及 runner/source 状态到 task 状态的映射。 |
 | `coding_orchestration/presenters/doctor_presenter.py` | doctor、lark-preflight、project-mcp-preflight 和 source-resolve 的用户可见文案 presenter；承载 host 恢复命令和配置引用，`coding_diagnostics_command_executor.py` 负责状态收集并 direct 调用 presenter，不经 `CodingOrchestrator._doctor_*` 私有代理。 |
@@ -194,7 +194,7 @@ Feishu / Hermes Gateway
 | `coding_orchestration/run/projections/run_summary_projection.py` | run summary writer payload 边界；只允许构造 completed run 与 active run reconcile 的 LLM Wiki run summary 写回参数，不得读取 summary artifact、调用 summary writer、写 LLM Wiki、写 ledger 或推进状态。 |
 | `coding_orchestration/run/artifacts/run_artifact_paths.py` | run artifact path projection 边界；只允许构造 fresh run_dir 和 existing run record 的 `ArtifactSet` 路径合同，不得读写 artifact 文件、创建目录、调用 ledger、启动 runner 或推进状态。 |
 | `coding_orchestration/run/services/run_project_writeback_service.py` | run project writeback host 边界；只允许处理 stale completion gate、调用 project writeback payload projection 和注入的 writeback callback，不得直接 import WorkItemService/MCP adapter、写 ledger/artifact、启动 runner 或推进状态。 |
-| `coding_orchestration/config/runtime.py`、`tools/tool_specs.py`、`ports.py` | 新解耦合同层，改动会影响后续服务/adapter 拆分方向，需保持 host-agnostic。 |
+| `coding_orchestration/config/runtime.py`、`tools/tool_specs.py`、`ports/contracts.py` | 新解耦合同层，改动会影响后续服务/adapter 拆分方向，需保持 host-agnostic。 |
 | `coding_orchestration/services/task_service.py`、`services/task_utils.py` | 任务创建、来源索引和状态 payload 用例层；改动需配套 `tests/test_task_service.py` 和 orchestrator 主流程回归。 |
 | `coding_orchestration/services/run_service.py` | 运行策略和结果映射用例层；改动需配套 `tests/test_run_service.py`、`tests/test_plan_run_flow.py`、`tests/test_command_run_flow.py`、`tests/test_status_reconcile_flow.py` 和 runner 回归。 |
 | `coding_orchestration/services/delivery_service.py`、`coding_orchestration/commands/delivery/delivery_command_executor.py` | 父级需求交付拆解纯规则与 command host shell；改动需配套 `tests/test_delivery_service.py`、`tests/test_delivery_command_executor.py` 和 requirement delivery 主流程回归。 |

@@ -51,7 +51,7 @@
 | 运行配置边界 | `from coding_orchestration.config import RuntimeConfig, ToolConfig` | `coding_orchestration/config/` | `coding_orchestration/config/runtime.py`、`coding_orchestration/config/__init__.py` | `RuntimeConfig`、`ToolConfig` |
 | 工具规格合同 | `from coding_orchestration.tools.tool_specs import coding_tool_specs` | `coding_orchestration/tools/tool_specs.py` | `coding_orchestration/tools/tool_specs.py`、`tools/plugin_tools.py` | `ToolSpec`、`coding_tool_specs` |
 | 工具 operation dispatcher | `from coding_orchestration.tools.tool_operation_dispatcher import ToolOperationDispatcher` | `coding_orchestration/tools/tool_operation_dispatcher.py` | `tools/tool_operation_dispatcher.py`、`orchestrator_facades/orchestrator_tool_facade.py`、`tools/plugin_tools.py`、`cli/registration.py`；Gateway `/coding project-mcp-preflight` diagnostic leaf 复用同一 operation 边界 | `ToolOperationDispatcher` |
-| 端口合同 | `from coding_orchestration.ports import RunnerPort, WorkItemPort, SourceResult` | `coding_orchestration/ports.py` | `coding_orchestration/ports.py` | `HostPort`、`RunnerPort`、`SourcePort`、`SourceResult`、`WorkItemPort`、`LedgerPort` |
+| 端口合同 | `from coding_orchestration.ports import RunnerPort, WorkItemPort, SourceResult` | `coding_orchestration/ports/` | `coding_orchestration/ports/contracts.py`、`coding_orchestration/ports/__init__.py` | `HostPort`、`RunnerPort`、`SourcePort`、`SourceResult`、`WorkItemPort`、`LedgerPort` |
 | 任务状态模型 | `from coding_orchestration.models import TaskStatus, TaskPhase, RunMode` | `coding_orchestration/models.py` | `coding_orchestration/models.py` | `TaskStatus`、`TaskPhase`、`RunMode` |
 | 状态转换 | `from coding_orchestration.state_machine import TaskStateMachine` | `coding_orchestration/state_machine.py` | `coding_orchestration/state_machine.py` | `TaskStateMachine` |
 | 状态详情策略 | `from coding_orchestration.policies.status_policy import normalize_implementation_run_status` | `coding_orchestration/policies/status_policy.py` | `coding_orchestration/policies/status_policy.py`、`orchestrator_facades/orchestrator_status_policy_facade.py`、`services/run_service.py` | `run_status_details_from_report`、`normalize_implementation_run_status` |
@@ -149,7 +149,7 @@
 | `ToolSpec`、`coding_tool_specs`、`ToolOperationDispatcher` | `coding_orchestration/tools/tool_specs.py`、`coding_orchestration/tools/tool_operation_dispatcher.py`、`coding_orchestration/tools/plugin_tools.py` |
 | `DiffGuard`、`ExecutionPolicy`、`control_policy_for_mode` | `coding_orchestration/policies/diff_guard.py`、`coding_orchestration/policies/execution_policy.py` |
 | `CodexReuseStrategy`、`CodexBackendDecision` | `coding_orchestration/runners/codex_reuse.py`、`coding_orchestration/runners/router.py` |
-| `HostPort`、`RunnerPort`、`SourcePort`、`SourceResult`、`WorkItemPort` | `coding_orchestration/ports.py` |
+| `HostPort`、`RunnerPort`、`SourcePort`、`SourceResult`、`WorkItemPort` | `coding_orchestration/ports/contracts.py`、`coding_orchestration/ports/__init__.py` |
 | `command_coding_*`、`tool_task_*` | `coding_orchestration/orchestrator.py` |
 | `_handle_gateway_immediate_route`、`handle_gateway_custom_route`、`handle_coding_mode_gateway_message`、`handle_pending_action_gateway_message`、`apply_active_project_to_task_if_missing`、`_gateway_command_task_id`、`_normalize_coding_gateway_command`、`_canonical_rewrite_command`、`_rewrite_requires_confirmation`、`_is_human_confirmation_reply`、`_looks_like_task`、`_dedupe_gateway_event`、`_gateway_user_is_authorized` | `coding_orchestration/gateway/gateway_command_controller.py`、`coding_orchestration/gateway/gateway_command_executor.py`、`coding_orchestration/gateway/gateway_coding_mode_executor.py`、`coding_orchestration/gateway/gateway_pending_action_executor.py`、`coding_orchestration/gateway/gateway_active_context.py`、`coding_orchestration/orchestrator.py` |
 | `TaskService`、`task_creation_validation_error`、`source_context_payload` | `coding_orchestration/services/task_service.py`、`coding_orchestration/services/task_utils.py` |
@@ -182,7 +182,7 @@
 | `validate_codex_semantic_report` | `coding_orchestration/reports/report_contract.py` |
 | `merge_readiness`、`materialization_allowed` | `coding_orchestration/reports/report_contract.py`、`coding_orchestration/reports/report_admission.py` |
 | `architecture_guard`、`legacy_large_file`、`boundary_host_command` | `scripts/architecture_guard.py`、`tests/test_architecture_guard.py` |
-| `SourceResolver.resolve_source_result`、`SourceResult`、`SourceResolver.preflight_lark` | `coding_orchestration/source/source_resolver.py`、`coding_orchestration/ports.py` |
+| `SourceResolver.resolve_source_result`、`SourceResult`、`SourceResolver.preflight_lark` | `coding_orchestration/source/source_resolver.py`、`coding_orchestration/ports/contracts.py` |
 | `SourceProjection`、`source_projection_from_source`、`source_projection_to_dict` | `coding_orchestration/source/source_projection.py` |
 | `read_source_context`、`repair_task_context_from_existing_task`、`enrich_deferred_source_context_before_run` | `coding_orchestration/source/source_context_repair_service.py` |
 | `sync_task_to_kanban`、`sync_status_to_kanban`、`kanban_sync_skipped`、`kanban_sync_record_from_result` | `coding_orchestration/integrations/kanban/kanban_sync_service.py` |
@@ -305,7 +305,7 @@
 - 不要把 Hermes 命令、运行根、内部账本路径或本机凭据写进 core skill；core skill 必须保持 host-agnostic。
 - 不要在 Hermes tool 注册层手写工具 schema 或 `operation_id -> CodingOrchestrator.tool_*` 方法映射；通过 `tools/ToolSpec` / `coding_tool_specs()` 维护工具定义，通过 `tools/ToolOperationDispatcher` 做 operation 分发，再由 `tools/plugin_tools.py` 做 host 注册。
 - 不要在核心流程里散落默认运行路径、外部命令、飞书域名或 token env key；通过 `RuntimeConfig`、`ToolConfig` 或后续 adapter config 注入。
-- 不要让 core/application service import Hermes host、MCP transport 或 subprocess 细节；先定义 `ports.py` 中的端口，再由 adapter 实现。
+- 不要让 core/application service import Hermes host、MCP transport 或 subprocess 细节；先定义 `ports/contracts.py` 中的端口，再由 adapter 实现。
 - 不要把 Feishu Project、Feishu Docx/Wiki 或 Meegle URL 解析写进 reader/CLI/MCP 代码；通过 `coding_orchestration/source/source_links.py` 的纯解析函数维护。
 - 不要把 Feishu Docx/Wiki 或 Meegle deferred recovery payload、`lark_cli_command` / `meegle_cli_command` shape 写回 reader、prompt 或 CLI 代码；通过 `coding_orchestration/source/source_recovery.py` 维护。
 - 不要把 Meegle/飞书 Project work item reader adapter 恢复到包根；通过 `coding_orchestration/source/adapters/meegle_reader.py` 维护 gateway/CLI fallback、payload 归一化和 deferred recovery 接线。

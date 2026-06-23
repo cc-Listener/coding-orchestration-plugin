@@ -4,6 +4,35 @@
 
 ## 会话：2026-06-23
 
+### 阶段 294：Port contract 子包治理
+- **状态：** complete
+- 背景：
+  - `ports.py` 维护 `HostPort`、`RunnerPort`、`SourcePort`、`SourceResult`、`WorkItemPort`、`LedgerPort`、`KnowledgePort`、`NotifierPort`、`RuntimePort` 和 `RunServicePort`，属于端口合同边界，不应继续散落在 `coding_orchestration/` 包根。
+  - 本切片只收拢 runtime-checkable protocol 与 `SourceResult` 状态归一；具体 Hermes/MCP/Codex/SQLite/Knowledge adapter、source resolver、runner/workspace/git 和 run lifecycle 不属于本切片。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求包根不再保留 `ports.py`，并要求 `coding_orchestration/ports/__init__.py` 与 `coding_orchestration/ports/contracts.py` 存在。
+  - RED 已确认：focused layout test 先失败，失败点为包根旧文件 `ports.py` 仍存在。
+  - 将端口合同移入 `coding_orchestration/ports/contracts.py`，新增 `coding_orchestration/ports/__init__.py` 保留端口和 `SourceResult` 稳定导出。
+  - 更新技术方案、项目地图、组件合同、约定、machine-readable context 和发现中的 canonical path。
+- 当前边界：
+  - `coding_orchestration/ports/contracts.py`：只做端口 protocol 和 `SourceResult` 合同。
+  - `coding_orchestration/ports/__init__.py`：只做稳定导出，不承载业务逻辑。
+  - 具体 adapter、source resolver、runner/workspace/git 和 run lifecycle 均未迁移。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为包根旧文件 `ports.py`。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout tests.test_ports_contract tests.test_source_projection tests.test_source_resolver tests.test_knowledge_adapter tests.test_orchestrator_tools -v`：43 tests passed。
+  - 编译检查：`rtk python3 -m compileall coding_orchestration tests`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed，输出 `yaml ok`。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 1000 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 当前包根：
+  - `coding_orchestration/` 包根 `.py` 数量：5（不含 `__init__.py`）。
+  - 包根 `.py` 总行数：1596。
+  - 剩余包根文件：`ledger.py`、`models.py`、`orchestrator.py`、`run_orchestration_service.py`、`state_machine.py`。
+- 剩余风险：
+  - 剩余包根文件已经集中在 public model/status contract、ledger façade、orchestrator façade 和 run orchestration owner；继续治理时需要更谨慎地保留兼容 import，优先选择 `models.py` / `state_machine.py` 这类可包化 re-export 的合同层，或对 `run_orchestration_service.py` 继续做内部 projection/service 拆分。
+
 ### 阶段 293：Config contract 子包治理
 - **状态：** complete
 - 背景：
