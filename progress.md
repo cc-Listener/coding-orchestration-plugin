@@ -4,6 +4,29 @@
 
 ## 会话：2026-06-23
 
+### 阶段 265：Run background orchestration service 子包治理
+- **状态：** complete
+- 背景：
+  - `run_background_orchestration.py` 是后台 run 等待完成、后台启动失败状态收敛和 merge-test `human_required` pending action host orchestration helper，职责已属于 run service 子包。
+  - 本阶段只做目录归位，不迁后台 run mode-specific 启动、通知 sender、runner/workspace/git、`start_run()` 或 run lifecycle 主体。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 `run_background_orchestration.py` 位于 `coding_orchestration/run/services/`。
+  - RED 已确认：focused test 先失败，失败点为包根仍存在 `run_background_orchestration.py`。
+  - 将模块移动到 `coding_orchestration/run/services/run_background_orchestration.py`，相对 import 改为 `...models` / `...project_resolver`。
+  - 更新 `orchestrator_background_facade.py` 和 `tests/test_run_background_orchestration.py` 的 import 到新包路径。
+  - 同步项目地图、组件合同、约定、machine-readable context、技术方案和目录治理计划。
+- 当前边界：
+  - `coding_orchestration/run/services/run_background_orchestration.py`：后台等待完成、后台失败 transition 和 merge-test human_required pending action host orchestration。
+  - `coding_orchestration/coding_background_run_executor.py`：后台 run mode-specific 启动与 completion notification 接线。
+  - `coding_orchestration/background_run_notifier.py`：后台线程、sender 调度、reply fallback 和 notification record。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为 `['run_background_orchestration.py']` 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Service contract：`rtk python3 -m unittest tests.test_run_background_orchestration -v`：7 tests passed。
+  - 相邻回归：`rtk python3 -m unittest tests.test_architecture_module_layout tests.test_run_background_orchestration tests.test_coding_background_run_executor tests.test_background_run_notifier tests.test_gateway_command_executor tests.test_gateway_coding_mode_executor tests.test_gateway_pending_action_executor tests.test_plan_run_flow tests.test_qa_flow tests.test_merge_test_qa_gate_flow tests.test_command_run_flow tests.test_run_context_artifact_service -v`：74 tests passed。
+- 剩余风险：
+  - 本阶段不继续迁 `run_completion_writeback_service.py`、`run_reconcile_writeback_service.py`、`run_manifest_service.py` 或 `run_orchestration_service.py`；下一片继续按单一 owner 小步目录治理。
+
 ### 阶段 264：Architecture guard 测试文件拆分治理
 - **状态：** complete
 - 背景：

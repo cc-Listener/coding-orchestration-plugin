@@ -5,10 +5,10 @@ from typing import Any
 from .. import (
     background_run_notifier,
     coding_background_run_executor,
-    run_background_orchestration,
 )
 from ..models import RunMode
 from ..run.artifacts import run_context_artifact_service
+from ..run.services import run_background_orchestration
 
 
 class OrchestratorBackgroundFacadeMixin:

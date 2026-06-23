@@ -1,7 +1,7 @@
 import unittest
 
-from coding_orchestration import run_background_orchestration
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
+from coding_orchestration.run.services import run_background_orchestration
 
 
 class FakeLedger:

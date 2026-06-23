@@ -423,6 +423,7 @@
 - Run execution host service 子包治理第一切片确认：`run_checkpoint_preparation_service.py`、`run_diff_guard_service.py`、`run_dispatch_service.py`、`run_evidence_observation_service.py` 和 `run_implementation_checkpoint_service.py` 都是执行期 host service，适合收拢到 `coding_orchestration/run/services/`；它们分别负责 checkpoint callback、diff guard 观测、runner dispatch、QA/dirty observation 和 dirty 后置 checkpoint，不承接 completion/reconcile coordinator 或 `start_run()` 主体。
 - Run status transition service 子包治理第一切片确认：`run_status_transition_service.py` 适合收拢到 `coding_orchestration/run/services/`；该模块仍只处理状态 canonicalization、TaskStateMachine transition、status/phase/Kanban callback、run start/completion/reconcile transition 和 active run cleanup，不写 artifact/ledger run record、不启动 runner、不执行 diff guard 或 QA evidence 观测。`orchestrator.py` 保留模块别名以兼容既有 monkeypatch contract。
 - Architecture guard 测试治理确认：模块族目录归位守卫已从 `tests/test_architecture_guard.py` 拆到 `tests/test_architecture_module_layout.py`，主 guard 测试降到 548 行；新增 `tests/test_architecture_guard_test_governance.py` 锁定主文件低于 580 行，后续新增目录表项应优先落在 module layout 测试文件，不再把主 guard 文件推回 600 行临界线。
+- Run background orchestration service 子包治理确认：`run_background_orchestration.py` 适合收拢到 `coding_orchestration/run/services/`；该模块仍只处理后台 queued/running 等待完成、后台启动失败状态收敛和 merge-test `human_required` pending action，不迁后台 run mode-specific 启动、通知 sender、runner/workspace/git、`start_run()` 或 run lifecycle 主体。
 
 ## 视觉/浏览器发现
 - 本轮没有新增浏览器或图片验证。

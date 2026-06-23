@@ -190,7 +190,7 @@ rtk git commit -m "feat: 收拢 presenter 模块目录"
 
 **Files:**
 - Create: `coding_orchestration/run/services/__init__.py`
-- Move: `run_background_orchestration.py`
+- Move: `run_background_orchestration.py` -> `coding_orchestration/run/services/run_background_orchestration.py`
 - Moved in stage 262: `run_checkpoint_preparation_service.py` -> `run/services/run_checkpoint_preparation_service.py`
 - Move: `run_completion_writeback_service.py`
 - Moved in stage 262: `run_diff_guard_service.py` -> `run/services/run_diff_guard_service.py`

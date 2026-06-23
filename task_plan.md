@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 264：Architecture guard 测试文件拆分治理（complete）
+阶段 265：Run background orchestration service 子包治理（complete）
 
 ## 各阶段
+
+### 阶段 265：Run background orchestration service 子包治理
+- [x] 定域：只收拢 `run_background_orchestration.py` 到 `coding_orchestration/run/services/`，保持后台 queued/running 等待完成、后台启动失败状态收敛和 merge-test `human_required` pending action 语义不变；不迁后台 run mode-specific 启动、通知 sender、runner/workspace/git、`start_run()` 或 run lifecycle 主体。
+- [x] TDD：扩展模块布局架构测试，要求 run background host orchestration service 不再散落在 `coding_orchestration/` 包根。
+- [x] RED：确认新增 focused test 在当前包根文件存在时失败。
+- [x] 实现：移动模块并更新 import / 文档路径。
+- [x] 验证：运行 focused RED/GREEN、相邻后台回归、py_compile、YAML、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步进度、发现、技术方案、项目地图、组件合同、约定、machine-readable context 和治理计划。
+- **状态：** complete
 
 ### 阶段 264：Architecture guard 测试文件拆分治理
 - [x] 定域：只拆分 `tests/test_architecture_guard.py` 中的模块目录布局测试到独立测试文件，降低 600 行临界风险；不改变 `scripts/architecture_guard.py` 行为或生产代码目录规则。

@@ -83,6 +83,7 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
                 "run_implementation_checkpoint_service.py",
             ),
             ("run_status_transition_service.py", "run/services", "run_status_transition_service.py"),
+            ("run_background_orchestration.py", "run/services", "run_background_orchestration.py"),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):
