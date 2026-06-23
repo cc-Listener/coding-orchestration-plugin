@@ -165,7 +165,7 @@ project_map:
       reason: "Run diff guard observation host service，维护 before snapshot、changed files 观测、QA report artifact 过滤、policy violations 组合、plan-only 写入 violations 补充和 diff summary 写回；不写 ledger/report/manifest/summary、不启动 runner、不推进状态。"
     - path: coding_orchestration/run/services/run_dispatch_service.py
       reason: "Run dispatch host service，维护 checkpoint failure gate、runner.run 调度和 runner exception fallback；不写 ledger/report/manifest/summary、不执行 diff guard、不收集 QA evidence、不推进状态。"
-    - path: coding_orchestration/run_status_transition_service.py
+    - path: coding_orchestration/run/services/run_status_transition_service.py
       reason: "Run status transition host service，维护状态机、status/phase/Kanban callback、run start/completion/reconcile transition 和 active run cleanup；不写 report/manifest/summary、不启动 runner、不执行 diff guard、不收集 QA evidence。"
     - path: coding_orchestration/run/services/run_evidence_observation_service.py
       reason: "Run evidence observation host service，维护 QA artifacts、tested commit 和 implementation dirty-check observation；只调用注入 callback，不写 ledger/report/manifest/summary、不创建 checkpoint、不启动 runner、不推进状态。"

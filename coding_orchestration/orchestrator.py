@@ -51,6 +51,7 @@ from .run.services import (
     run_manifest_session_writeback_service,
     run_project_writeback_service,
     run_session_writeback_service,
+    run_status_transition_service,
     run_summary_writeback_service,
 )
 from . import (
@@ -58,7 +59,6 @@ from . import (
     run_orchestration_service,
     run_manifest_service,
     run_reconcile_writeback_service,
-    run_status_transition_service,
     source_projection,
 )
 from .project_resolver import ProjectResolver

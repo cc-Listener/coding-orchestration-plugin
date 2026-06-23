@@ -5,7 +5,6 @@ from typing import Any
 
 from .. import (
     kanban_sync_service,
-    run_status_transition_service,
     task_lifecycle_guard_service,
 )
 from ..coding_commands import (
@@ -15,6 +14,7 @@ from ..coding_commands import (
 )
 from ..models import RunMode, TaskPhase, TaskStatus
 from ..presenters import task_status_presenter
+from ..run.services import run_status_transition_service
 from ..services import RunService
 
 

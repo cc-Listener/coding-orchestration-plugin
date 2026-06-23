@@ -131,6 +131,7 @@ class ArchitectureGuardTest(unittest.TestCase):
             ("run_project_writeback_service.py", "run/services", "run_project_writeback_service.py"),
             ("run_checkpoint_preparation_service.py", "run/services", "run_checkpoint_preparation_service.py"),
             ("run_[dei]*_service.py", "run/services", "run_diff_guard_service.py run_dispatch_service.py run_evidence_observation_service.py run_implementation_checkpoint_service.py"),
+            ("run_status_transition_service.py", "run/services", "run_status_transition_service.py"),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):

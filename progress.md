@@ -4,6 +4,34 @@
 
 ## 会话：2026-06-23
 
+### 阶段 263：Run status transition service 子包治理第一切片
+- **状态：** complete
+- 背景：
+  - 阶段 260-262 已把 run writeback callback、manifest/project writeback 和执行期 host service 收拢到 `coding_orchestration/run/services/`。
+  - 本阶段继续只处理 run status transition host service，不迁 completion/reconcile coordinator、background orchestration、manifest/orchestration helper、runner/workspace/git 或 `start_run()` 主体。
+- 执行的操作：
+  - 在 `tests/test_architecture_guard.py` 的模块族表中新增 `run_status_transition_service.py` 的 `run/services` 目录约束，锁定包根不得保留该 service。
+  - RED 已确认：focused architecture test 先失败，失败点为包根仍存在 `run_status_transition_service.py`。
+  - 迁移 `run_status_transition_service.py` 到 `coding_orchestration/run/services/`，调整 service 内部相对 import，并更新 `orchestrator.py`、task runtime façade、completion/reconcile coordinator 和目标 service 测试 import。
+  - 保留 `orchestrator_module.run_status_transition_service` 模块别名，兼容既有 monkeypatch contract。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`PLUGIN_TECHNICAL_SOLUTION.md`、`docs/plans/2026-06-23-coding-orchestration-package-governance.md`、`task_plan.md` 和 `findings.md`。
+- 当前目录边界：
+  - `coding_orchestration/run/services/`：继续包含 run status transition host service。
+  - `coding_orchestration/` 包根：不再保留 `run_status_transition_service.py`。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_repository_module_families_live_in_dedicated_packages -v` 先失败，失败点为包根旧文件。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - 目标 service 自测：`rtk python3 -m unittest tests.test_run_status_transition_service -v`：7 tests passed。
+  - 相邻回归：`rtk python3 -m unittest tests.test_run_completion_writeback_service tests.test_run_reconcile_writeback_service tests.test_run_status_transition_service tests.test_orchestrator_run_flow tests.test_run_session_writeback_service tests.test_run_orchestration_start_rules tests.test_status_reconcile_flow -v`：54 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/run/services/*.py coding_orchestration/orchestrator.py coding_orchestration/orchestrator_facades/orchestrator_task_runtime_facade.py coding_orchestration/run_completion_writeback_service.py coding_orchestration/run_reconcile_writeback_service.py tests/test_architecture_guard.py tests/test_run_status_transition_service.py`：passed。
+  - YAML 解析：`rtk python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 995 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - `tests/test_architecture_guard.py` 当前 600 行，后续再新增架构表项前应先压缩或拆分，避免进入 large-file watch。
+  - 本阶段不迁 completion/reconcile coordinator、background orchestration、manifest/orchestration helper、source/project/integration 层；后续继续按治理计划拆小片。
+
 ### 阶段 262：Run execution host service 子包治理第一切片
 - **状态：** complete
 - 背景：

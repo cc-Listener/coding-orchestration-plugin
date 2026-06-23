@@ -440,6 +440,8 @@ coding_orchestration plugin
 
 阶段 262 目录治理事实：`coding_orchestration/run/services/` 已继续收拢 checkpoint preparation、diff guard、dispatch、evidence observation 和 implementation checkpoint execution host service；这些模块仍只做注入 callback 编排或执行期观测，不迁 `start_run()` 主体，不持有 runner/workspace/git 生命周期 owner，也不承接完成态 coordinator。
 
+阶段 263 目录治理事实：`coding_orchestration/run/services/` 已继续收拢 run status transition host service；该模块仍只处理状态 canonicalization、TaskStateMachine transition、status/phase/Kanban callback、run start/completion/reconcile transition 和 active run cleanup，不写 artifact/ledger run record、不启动 runner、不执行 diff guard 或 QA evidence 观测。
+
 Task 30 历史收口事实：`run/services/run_checkpoint_preparation_service.py` 已承接 QA / merge-test checkpoint preparation callback 选择、调用和 manifest update payload 构造；它只调用注入 callback 并返回 `manifest_updates`，不直接 mutate manifest、不写 artifact/ledger/report/summary、不启动 runner、不推进状态。mode 到 checkpoint kind/target branch 选择仍归 `run_start_selection_projection.py`，manifest 文件写入仍归 artifact service。
 
 Task 30 历史收口事实：`run/services/run_implementation_checkpoint_service.py` 已承接 implementation dirty 后置 checkpoint 生成和 manifest artifact writeback callback 接线；它只消费已计算好的 dirty flag，调用注入 checkpoint / manifest writer callback，不判断 dirty、不构造 blocked report、不写 ledger/report/summary、不启动 runner、不推进状态。dirty observation 仍归 `run/services/run_evidence_observation_service.py`，blocked report refinement 仍归 `run_report_refinement_projection.py`。

@@ -186,7 +186,7 @@ rtk git commit -m "feat: 收拢 presenter 模块目录"
 
 ## Task 5: Run service 子包治理
 
-**执行备注：** 本任务按风险拆成多个独立切片执行。阶段 260 已先收拢 ledger/session/summary writeback callback service；阶段 261 继续收拢 manifest session metadata writeback 与 project writeback host service；阶段 262 继续收拢 checkpoint preparation、diff guard、dispatch、evidence observation 和 implementation checkpoint host service。后续再评估 background、status transition、completion/reconcile coordinator、manifest/orchestration helper 等剩余 run service，避免一次性迁移 `start_run()` 主体或 runner/workspace/git 生命周期。
+**执行备注：** 本任务按风险拆成多个独立切片执行。阶段 260 已先收拢 ledger/session/summary writeback callback service；阶段 261 继续收拢 manifest session metadata writeback 与 project writeback host service；阶段 262 继续收拢 checkpoint preparation、diff guard、dispatch、evidence observation 和 implementation checkpoint host service；阶段 263 继续收拢 status transition host service。后续再评估 background、completion/reconcile coordinator、manifest/orchestration helper 等剩余 run service，避免一次性迁移 `start_run()` 主体或 runner/workspace/git 生命周期。
 
 **Files:**
 - Create: `coding_orchestration/run/services/__init__.py`
@@ -202,7 +202,7 @@ rtk git commit -m "feat: 收拢 presenter 模块目录"
 - Moved in stage 261: `run_project_writeback_service.py` -> `run/services/run_project_writeback_service.py`
 - Move: `run_reconcile_writeback_service.py`
 - Moved: `run_session_writeback_service.py` -> `run/services/run_session_writeback_service.py`
-- Move: `run_status_transition_service.py`
+- Moved in stage 263: `run_status_transition_service.py` -> `run/services/run_status_transition_service.py`
 - Moved: `run_summary_writeback_service.py` -> `run/services/run_summary_writeback_service.py`
 - Move: `run_manifest_service.py`
 - Move: `run_orchestration_service.py`

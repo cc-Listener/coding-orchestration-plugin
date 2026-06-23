@@ -4,9 +4,18 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 262：Run execution host service 子包治理第一切片（complete）
+阶段 263：Run status transition service 子包治理第一切片（complete）
 
 ## 各阶段
+
+### 阶段 263：Run status transition service 子包治理第一切片
+- [x] 定域：只收拢 `run_status_transition_service.py` 到 `coding_orchestration/run/services/`，保持状态 canonicalization、TaskStateMachine、Kanban callback、run start/completion/reconcile transition 和 active run cleanup 语义不变。
+- [x] TDD：新增架构测试，要求 run status transition host service 不再散落在 `coding_orchestration/` 包根。
+- [x] RED：确认新增 focused architecture test 在旧目录布局下失败。
+- [x] 实现：迁移 service 并更新 import，保留 orchestrator monkeypatch 兼容入口。
+- [x] 验证：运行 focused GREEN、目标 service 自测、completion/reconcile/status/flow 相邻回归、py_compile、architecture guard、diff check 和 release readiness no-smoke。
+- [x] 文档：同步目录约定、项目地图、组件合同、machine-readable context、进度和发现。
+- **状态：** complete
 
 ### 阶段 262：Run execution host service 子包治理第一切片
 - [x] 定域：只收拢 run checkpoint preparation、diff guard、dispatch、evidence observation 和 implementation checkpoint host service 到 `coding_orchestration/run/services/`，不迁 completion/reconcile coordinator、status transition、manifest/orchestration helper、background orchestration、runner/workspace/git 或 `start_run()` 主体。
