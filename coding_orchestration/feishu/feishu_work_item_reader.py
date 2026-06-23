@@ -7,8 +7,8 @@ from typing import Any, Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from ..source_links import FeishuProjectLink
-from ..source_work_item_context import (
+from ..source.source_links import FeishuProjectLink
+from ..source.source_work_item_context import (
     coerce_work_item_context,
     extract_fields,
     first_string,

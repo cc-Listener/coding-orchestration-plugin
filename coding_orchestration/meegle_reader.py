@@ -7,9 +7,9 @@ import shlex
 import subprocess
 from typing import Any, Callable
 
-from .source_links import MeegleLink, extract_meegle_link
-from .source_recovery import meegle_cli_command, meegle_failed_context
-from .source_work_item_context import (
+from .source.source_links import MeegleLink, extract_meegle_link
+from .source.source_recovery import meegle_cli_command, meegle_failed_context
+from .source.source_work_item_context import (
     coerce_work_item_context,
     extract_fields,
     first_string,

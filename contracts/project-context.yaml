@@ -147,6 +147,8 @@ project_map:
       reason: "Coding background run executor host shell，维护 Gateway 后台 plan-only / implementation / QA / merge-test mode-specific 启动、presenters/run_completion_presenter direct message 选择、失败通知和 completion notification callback 接线；不拥有 start_run、后台等待完成、失败状态收敛、merge-test pending action、runner/workspace/git/checkpoint 或 run lifecycle。"
     - path: coding_orchestration/source_context_repair_service.py
       reason: "Source context repair host service，维护 source context 读取、deferred source pre-run enrichment、既有 task context 修复、source summary 回写和项目上下文回填接线；不改 legacy source_context schema、不实现 source reader、不承载 source 权限策略、runner/workspace/git 或 run lifecycle。"
+    - path: coding_orchestration/source/
+      reason: "Source helper package，维护 Feishu/Meegle URL 解析、deferred recovery payload 和 work item payload 归一化；不承载 source resolver、source projection、reader transport、ledger schema、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/integrations/kanban/kanban_bridge.py
       reason: "Kanban integration adapter，维护真实 Kanban 工具映射；不承载 task 创建同步、状态同步、状态机、runner/workspace/git 或 run lifecycle。"
     - path: coding_orchestration/integrations/kanban/kanban_sync_service.py
@@ -380,6 +382,10 @@ component_contract:
     - name: source_resolution
       path: coding_orchestration/source_resolver.py
       preferred: true
+    - name: source_helpers
+      path: coding_orchestration/source/
+      preferred: true
+      note: "Feishu/Meegle URL 解析、deferred recovery payload 和 work item payload 归一化 owner；包根不得恢复 source_links.py、source_recovery.py 或 source_work_item_context.py。"
     - name: feishu_source_adapters
       path: coding_orchestration/feishu/
       preferred: true
@@ -492,6 +498,9 @@ component_contract:
       preferred: true
     - name: source_context_repair_service
       path: coding_orchestration/source_context_repair_service.py
+      preferred: true
+    - name: source_helpers
+      path: coding_orchestration/source/
       preferred: true
     - name: kanban_bridge
       path: coding_orchestration/integrations/kanban/kanban_bridge.py
@@ -824,6 +833,10 @@ component_contract:
       path: coding_orchestration/source_resolver.py
       use_instead_of:
         - "直接猜测飞书/Meegle 来源正文。"
+    - name: source_helpers
+      path: coding_orchestration/source/
+      use_instead_of:
+        - "在 reader、CLI、MCP、prompt 或包根重新实现 Feishu/Meegle URL 解析、deferred recovery payload 或 work item payload 归一化。"
     - name: feishu_source_adapters
       path: coding_orchestration/feishu/
       use_instead_of:

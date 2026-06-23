@@ -54,6 +54,7 @@
 - Gateway diagnostic route 保持在 `coding_orchestration/gateway/gateway_command_controller.py` / `orchestrator.py` 的 host reply 边界；`/coding project-mcp-preflight` 只作为 immediate reply 复用 project MCP preflight façade，不把 `doctor` 聚合或 `status` presentation 下沉为单个 tool operation。
 - 本地项目文件夹识别、搜索根去重、路径解析和人工别名抽取优先维护在 `coding_orchestration/gateway/gateway_project_context.py`；orchestrator 只保留兼容 wrapper 和默认 fallback，不把 Gateway 回复、profile 写入或 active project binding 塞入该 helper。
 - Source context 读取、deferred source pre-run enrichment、既有 task context 修复、source summary 回写和项目上下文回填接线优先维护在 `coding_orchestration/source_context_repair_service.py`；legacy `source_context` schema、source reader 和 source 权限策略仍留在既有 source/service 边界。
+- Source URL 解析、deferred recovery payload 和 Feishu/Meegle work item payload 归一化优先维护在 `coding_orchestration/source/`；不要把 `source_links.py`、`source_recovery.py` 或 `source_work_item_context.py` 恢复到包根。
 - Kanban create/status sync host helper、skipped/failed sync record 和 task status view 字段投影优先维护在 `coding_orchestration/integrations/kanban/kanban_sync_service.py`；真实工具映射继续归 `coding_orchestration/integrations/kanban/kanban_bridge.py`，状态机和 transition 仍归既有 run status 边界。
 - Active coding status 列表、取消态保护文案、cancelled task 恢复状态选择和 merged_test bugfix reopen 优先维护在 `coding_orchestration/task_lifecycle_guard_service.py`；状态转换合法性仍归状态机，runner/workspace/git 仍归既有 run 边界。
 - blocked task 是否可继续 merge-test 的 readiness 评估优先维护在 `coding_orchestration/merge_test_readiness_service.py`；该模块只消费 task/run/workspace/session/report 事实并返回评估 dict，不写 ledger、不推进状态、不触发 runner、不发送 Gateway 回复。

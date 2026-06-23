@@ -3,7 +3,7 @@ from subprocess import CompletedProcess
 from unittest.mock import patch
 
 from coding_orchestration.feishu.feishu_document_reader import FeishuDocumentReader
-from coding_orchestration.source_links import extract_feishu_document_link
+from coding_orchestration.source.source_links import extract_feishu_document_link
 
 
 class FeishuDocumentReaderTest(unittest.TestCase):

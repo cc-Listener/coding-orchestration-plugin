@@ -4,6 +4,35 @@
 
 ## 会话：2026-06-23
 
+### 阶段 271：Source helper 子包治理第一切片
+- **状态：** complete
+- 背景：
+  - `source_links.py`、`source_recovery.py` 和 `source_work_item_context.py` 分别维护 Feishu/Meegle URL 解析、deferred recovery payload / CLI command shape、work item payload 归一化。
+  - 这组三个 helper 属于通用 source helper 边界，不应继续散落在 `coding_orchestration/` 包根，也不应并入 Feishu reader adapter。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求三份 source helper 位于 `coding_orchestration/source/`。
+  - RED 已确认：focused test 先失败，失败点为包根仍存在 `source_links.py`、`source_recovery.py` 和 `source_work_item_context.py`。
+  - 新增 `coding_orchestration/source/__init__.py`，将三份 helper 移动到 `coding_orchestration/source/`。
+  - 更新 Feishu reader、Meegle reader、TaskService helper 和 source helper 测试 import 到新包路径。
+  - 同步项目地图、组件合同、约定、machine-readable context、技术方案、发现和目录治理计划。
+- 当前边界：
+  - `coding_orchestration/source/source_links.py`：Feishu Project / Feishu Docx-Wiki / Meegle URL 纯解析。
+  - `coding_orchestration/source/source_recovery.py`：Feishu Docx-Wiki / Meegle deferred recovery payload 和 CLI command shape。
+  - `coding_orchestration/source/source_work_item_context.py`：Feishu/Meegle work item payload 归一化、raw_fields 提取和 summary shape。
+  - 本切片未迁 `source_resolver.py`、`source_projection.py`、`source_context_repair_service.py`、reader transport、ledger schema、runner/workspace/git 或 run lifecycle。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为三份 helper 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Source helper / Feishu / Meegle / SourceResolver / TaskService 相邻回归：`rtk python3 -m unittest tests.test_source_links tests.test_source_recovery tests.test_source_work_item_context tests.test_feishu_document_reader tests.test_feishu_work_item_reader tests.test_feishu_project_reader tests.test_meegle_reader tests.test_source_resolver tests.test_task_service -v`：58 tests passed。
+  - 文档合同回归：`rtk python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_module_layout -v`：17 tests passed。
+  - 编译检查：`rtk python3 -m py_compile ...`：passed。
+  - YAML 解析：`rtk python3 -c "import yaml; yaml.safe_load(open('contracts/project-context.yaml', encoding='utf-8')); print('yaml ok')"`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 包根仍保留 `source_resolver.py`、`source_projection.py` 和 `source_context_repair_service.py`；这三者引用面不同，需要后续独立切片继续评估。
+
 ### 阶段 270：Install integration 子包治理
 - **状态：** complete
 - 背景：

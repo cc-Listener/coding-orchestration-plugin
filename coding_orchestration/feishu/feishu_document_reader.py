@@ -8,8 +8,8 @@ import shlex
 import subprocess
 from typing import Any
 
-from ..source_links import FeishuDocumentLink
-from ..source_recovery import (
+from ..source.source_links import FeishuDocumentLink
+from ..source.source_recovery import (
     feishu_document_auth_verify_command,
     feishu_document_failed_context,
     feishu_document_lark_cli_command,

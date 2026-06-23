@@ -1,7 +1,7 @@
 import unittest
 
-from coding_orchestration.source_links import FeishuDocumentLink, MeegleLink
-from coding_orchestration.source_recovery import (
+from coding_orchestration.source.source_links import FeishuDocumentLink, MeegleLink
+from coding_orchestration.source.source_recovery import (
     feishu_document_auth_verify_command,
     feishu_document_failed_context,
     feishu_document_lark_cli_command,

@@ -438,6 +438,8 @@ coding_orchestration plugin
 
 阶段 268 目录治理事实：Kanban 工具映射和 Kanban sync host service 已收拢到 `coding_orchestration/integrations/kanban/`；该子包只承接真实 Kanban 工具映射、task 创建同步、状态同步、skipped/failed sync record 和 task status view 字段投影，不迁状态机、task runtime façade 主体、runner/workspace/git、run lifecycle 或 dashboard。
 
+阶段 271 目录治理事实：source helper 首批已收拢到 `coding_orchestration/source/`，包括 `source_links.py`、`source_recovery.py` 和 `source_work_item_context.py`；该子包只承接 Feishu/Meegle URL 解析、deferred recovery payload、`lark_cli_command` / `meegle_cli_command` shape 和 work item payload 归一化，不迁 `source_resolver.py`、`source_projection.py`、`source_context_repair_service.py`、reader transport、ledger schema、runner/workspace/git 或 run lifecycle。
+
 阶段 261 目录治理事实：`coding_orchestration/run/services/` 已继续收拢 runner session metadata 到 manifest 的 host writeback service 与 completed run Project writeback host service；二者仍只消费上游已计算事实和注入 callback，不持有 runner/workspace/git 生命周期，也不直接持有 WorkItem/MCP adapter。
 
 阶段 262 目录治理事实：`coding_orchestration/run/services/` 已继续收拢 checkpoint preparation、diff guard、dispatch、evidence observation 和 implementation checkpoint execution host service；这些模块仍只做注入 callback 编排或执行期观测，不迁 `start_run()` 主体，不持有 runner/workspace/git 生命周期 owner，也不承接完成态 coordinator。

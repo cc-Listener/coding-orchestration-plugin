@@ -1,7 +1,7 @@
 import unittest
 
-from coding_orchestration.source_links import extract_feishu_project_link, extract_meegle_link
-from coding_orchestration.source_work_item_context import (
+from coding_orchestration.source.source_links import extract_feishu_project_link, extract_meegle_link
+from coding_orchestration.source.source_work_item_context import (
     coerce_work_item_context,
     normalize_work_item_payload,
 )
