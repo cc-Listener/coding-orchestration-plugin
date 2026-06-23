@@ -4,7 +4,7 @@
 实现 Hermes/Codex coding plugin P0 优化，优先用最小改动补齐自然语言 Coding Mode、语义化分支名、可见 Codex session 元数据、prepare merge test 独立阶段、report.json 兜底、细化状态机，以及验证受限结构化恢复信息。
 
 ## 当前阶段
-阶段 244：Task 37 Orchestrator 500 行治理第十七切片（complete）
+阶段 245：Task 37 Orchestrator 500 行治理第十八切片（complete）
 
 ## 各阶段
 
@@ -1653,6 +1653,14 @@
 - [x] RED：focused architecture test 先失败于 `orchestrator.py` 仍定义 16 个 background run façade wrapper。
 - [x] 实现：新增 `orchestrator_background_facade.py` mixin 承接 background run façade；`CodingOrchestrator` 继承 mixin 并删除主文件内对应实现。
 - [x] 验证：运行 focused architecture test、background/gateway/plan/QA/merge-test 相邻回归、py_compile、文档/架构测试、YAML 解析、architecture guard、diff check 和 release readiness no-smoke。
+- **状态：** complete
+
+### 阶段 245：Task 37 Orchestrator 500 行治理第十八切片
+- [x] 定域：迁出 status/report policy façade wrapper，包括 report status details、implementation status normalize、verification limitations 补齐和 run result 到 task status/phase 映射 wrapper；不迁 `start_run()` 主体、active run reconcile 主体、runner 调度、状态机或 status policy 纯规则实现。
+- [x] TDD：扩展架构测试，要求 `orchestrator.py` 不再直接定义 status/report policy façade wrapper。
+- [x] RED：focused architecture test 先失败于 `orchestrator.py` 仍定义 status/report policy façade wrapper。
+- [x] 实现：新增 `orchestrator_status_policy_facade.py` mixin 承接 status/report policy façade；`CodingOrchestrator` 继承 mixin 并删除主文件内对应实现。
+- [x] 验证：运行 focused architecture test、status policy/run service/status reconcile 相邻回归、py_compile、文档/架构测试、YAML 解析、architecture guard、diff check 和 release readiness no-smoke。
 - **状态：** complete
 
 ### 阶段 192：Task 34 本地项目解析 helper 第一切片
