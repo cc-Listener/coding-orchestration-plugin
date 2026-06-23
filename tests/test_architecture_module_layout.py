@@ -75,6 +75,7 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ),
             ("run_manifest_session_writeback_service.py", "run/services", "run_manifest_session_writeback_service.py"),
             ("run_project_writeback_service.py", "run/services", "run_project_writeback_service.py"),
+            ("run_completion_writeback_service.py", "run/services", "run_completion_writeback_service.py"),
             ("run_checkpoint_preparation_service.py", "run/services", "run_checkpoint_preparation_service.py"),
             (
                 "run_[dei]*_service.py",

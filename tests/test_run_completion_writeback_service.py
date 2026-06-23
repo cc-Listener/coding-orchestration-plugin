@@ -11,7 +11,7 @@ from coding_orchestration.integrations.knowledge.llm_wiki_adapter import LocalLl
 from coding_orchestration.models import AgentRunStatus, ArtifactSet, RunMode, TaskPhase, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
-from coding_orchestration.run_completion_writeback_service import (
+from coding_orchestration.run.services.run_completion_writeback_service import (
     CompletedRunWritebackResult,
     write_completed_run_finalization,
 )
