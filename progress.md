@@ -4,6 +4,35 @@
 
 ## 会话：2026-06-23
 
+### 阶段 260：Run service 子包治理第一切片
+- **状态：** complete
+- 背景：
+  - 阶段 258/259 已分别把 run artifact 与 run projection 收拢到 `coding_orchestration/run/artifacts/` 和 `coding_orchestration/run/projections/`。
+  - 本阶段按更小切片只处理 run ledger/session/summary writeback callback service，不迁 completion/reconcile coordinator、status transition、manifest/project writeback、runner/workspace/git 或 `start_run()` 主体。
+- 执行的操作：
+  - 在 `tests/test_architecture_guard.py` 的模块族表中新增 `run/services` 目录约束，锁定包根不得保留 `run_ledger_writeback_service.py`、`run_session_writeback_service.py` 和 `run_summary_writeback_service.py`。
+  - RED 已确认：focused architecture test 先失败，失败点为包根仍存在 3 个 run writeback service。
+  - 新增 `coding_orchestration/run/services/__init__.py`；迁移 run ledger/session/summary writeback service 并调整相对 import。
+  - 更新 `orchestrator.py`、completion/reconcile/status transition service 和 writeback service 测试 import，保留 `orchestrator_module.run_*_writeback_service` monkeypatch alias。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前目录边界：
+  - `coding_orchestration/run/services/`：run ledger/session/summary writeback callback service。
+  - `coding_orchestration/` 包根：不再保留 `run_[ls]*_writeback_service.py`。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_repository_module_families_live_in_dedicated_packages -v` 先失败，失败点为 `run/services` 子测试仍看到包根 3 个旧文件。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - Run writeback service 自测：`rtk python3 -m unittest tests.test_run_ledger_writeback_service tests.test_run_session_writeback_service tests.test_run_summary_writeback_service -v`：14 tests passed。
+  - Completion/reconcile/status transition 相邻回归：`rtk python3 -m unittest tests.test_run_completion_writeback_service tests.test_run_reconcile_writeback_service tests.test_run_status_transition_service -v`：12 tests passed。
+  - Plan/status flow 相邻回归：`rtk python3 -m unittest tests.test_plan_run_flow tests.test_status_reconcile_flow -v`：13 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/run/services/*.py coding_orchestration/orchestrator.py coding_orchestration/run_completion_writeback_service.py coding_orchestration/run_reconcile_writeback_service.py coding_orchestration/run_status_transition_service.py tests/test_architecture_guard.py tests/test_run_ledger_writeback_service.py tests/test_run_session_writeback_service.py tests/test_run_summary_writeback_service.py`：passed。
+  - YAML 解析：`rtk python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 旧路径扫描：no matches。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 995 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 本阶段只处理 3 个 callback writeback service，不迁 run completion/reconcile coordinator、dispatch/diff/evidence/checkpoint service、source/project/integration 层；后续应继续按治理计划拆小切片。
+
 ### 阶段 259：Run projection 子包治理第一切片
 - **状态：** complete
 - 背景：

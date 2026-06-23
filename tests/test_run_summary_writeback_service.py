@@ -8,7 +8,7 @@ from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project_resolver import ProjectRegistry, ProjectResolver
-from coding_orchestration.run_summary_writeback_service import (
+from coding_orchestration.run.services.run_summary_writeback_service import (
     write_completed_run_summary,
     write_reconciled_run_summary,
 )

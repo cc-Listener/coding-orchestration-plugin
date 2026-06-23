@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from .models import RunMode, TaskPhase, TaskStatus, canonical_task_status, task_status_display
-from . import run_session_writeback_service
+from .run.services import run_session_writeback_service
 from .state_machine import TaskStateMachine
 
 TransitionTaskStatusCallback = Callable[..., dict[str, Any]]
