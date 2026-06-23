@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from ..models import RunMode
-from ..report_admission import admit_report
-from ..report_contract import validate_codex_semantic_report
+from ..reports.report_admission import admit_report
+from ..reports.report_contract import validate_codex_semantic_report
 from .codex_report import runner_failure_from_stdout
 
 

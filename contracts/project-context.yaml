@@ -227,7 +227,7 @@ project_map:
       reason: "Codex CLI sandbox、resume、report 输出和高权限 flag。"
     - path: coding_orchestration/integrations/install/install.py
       reason: "本机 Hermes 安装、卸载和 preflight 检查逻辑；脚本只保留入口和用户输出。"
-    - path: coding_orchestration/report_contract.py
+    - path: coding_orchestration/reports/report_contract.py
       reason: "结构化 runner report 质量门。"
     - path: coding_orchestration/state_machine.py
       reason: "公共任务状态转换 contract。"
@@ -281,7 +281,7 @@ component_contract:
       kind: source_adapter
     - path: coding_orchestration/feishu/
       kind: feishu_source_adapters
-    - path: coding_orchestration/report_contract.py
+    - path: coding_orchestration/reports/report_contract.py
       kind: report_gate
   systems:
     - name: plugin_registration
@@ -530,7 +530,7 @@ component_contract:
       path: coding_orchestration/ledger.py
       preferred: true
     - name: report_contract
-      path: coding_orchestration/report_contract.py
+      path: coding_orchestration/reports/report_contract.py
       preferred: true
   preferred_abstractions:
     - name: CodingOrchestrator
@@ -859,7 +859,7 @@ component_contract:
       use_instead_of:
         - "在 prompt/context/status/manifest/run-preflight/dashboard source health/source-resolve diagnostic payload/task creation helper 消费层继续新增 reader-specific source_context 字段判断；先投影为 SourceProjection，再渲染、写入 context artifact、统计 source health、输出 source-resolve payload、决定 task creation helper 字段或决定 run 前 source refresh。"
     - name: validate_codex_semantic_report
-      path: coding_orchestration/report_contract.py
+      path: coding_orchestration/reports/report_contract.py
       use_instead_of:
         - "不校验 report.json 就推进任务。"
 

@@ -1,7 +1,7 @@
 import unittest
 
 from coding_orchestration.models import RunMode
-from coding_orchestration.report_admission import admit_report
+from coding_orchestration.reports.report_admission import admit_report
 
 
 class ReportAdmissionTest(unittest.TestCase):

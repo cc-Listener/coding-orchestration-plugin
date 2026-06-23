@@ -128,8 +128,8 @@
 | Codex artifact 合同 | `from coding_orchestration.runners.codex_artifacts import collect_codex_artifacts` | `coding_orchestration/runners/codex_artifacts.py` | `coding_orchestration/runners/codex_artifacts.py`、`runners/codex_cli.py` | `collect_codex_artifacts` |
 | Hermes autonomous Codex runner | `from coding_orchestration.runners.hermes_autonomous_codex import HermesAutonomousCodexRunner` | `coding_orchestration/runners/hermes_autonomous_codex.py` | `coding_orchestration/runners/hermes_autonomous_codex.py` | `HermesAutonomousCodexRunner` |
 | Generic CLI runner | `from coding_orchestration.runners.generic_cli import GenericCliRunner` | `coding_orchestration/runners/generic_cli.py` | `coding_orchestration/runners/generic_cli.py` | `GenericCliRunner` |
-| Report 完整性检查 | `from coding_orchestration.report_contract import validate_codex_semantic_report` | `coding_orchestration/report_contract.py` | `coding_orchestration/report_contract.py` | `validate_codex_semantic_report` |
-| 交付拆解准入 | `from coding_orchestration.report_admission import admit_report` | `coding_orchestration/report_admission.py` | `coding_orchestration/report_admission.py` | `admit_report` |
+| Report 完整性检查 | `from coding_orchestration.reports.report_contract import validate_codex_semantic_report` | `coding_orchestration/reports/report_contract.py` | `coding_orchestration/reports/report_contract.py` | `validate_codex_semantic_report` |
+| 交付拆解准入 | `from coding_orchestration.reports.report_admission import admit_report` | `coding_orchestration/reports/report_admission.py` | `coding_orchestration/reports/report_admission.py` | `admit_report` |
 | Diff 边界审计 | `from coding_orchestration.diff_guard import DiffGuard` | `coding_orchestration/diff_guard.py` | `coding_orchestration/diff_guard.py` | `DiffGuard` |
 | 架构治理检查 | 命令入口 | `scripts/architecture_guard.py` | `scripts/architecture_guard.py`、`tests/test_architecture_guard.py`、`tests/test_architecture_module_layout.py`、`tests/test_architecture_guard_test_governance.py` | line count、hard code、boundary drift、secret scan findings、module layout、guard test growth buffer |
 | 安装/卸载逻辑 | `from coding_orchestration.integrations.install import run_install_preflight` | `coding_orchestration/integrations/install/install.py` | `coding_orchestration/integrations/install/install.py`、`scripts/install_symlink.py`、`scripts/uninstall_legacy.py` | `run_install_preflight`、`install_from_current_repo`、`uninstall_hermes_coding_components` |
@@ -175,8 +175,8 @@
 | `CodexReportLoader`、`report_has_required_fields` | `coding_orchestration/runners/codex_report_loader.py` |
 | `CodexReportWriter`、`build_fallback_report`、`ensure_report_contract`、`summary.md` | `coding_orchestration/runners/codex_report_writer.py` |
 | `collect_codex_artifacts`、`run-log.md`、`execution-policy.json`、`context-manifest.json` | `coding_orchestration/runners/codex_artifacts.py` |
-| `validate_codex_semantic_report` | `coding_orchestration/report_contract.py` |
-| `merge_readiness`、`materialization_allowed` | `coding_orchestration/report_contract.py`、`coding_orchestration/report_admission.py` |
+| `validate_codex_semantic_report` | `coding_orchestration/reports/report_contract.py` |
+| `merge_readiness`、`materialization_allowed` | `coding_orchestration/reports/report_contract.py`、`coding_orchestration/reports/report_admission.py` |
 | `architecture_guard`、`legacy_large_file`、`boundary_host_command` | `scripts/architecture_guard.py`、`tests/test_architecture_guard.py` |
 | `SourceResolver.resolve_source_result`、`SourceResult`、`SourceResolver.preflight_lark` | `coding_orchestration/source/source_resolver.py`、`coding_orchestration/ports.py` |
 | `SourceProjection`、`source_projection_from_source`、`source_projection_to_dict` | `coding_orchestration/source/source_projection.py` |

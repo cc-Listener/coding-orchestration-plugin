@@ -4,6 +4,34 @@
 
 ## 会话：2026-06-23
 
+### 阶段 283：Report quality helper 子包治理
+- **状态：** complete
+- 背景：
+  - `report_contract.py` 维护结构化 runner report 完整性检查。
+  - `report_admission.py` 维护交付拆解准入规则。
+  - `run_log_compactor.py` 维护 Codex stdout/stderr 到 operator-facing compact log 的后处理。
+  - 三者同属 report quality helper 边界，不应继续散落在 `coding_orchestration/` 包根。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 report helper 位于 `coding_orchestration/reports/`。
+  - RED 已确认：focused test 先失败，失败点为 `report_admission.py`、`report_contract.py` 和 `run_log_compactor.py` 仍在包根。
+  - 新增 `coding_orchestration/reports/__init__.py`，将三个模块移入 `coding_orchestration/reports/`。
+  - 更新 runner report loader/writer、测试和当前事实文档中的 import / canonical 路径。
+- 当前边界：
+  - `coding_orchestration/reports/report_contract.py`：只做 report 完整性检查，不推进状态、不写 artifact、不启动 runner。
+  - `coding_orchestration/reports/report_admission.py`：只做 report admission 纯规则，不写 ledger、不推进状态。
+  - `coding_orchestration/reports/run_log_compactor.py`：只读 raw stdout/stderr/report/manifest 并写 compact operator log，不改变 runner result 或 task 状态。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为三个 report helper 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Report/runner 相邻回归：`rtk python3 -m unittest tests.test_report_contract tests.test_report_admission tests.test_run_log_compactor tests.test_codex_report tests.test_codex_report_loader tests.test_codex_report_writer tests.test_codex_cli_report_facade tests.test_codex_cli_report_failure_facade -v`：40 tests passed。
+  - 编译检查：`rtk python3 -m py_compile coding_orchestration/reports/__init__.py coding_orchestration/reports/report_contract.py coding_orchestration/reports/report_admission.py coding_orchestration/reports/run_log_compactor.py coding_orchestration/runners/codex_report_loader.py coding_orchestration/runners/codex_report_writer.py tests/test_report_contract.py tests/test_report_admission.py tests/test_run_log_compactor.py tests/test_architecture_module_layout.py`：passed。
+  - YAML 解析：`rtk python3 -c 'import yaml; yaml.safe_load(open("contracts/project-context.yaml", encoding="utf-8")); print("yaml ok")'`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 包根仍保留 prompt/context、runner/workspace/run orchestration、storage/ledger/status 等核心或跨域模块；后续继续按低风险模块族独立切片。
+
 ### 阶段 282：Command rule helper 子包治理
 - **状态：** complete
 - 背景：

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
-from .models import RunMode
+from ..models import RunMode
 from .report_contract import validate_codex_semantic_report
 
 

@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.run_log_compactor import compact_run_logs
+from coding_orchestration.reports.run_log_compactor import compact_run_logs
 
 
 class RunLogCompactorTest(unittest.TestCase):

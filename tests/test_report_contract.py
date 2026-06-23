@@ -1,7 +1,7 @@
 import unittest
 
 from coding_orchestration.models import RunMode
-from coding_orchestration.report_contract import (
+from coding_orchestration.reports.report_contract import (
     ReportCompleteness,
     validate_codex_semantic_report,
 )

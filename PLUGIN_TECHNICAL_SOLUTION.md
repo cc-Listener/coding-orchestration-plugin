@@ -438,6 +438,8 @@ coding_orchestration plugin
 
 阶段 282 目录治理事实：command catalog 纯数据和 Coding Mode command rewriter adapter 已收拢到 `coding_orchestration/commands/`；该包现在承接 `/coding` command facts、help/listing 文案、rewrite context、LLM rewrite prompt、JSON 解析和 fallback shape，不迁 Gateway route/controller、command executor、orchestrator façade、runner/workspace/git 或 run lifecycle。
 
+阶段 283 目录治理事实：report quality helper 已收拢到 `coding_orchestration/reports/`，包括 `report_contract.py`、`report_admission.py` 和 `run_log_compactor.py`；该包只承接结构化 report 完整性检查、交付拆解准入和 operator-facing run log compact，不迁 runner subprocess、report writer/loader 主体、状态推进、Gateway、workspace/git 或 run lifecycle。
+
 阶段 268 目录治理事实：Kanban 工具映射和 Kanban sync host service 已收拢到 `coding_orchestration/integrations/kanban/`；该子包只承接真实 Kanban 工具映射、task 创建同步、状态同步、skipped/failed sync record 和 task status view 字段投影，不迁状态机、task runtime façade 主体、runner/workspace/git、run lifecycle 或 dashboard。
 
 阶段 271 目录治理事实：source helper 首批已收拢到 `coding_orchestration/source/`，包括 `source_links.py`、`source_recovery.py` 和 `source_work_item_context.py`；该子包只承接 Feishu/Meegle URL 解析、deferred recovery payload、`lark_cli_command` / `meegle_cli_command` shape 和 work item payload 归一化，不迁 `source_resolver.py`、`source_projection.py`、`source_context_repair_service.py`、reader transport、ledger schema、runner/workspace/git 或 run lifecycle。

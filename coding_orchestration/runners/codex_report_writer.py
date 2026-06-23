@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..models import AgentRunStatus, RunMode, agent_run_status_details
-from ..run_log_compactor import compact_run_logs
+from ..reports.run_log_compactor import compact_run_logs
 from .codex_report import (
     fallback_limitation_reason,
     report_contract_fields,

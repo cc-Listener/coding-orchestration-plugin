@@ -11,6 +11,7 @@
   - Codex runner 使用可见 session，方便 CLI 查看
 
 ## 研究发现
+- 阶段 283 确认：结构化 report 完整性检查、交付拆解准入和 run log compact helper 已收拢到 `coding_orchestration/reports/`；包根不再承载 `report_contract.py`、`report_admission.py` 或 `run_log_compactor.py`。
 - 阶段 282 确认：`/coding` command catalog 纯数据和 Coding Mode command rewriter adapter 已收拢到 `coding_orchestration/commands/`；包根不再承载 `command_catalog.py` 或 `command_rewriter.py`。
 - 阶段 281 确认：后台 run 通知 helper 与 Gateway 后台 run mode-specific host shell 属于同一 background helper 边界，已收拢到 `coding_orchestration/background/`；包根不再承载 `background_run_notifier.py` 或 `coding_background_run_executor.py`。
 - 阶段 280 确认：blocked merge-test readiness 纯评估与 task lifecycle guard 都是 service 边界，已收拢到 `coding_orchestration/services/`；包根不再承载 `merge_test_readiness_service.py` 或 `task_lifecycle_guard_service.py`。

@@ -69,6 +69,8 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
                 "run_report_refinement_projection.py run_session_projection.py run_start_selection_projection.py "
                 "run_summary_projection.py",
             ),
+            ("report_*.py", "reports", "report_admission.py report_contract.py"),
+            ("run_log_compactor.py", "reports", "run_log_compactor.py"),
             (
                 "run_[ls]*_writeback_service.py",
                 "run/services",

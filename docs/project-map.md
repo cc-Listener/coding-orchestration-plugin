@@ -110,7 +110,7 @@
 | `coding_orchestration/services/workitem_service.py`、`services/workitem_utils.py` | 飞书 Project 工作项应用服务：MCP preflight、Story/Issue intake、WBS 更新、状态流转和 bugfix 回写。 |
 | `coding_orchestration/prompt_builder.py`、`coding_orchestration/prompts/`、`context_assembler.py` | Codex 可见 prompt 与运行上下文 artifact 组装；mode/source 模板归属在 `prompts/`，`PromptBuilder` 只做组合。 |
 | `coding_orchestration/runner_router.py`、`coding_orchestration/runners/` | runner 选择与 Codex CLI / Hermes autonomous Codex / generic CLI 适配；Hermes terminal runtime adapter 已归属 `integrations/hermes/hermes_runtime.py`，Codex command 构造已拆到 `runners/codex_command.py`，subprocess/timeout/cancel/timing 已拆到 `runners/codex_process.py`，report 字段/状态/stdout 解析策略已拆到 `runners/codex_report.py`，report schema 已拆到 `runners/codex_report_schema.py`，report 读取/admission/fallback 决策已拆到 `runners/codex_report_loader.py`，report/summary 写入已拆到 `runners/codex_report_writer.py`，artifact 路径合同已拆到 `runners/codex_artifacts.py`。 |
-| `coding_orchestration/report_contract.py`、`report_admission.py`、`run_log_compactor.py` | runner report 质量门、交付拆解准入和日志压缩。 |
+| `coding_orchestration/reports/report_contract.py`、`reports/report_admission.py`、`reports/run_log_compactor.py` | runner report 质量门、交付拆解准入和日志压缩。 |
 | `coding_orchestration/diff_guard.py` | implementation/QA/merge-test 后的路径边界审计。 |
 | `coding_orchestration/dashboard/` | Hermes dashboard tab API 和 manifest。 |
 | `coding_orchestration/skills/coding-operator-core/`、`skills/coding-health-core/` | host-agnostic skill 合同：通用意图分流、项目优先、交付拆解、readiness 输出格式和修复口径。 |
@@ -203,7 +203,7 @@ Feishu / Hermes Gateway
 | `coding_orchestration/skills/coding-operator-core/`、`skills/coding-health-core/` | Skill core contract，必须保持 host-agnostic，不写 Hermes 命令、运行根、内部账本路径或本机凭据。 |
 | `coding_orchestration/skills/hermes-coding-operator/`、`skills/hermes-coding-health-check/` | Hermes binding skill，只负责 host 映射和用户可见修复命令；改动需配套 `tests/test_plugin_registration.py`。 |
 | `coding_orchestration/integrations/install/install.py`、`scripts/install_symlink.py`、`scripts/uninstall_legacy.py` | 会影响本机 Hermes 插件安装、卸载和 Gateway 重启，执行前需先 dry-run 或看清参数。 |
-| `coding_orchestration/report_contract.py`、`report_admission.py` | 结构化 report 质量门，改动会影响任务是否可进入下一阶段。 |
+| `coding_orchestration/reports/report_contract.py`、`reports/report_admission.py` | 结构化 report 质量门，改动会影响任务是否可进入下一阶段。 |
 | `coding_orchestration/state_machine.py`、`status_policy.py`、`models.py` | 公共状态 contract，改动需同步测试和用户可见文案。 |
 
 ## 不确定项
