@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from ..command_rewriter import HermesCommandRewriter
+from ..commands.command_rewriter import HermesCommandRewriter
 from ..feishu.feishu_project_mcp import (
     READ_TOOLS,
     WRITE_TOOLS,

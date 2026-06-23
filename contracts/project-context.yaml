@@ -121,6 +121,10 @@ project_map:
       reason: "Project command executor host shell，维护 /coding project list/init/use/status/clear 命令模式提示和 Gateway immediate project context 分支，调用注入的 profile upsert、active project binding、project formatter 与路径解析 callback；不拥有 Gateway route、不创建任务、不启动 runner、不推进状态、不实现 project profile catalog 纯规则。"
     - path: coding_orchestration/coding_commands/coding_help_command_executor.py
       reason: "Coding help command executor host shell，维护普通 /coding help、Gateway /commands listing、分页和 Hermes built-in command list 拼接；不拥有 command catalog 纯数据、Gateway route/controller、runner/workspace/git 或 run lifecycle。"
+    - path: coding_orchestration/commands/command_catalog.py
+      reason: "Command catalog 纯数据，维护 /coding actions、intent、risk、required args、help/listing 文案和 rewrite context；不拥有 Gateway route/controller、host shell、副作用或 run lifecycle。"
+    - path: coding_orchestration/commands/command_rewriter.py
+      reason: "Command rewriter adapter，维护 Coding Mode LLM rewrite prompt、JSON 解析和 fallback shape；不执行命令、不创建 task、不启动 runner、不发送 Gateway 回复。"
     - path: coding_orchestration/gateway/gateway_command_controller.py
       reason: "Gateway command controller 纯规则层，维护显式 /coding / /commands 解析、命令归一化、route metadata、handler key、reply mode、task id 来源、merge-test 参数、rewrite canonical command、确认/取消词、dedupe 和授权探测；Task 29 完成后不得承载 ledger、runner、消息发送、状态推进或 run lifecycle。"
     - path: coding_orchestration/gateway/gateway_command_executor.py

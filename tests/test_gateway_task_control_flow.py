@@ -8,7 +8,7 @@ from pathlib import Path
 
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.integrations.knowledge.llm_wiki_adapter import LocalLlmWikiAdapter
-from coding_orchestration.command_rewriter import HermesCommandRewriter
+from coding_orchestration.commands.command_rewriter import HermesCommandRewriter
 from coding_orchestration.models import AgentRunStatus, ArtifactSet, RunMode, TaskKind, TaskPhase, TaskStatus
 from coding_orchestration.orchestrator import CodingOrchestrator
 from coding_orchestration.project.project_knowledge_resolver import ProjectKnowledgeResolver
@@ -496,4 +496,3 @@ class GatewayTaskControlFlowTest(unittest.TestCase):
             self.assertIn("order_tags", task["requirement_summary"])
             self.assertEqual(task["human_decisions"][-1]["type"], "plan_feedback")
             self.assertIn("重新整理计划", gateway.messages[-1])
-

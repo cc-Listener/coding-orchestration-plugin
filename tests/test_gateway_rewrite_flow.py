@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from coding_orchestration.command_rewriter import HermesCommandRewriter
+from coding_orchestration.commands.command_rewriter import HermesCommandRewriter
 from coding_orchestration.gateway import gateway_rewrite_presenter
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.integrations.knowledge.llm_wiki_adapter import LocalLlmWikiAdapter

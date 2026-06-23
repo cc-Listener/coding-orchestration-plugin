@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from coding_orchestration.coding_commands import coding_help_command_executor
-from coding_orchestration.command_catalog import command_help_lines, command_listing_lines
+from coding_orchestration.commands.command_catalog import command_help_lines, command_listing_lines
 
 
 class FakeHost:

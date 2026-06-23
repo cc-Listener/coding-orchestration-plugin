@@ -1,14 +1,14 @@
 import unittest
 from pathlib import Path
 
-from coding_orchestration.command_catalog import (
+from coding_orchestration.commands.command_catalog import (
     COMMAND_CATALOG,
     allowed_rewrite_commands,
     command_catalog_context,
     command_help_lines,
     command_listing_lines,
 )
-from coding_orchestration.command_rewriter import HermesCommandRewriter
+from coding_orchestration.commands.command_rewriter import HermesCommandRewriter
 from coding_orchestration.orchestrator import CodingOrchestrator
 
 

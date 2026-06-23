@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from ..command_catalog import (
+from ..commands.command_catalog import (
     allowed_rewrite_commands,
     allowed_top_level_actions,
     command_catalog_context,

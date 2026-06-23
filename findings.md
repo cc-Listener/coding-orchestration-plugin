@@ -11,6 +11,7 @@
   - Codex runner 使用可见 session，方便 CLI 查看
 
 ## 研究发现
+- 阶段 282 确认：`/coding` command catalog 纯数据和 Coding Mode command rewriter adapter 已收拢到 `coding_orchestration/commands/`；包根不再承载 `command_catalog.py` 或 `command_rewriter.py`。
 - 阶段 281 确认：后台 run 通知 helper 与 Gateway 后台 run mode-specific host shell 属于同一 background helper 边界，已收拢到 `coding_orchestration/background/`；包根不再承载 `background_run_notifier.py` 或 `coding_background_run_executor.py`。
 - 阶段 280 确认：blocked merge-test readiness 纯评估与 task lifecycle guard 都是 service 边界，已收拢到 `coding_orchestration/services/`；包根不再承载 `merge_test_readiness_service.py` 或 `task_lifecycle_guard_service.py`。
 - 阶段 279 确认：项目识别、project profile catalog、项目知识初始化/扫描/文档构造、Feishu Project intake rule 和 work item identity 是同一 project domain，已统一收拢到 `coding_orchestration/project/`；包根不再承载 `project_*.py`。
@@ -227,7 +228,7 @@
 | Codex 会返回任务语义 status | plan-only 可能返回 `ready_for_implementation` 这类人类语义状态；它不应进入 `AgentRunStatus` 状态机，runner 边界需要先归一为 `success`，再由 orchestrator 映射为 `planned/plan_ready` |
 | 状态机边界不只在 runner | orchestrator 收尾、partial structured recovery、report schema 和 `TaskStateMachine.task_status_for_run_status()` 也可能接触外部 status；已改为统一调用 `normalize_agent_run_status()`，未知值降级为 `completed_unstructured` 而不是抛异常 |
 | Coding Mode 低置信度交回 Hermes 主 agent | rewrite 低置信度、`intent=unknown`、缺 command 或缺信息时，plugin 不创建 task、不启动 runner、不直接发二次确认，而是返回 Gateway `rewrite` action，把原话、LLM 候选、拒绝原因、active task、known tasks 和 allowed commands 交给 Hermes 主 agent |
-| command catalog 是 `/coding` 单一事实源 | `/coding help`、`/commands`、rewriter prompt、handoff allowed commands 都从 `coding_orchestration/command_catalog.py` 生成，避免 CLI 增加后 prompt 和文案漂移 |
+| command catalog 是 `/coding` 单一事实源 | `/coding help`、`/commands`、rewriter prompt、handoff allowed commands 都从 `coding_orchestration/commands/command_catalog.py` 生成，避免 CLI 增加后 prompt 和文案漂移 |
 | active_project 是会话级 binding | 支持用户先初始化/选择项目再提需求；active_project 存在时，新需求可注入项目上下文创建 task，但 active task 优先级更高 |
 | 低置信度 handoff 使用 plugin 内置 skill | 插件注册 `hermes-coding-operator`，handoff prompt 要求 Hermes 主 agent 优先 `skill_view(name="coding_orchestration:hermes-coding-operator")`，让低置信度处理有固定 playbook |
 | 上午 `task_7802123463ab` 项目匹配失败不是用户没给项目 | 12:03 raw text 已包含“商户后台 / bestvoy-admin”，但当时 project profile 尚未建立，create task 未从本地文件夹候选回退解析；12:18 project init 只绑定 active_project，没有回填既有 active task；12:24 `/coding continue` 又被归类为 plan_feedback，绕过项目澄清逻辑 |

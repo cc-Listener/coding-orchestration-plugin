@@ -42,6 +42,7 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ),
             ("delivery_command_executor.py", "commands/delivery", "delivery_command_executor.py"),
             ("project_command_executor.py", "commands/project", "project_command_executor.py"),
+            ("command_*.py", "commands", "command_catalog.py command_rewriter.py"),
             (
                 "feishu_*.py",
                 "feishu",
