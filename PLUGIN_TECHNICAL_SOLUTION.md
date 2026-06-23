@@ -456,6 +456,8 @@ coding_orchestration plugin
 
 阶段 297 目录治理事实：TaskLedger façade 已收拢到 `coding_orchestration/ledger/facade.py`，并通过 `coding_orchestration/ledger/__init__.py` 保留 `TaskLedger` 稳定导出；该模块只承接 SQLite 连接、公开 façade 方法和 storage repositories 委托，不迁 storage schema/repository、RunService、runner/workspace/git 或 run lifecycle。
 
+阶段 298 目录治理事实：Run orchestration helper 已收拢到 `coding_orchestration/run/orchestration_service.py`，并通过 `coding_orchestration/run_orchestration_service/__init__.py` 保留 `from coding_orchestration import run_orchestration_service` 和 `from coding_orchestration.run_orchestration_service import ...` 稳定导出；该模块只承接 observed run report、stale completion、execution policy decision、run-level diff guard violations、verification limitations fallback、completion payload、agent run record、existing run mode/changed files、merge-test run record、project writeback payload、start_run result payload 和 run completion 投影，不迁 runner/workspace/git、artifact 写入、状态 transition 或 run lifecycle。
+
 阶段 286 目录治理事实：policy/guard helper 已收拢到 `coding_orchestration/policies/`，包括 `diff_guard.py` 和 `execution_policy.py`；该包当时只承接 diff boundary audit 和 execution policy 归一化，status/report policy 已在阶段 288 继续收拢，状态机、run diff guard host service、RunService timeout、runner/workspace/git 和 run lifecycle 仍按各自边界维护。
 
 阶段 287 目录治理事实：Codex reuse runner helper 已收拢到 `coding_orchestration/runners/codex_reuse.py`；该模块只承接 Hermes terminal Codex CLI、Hermes openai-codex provider 和 direct Codex CLI fallback 的 backend decision，不迁 `runner_router.py`、runner implementations、Hermes runtime adapter、auth 检测、runner/workspace/git 或 run lifecycle。

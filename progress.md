@@ -4,6 +4,35 @@
 
 ## 会话：2026-06-23
 
+### 阶段 298：Run orchestration helper 子包治理
+- **状态：** complete
+- 背景：
+  - `run_orchestration_service.py` 是 run orchestration 迁移期 helper，维护 observed run report、stale completion、execution policy decision、run-level diff guard violations、verification limitations fallback、completion payload、agent run record、existing run mode/changed files、merge-test run record、project writeback payload、start_run result payload 和 run completion 投影。
+  - 本切片只做目录包化：canonical owner 改为 `coding_orchestration/run/orchestration_service.py`，并通过 `coding_orchestration/run_orchestration_service/__init__.py` 保留 `from coding_orchestration import run_orchestration_service` 和 `from coding_orchestration.run_orchestration_service import ...` 稳定导出；runner/workspace/git、artifact 写入、状态 transition 和 run lifecycle 不属于本切片。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求包根不再保留 `run_orchestration_service.py`，并要求 `coding_orchestration/run/orchestration_service.py` 与 `coding_orchestration/run_orchestration_service/__init__.py` 存在。
+  - RED 已确认：focused layout test 先失败，失败点为包根旧文件 `run_orchestration_service.py` 仍存在。
+  - 将 helper 移入 `coding_orchestration/run/orchestration_service.py`，新增兼容包入口 `coding_orchestration/run_orchestration_service/__init__.py`，并更新相对 import。
+  - 更新技术方案、项目地图、组件合同、约定、machine-readable context 和发现中的 canonical path。
+- 当前边界：
+  - `coding_orchestration/run/orchestration_service.py`：只做 run orchestration projection / payload helper 和兼容 re-export 的目标实现。
+  - `coding_orchestration/run_orchestration_service/__init__.py`：只做旧 import 稳定导出，不承载业务逻辑。
+  - runner subprocess、workspace/git、artifact service、ledger writeback callback、状态 transition 和 run lifecycle 均未迁移。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为包根旧文件 `run_orchestration_service.py`。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout tests.test_run_orchestration_service tests.test_run_orchestration_start_rules tests.test_run_orchestration_reconcile_rules tests.test_run_orchestration_plan_report_session tests.test_run_orchestration_workspace_rules tests.test_run_completion_writeback_service tests.test_run_reconcile_writeback_service -v`：72 tests passed。
+  - 编译检查：`rtk python3 -m compileall coding_orchestration tests`：passed。
+  - YAML 解析：`rtk python3 -c ...`：passed，输出 `yaml ok`。
+  - 架构检查：`rtk proxy python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk proxy python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 1004 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 当前包根：
+  - `coding_orchestration/` 包根 `.py` 数量：1（不含 `__init__.py`）。
+  - 包根 `.py` 总行数：471。
+  - 剩余包根文件：`orchestrator.py`。
+- 剩余风险：
+  - 包根治理已经收敛到 `orchestrator.py` 一个 façade 文件；后续应继续防止新 helper 回流包根，并优先通过既有 `run/`、`gateway/`、`coding_commands/`、`orchestrator_facades/`、`services/` 等 owner 接收新职责。
+
 ### 阶段 297：TaskLedger façade 子包治理
 - **状态：** complete
 - 背景：

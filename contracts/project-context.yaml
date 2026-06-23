@@ -111,8 +111,8 @@ project_map:
       reason: "Orchestrator runtime/failure façade mixin，维护 flag helper、project/workflow wrapper、plan report session/execution policy/timeout wrapper、runner failed result 和 checkpoint failed result；CodingOrchestrator 只继承 mixin 保留兼容方法名，不承载 start_run 主体、runner dispatch、artifact service 纯写入、workspace/git/checkpoint 实现或 run lifecycle。"
     - path: coding_orchestration/orchestrator_facades/orchestrator_active_run_facade.py
       reason: "Orchestrator active run façade mixin，维护 completed active run reconcile host shell 和 agent run lookup helper；CodingOrchestrator 只继承 mixin 保留兼容方法名，不承载 start_run 主体、fresh completion writeback、runner dispatch、workspace/git/checkpoint 实现或 run lifecycle。"
-    - path: coding_orchestration/run_orchestration_service.py
-      reason: "Observed run report、stale completion 观测、execution policy decision 读取、run-level diff guard violations 组合、verification limitations fallback projection、completion report payload、agent run record、reconciled agent run record、reconcile result payload、existing run mode/changed files 规则、merge-test run record、project writeback payload、start_run result payload 和 run completion 投影 helper；兼容 re-export run report refinement、run start selection、run session 与 run prompt projection。"
+    - path: coding_orchestration/run/orchestration_service.py
+      reason: "Observed run report、stale completion 观测、execution policy decision 读取、run-level diff guard violations 组合、verification limitations fallback projection、completion report payload、agent run record、reconciled agent run record、reconcile result payload、existing run mode/changed files 规则、merge-test run record、project writeback payload、start_run result payload 和 run completion 投影 helper；通过 coding_orchestration/run_orchestration_service/__init__.py 兼容 re-export run report refinement、run start selection、run session 与 run prompt projection。"
     - path: coding_orchestration/run/projections/run_failure_report_projection.py
       reason: "Runner/checkpoint failure report payload projection helper，维护结构化恢复合同，不承载 artifact 写入或 RunResult 包装。"
     - path: coding_orchestration/run/projections/run_report_refinement_projection.py
@@ -299,8 +299,9 @@ component_contract:
       path: coding_orchestration/orchestrator.py
       preferred: true
     - name: run_orchestration_helper
-      path: coding_orchestration/run_orchestration_service.py
+      path: coding_orchestration/run/orchestration_service.py
       preferred: true
+      note: "Run orchestration helper canonical owner；通过 coding_orchestration/run_orchestration_service/__init__.py 保留旧 import 稳定导出，不在包根保留 run_orchestration_service.py。"
     - name: config_contract
       path: coding_orchestration/config/runtime.py
       preferred: true
@@ -593,7 +594,7 @@ component_contract:
       use_instead_of:
         - "在 coding_orchestration/ 包根继续放置 models.py，或绕过 coding_orchestration.models 稳定导出自行复制任务状态、run mode、manifest 或 artifact contract。"
     - name: run_orchestration_service
-      path: coding_orchestration/run_orchestration_service.py
+      path: coding_orchestration/run/orchestration_service.py
       use_instead_of:
         - "在 orchestrator 中继续新增 observed run report、stale completion 观测、execution policy decision 读取、run-level diff guard violations 组合、verification limitations fallback projection、completion report payload、agent run record、reconciled agent run record、reconcile result payload、existing run mode/changed files 规则、merge-test run record、project writeback payload、start_run result payload 或 run completion 投影。"
     - name: run_project_writeback_service
@@ -603,7 +604,7 @@ component_contract:
     - name: run_session_projection
       path: coding_orchestration/run/projections/run_session_projection.py
       use_instead_of:
-        - "在 orchestrator 或 run_orchestration_service 中继续新增 plan report session fields 白名单、plan report session update、run start base/workspace session update、active run session update、runner session update 或 completion session update 纯 payload。"
+        - "在 orchestrator 或 run/orchestration_service 中继续新增 plan report session fields 白名单、plan report session update、run start base/workspace session update、active run session update、runner session update 或 completion session update 纯 payload。"
     - name: run_session_writeback_service
       path: coding_orchestration/run/services/run_session_writeback_service.py
       use_instead_of:
@@ -611,7 +612,7 @@ component_contract:
     - name: run_prompt_projection
       path: coding_orchestration/run/projections/run_prompt_projection.py
       use_instead_of:
-        - "在 orchestrator 或 run_orchestration_service 中继续新增首次/增量 prompt 构造选择、prompt builder 参数拼装或 prompt 分支规则。"
+        - "在 orchestrator 或 run/orchestration_service 中继续新增首次/增量 prompt 构造选择、prompt builder 参数拼装或 prompt 分支规则。"
     - name: prompting
       path: coding_orchestration/prompting/
       use_instead_of:
@@ -683,15 +684,15 @@ component_contract:
     - name: run_start_selection_projection
       path: coding_orchestration/run/projections/run_start_selection_projection.py
       use_instead_of:
-        - "在 orchestrator 或 run_orchestration_service 中继续新增 run context source、checkpoint selection、QA evidence observation、source branch recording、project path requirement、workspace selection 或 manifest checkpoint preparation selection 纯规则。"
+        - "在 orchestrator 或 run/orchestration_service 中继续新增 run context source、checkpoint selection、QA evidence observation、source branch recording、project path requirement、workspace selection 或 manifest checkpoint preparation selection 纯规则。"
     - name: run_failure_report_projection
       path: coding_orchestration/run/projections/run_failure_report_projection.py
       use_instead_of:
-        - "在 orchestrator 或 run_orchestration_service 中继续新增 runner/checkpoint failure report payload 拼装。"
+        - "在 orchestrator 或 run/orchestration_service 中继续新增 runner/checkpoint failure report payload 拼装。"
     - name: run_report_refinement_projection
       path: coding_orchestration/run/projections/run_report_refinement_projection.py
       use_instead_of:
-        - "在 orchestrator 或 run_orchestration_service 中继续新增 diff guard / implementation commit missing blocked report、run report refinement projection 或 implementation dirty-check 信号拼装。"
+        - "在 orchestrator 或 run/orchestration_service 中继续新增 diff guard / implementation commit missing blocked report、run report refinement projection 或 implementation dirty-check 信号拼装。"
     - name: run_evidence_observation_service
       path: coding_orchestration/run/services/run_evidence_observation_service.py
       use_instead_of:
@@ -723,7 +724,7 @@ component_contract:
     - name: run_background_orchestration
       path: coding_orchestration/run/services/run_background_orchestration.py
       use_instead_of:
-        - "在 orchestrator 或 run_orchestration_service 中继续新增后台 run 等待、后台失败收敛或 merge-test human_required pending action 映射。"
+        - "在 orchestrator 或 run/orchestration_service 中继续新增后台 run 等待、后台失败收敛或 merge-test human_required pending action 映射。"
     - name: run_manifest_service
       path: coding_orchestration/run/services/run_manifest_service.py
       use_instead_of:
