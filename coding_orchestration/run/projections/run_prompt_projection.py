@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import RunMode
+from ...models import RunMode
 
 
 def build_run_prompt_text(

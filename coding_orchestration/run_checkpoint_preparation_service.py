@@ -4,8 +4,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from . import run_start_selection_projection
-from .run_start_selection_projection import RunManifestCheckpointPreparation
+from .run.projections import run_start_selection_projection
+from .run.projections.run_start_selection_projection import RunManifestCheckpointPreparation
 
 CheckpointPreparationCallback = Callable[[Path | None, str], dict[str, str] | None]
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from . import run_summary_projection
+from .run.projections import run_summary_projection
 
 RunSummaryWritebackCallback = Callable[..., dict[str, Any]]
 

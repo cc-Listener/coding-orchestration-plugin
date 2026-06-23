@@ -2,7 +2,7 @@ import unittest
 
 from coding_orchestration import run_orchestration_service
 from coding_orchestration.models import AgentRunStatus, RunMode
-from coding_orchestration.run_failure_report_projection import (
+from coding_orchestration.run.projections.run_failure_report_projection import (
     RunFailureReportProjection,
     build_checkpoint_failed_report_payload,
     build_runner_failed_report_payload,

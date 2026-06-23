@@ -2,7 +2,7 @@ import unittest
 
 from coding_orchestration import run_orchestration_service
 from coding_orchestration.models import AgentRunStatus, RunMode
-from coding_orchestration.run_report_refinement_projection import (
+from coding_orchestration.run.projections.run_report_refinement_projection import (
     BlockedReportProjection,
     RunReportRefinement,
     build_diff_guard_blocked_report,

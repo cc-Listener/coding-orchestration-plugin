@@ -3,20 +3,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .run_failure_report_projection import (
+from .run.projections.run_failure_report_projection import (
     RunFailureReportProjection,
     build_checkpoint_failed_report_payload,
     build_runner_failed_report_payload,
 )
-from .run_report_refinement_projection import (
+from .run.projections.run_report_refinement_projection import (
     BlockedReportProjection,
     RunReportRefinement,
     build_diff_guard_blocked_report,
     build_implementation_commit_missing_report,
     refine_run_report_projection,
 )
-from .run_prompt_projection import build_run_prompt_text
-from .run_session_projection import (
+from .run.projections.run_prompt_projection import build_run_prompt_text
+from .run.projections.run_session_projection import (
     build_active_run_session_update,
     build_completion_session_update,
     build_plan_report_session_fields,
@@ -25,7 +25,7 @@ from .run_session_projection import (
     build_run_start_workspace_session_update,
     build_runner_session_update,
 )
-from .run_start_selection_projection import (
+from .run.projections.run_start_selection_projection import (
     RUN_CONTEXT_SOURCE_CONFIRMED_PLAN,
     RUN_CONTEXT_SOURCE_MERGE_TEST_CONTEXT,
     RUN_MANIFEST_CHECKPOINT_MERGE_TEST,

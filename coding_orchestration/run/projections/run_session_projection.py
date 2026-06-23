@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .models import RunMode
-from .status_policy import run_details_are_runner_failed
+from ...models import RunMode
+from ...status_policy import run_details_are_runner_failed
 
 
 def build_plan_report_session_fields(report: dict[str, Any]) -> dict[str, Any]:

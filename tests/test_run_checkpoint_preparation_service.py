@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from coding_orchestration import orchestrator as orchestrator_module
-from coding_orchestration import run_start_selection_projection
+from coding_orchestration.run.projections import run_start_selection_projection
 from coding_orchestration.ledger import TaskLedger
 from coding_orchestration.llm_wiki_adapter import LocalLlmWikiAdapter
 from coding_orchestration.models import RunMode, TaskStatus

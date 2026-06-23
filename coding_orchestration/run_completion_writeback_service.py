@@ -4,7 +4,6 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from . import (
-    run_ledger_projection,
     run_ledger_writeback_service,
     run_orchestration_service,
     run_project_writeback_service,
@@ -13,6 +12,7 @@ from . import (
     run_summary_writeback_service,
 )
 from .models import RunMode, TaskPhase, TaskStatus
+from .run.projections import run_ledger_projection
 
 ArtifactReportWriteCallback = Callable[..., None]
 ArtifactSummaryReadCallback = Callable[..., str]

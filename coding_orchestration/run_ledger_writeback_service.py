@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Callable
 
-from .run_ledger_projection import ReconciledRunLedgerWritebackRecords, RunLedgerWritebackRecords
+from .run.projections.run_ledger_projection import ReconciledRunLedgerWritebackRecords, RunLedgerWritebackRecords
 
 LedgerWritebackCallback = Callable[[str, dict[str, Any]], None]
 

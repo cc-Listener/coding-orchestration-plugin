@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .models import RunMode, TaskPhase
+from ...models import RunMode, TaskPhase
 
 
 @dataclass(frozen=True)

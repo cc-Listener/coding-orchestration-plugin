@@ -4,6 +4,28 @@
 
 ## 会话：2026-06-23
 
+### 阶段 259：Run projection 子包治理第一切片
+- **状态：** complete
+- 背景：
+  - 阶段 258 已把 run artifact 路径/文件 IO 收拢到 `coding_orchestration/run/artifacts/`。
+  - 本阶段继续处理 run 纯 projection 模块，只移动 payload/规则构造 helper，不迁 run service、runner/workspace/git 或 `start_run()` 主体。
+- 执行的操作：
+  - 在 `tests/test_architecture_guard.py` 的模块族表中新增 `run/projections` 目录约束，锁定包根不得保留 `run_*projection.py`。
+  - RED 已确认：focused architecture test 先失败，失败点为包根仍存在 7 个 run projection 模块。
+  - 新增 `coding_orchestration/run/projections/__init__.py`；迁移 `run_failure_report_projection.py`、`run_report_refinement_projection.py`、`run_ledger_projection.py`、`run_prompt_projection.py`、`run_session_projection.py`、`run_start_selection_projection.py` 和 `run_summary_projection.py`。
+  - 更新 `run_orchestration_service.py` 的兼容 re-export import、writeback/checkpoint service、`orchestrator.py` 和 projection 测试 import。
+  - 同步 `docs/project-map.md`、`docs/conventions.md`、`docs/component-contract.md`、`contracts/project-context.yaml`、`PLUGIN_TECHNICAL_SOLUTION.md`、`task_plan.md` 和 `findings.md`。
+- 当前目录边界：
+  - `coding_orchestration/run/projections/`：runner/checkpoint failure report、diff guard/commit-missing refinement、ledger writeback payload、prompt selection、session update、start selection 和 summary writer payload 等纯 projection helper。
+  - `coding_orchestration/` 包根：不再保留 `run_*projection.py`。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_guard.ArchitectureGuardTest.test_repository_module_families_live_in_dedicated_packages -v` 先失败，失败点为 `run/projections` 子测试仍看到包根 7 个旧文件。
+  - Focused GREEN：上述 focused architecture test 重跑通过。
+  - Run projection 自测：`rtk python3 -m unittest tests.test_run_failure_report_projection tests.test_run_report_refinement_projection tests.test_run_ledger_projection tests.test_run_prompt_projection tests.test_run_session_projection tests.test_run_start_selection_projection tests.test_run_summary_projection -v`：24 tests passed。
+  - Run orchestration/writeback/checkpoint 相邻回归：`rtk python3 -m unittest tests.test_run_orchestration_start_rules tests.test_run_orchestration_reconcile_rules tests.test_run_orchestration_service tests.test_run_ledger_writeback_service tests.test_run_summary_writeback_service tests.test_run_session_writeback_service tests.test_run_checkpoint_preparation_service tests.test_run_completion_writeback_service tests.test_run_reconcile_writeback_service tests.test_plan_run_flow tests.test_status_reconcile_flow tests.test_implementation_session_flow tests.test_qa_flow tests.test_merge_test_basic_flow -v`：106 tests passed。
+- 剩余风险：
+  - 本阶段只处理 run projection 目录，不迁 run service、source/project/integration 层；`tests/test_architecture_guard.py` 当前 600 行，后续再新增架构表项前应先压缩或拆分测试。
+
 ### 阶段 258：Run artifact 子包治理第一切片
 - **状态：** complete
 - 背景：

@@ -2,7 +2,7 @@ import unittest
 
 from coding_orchestration import run_orchestration_service
 from coding_orchestration.models import AgentRunStatus, RunMode
-from coding_orchestration.run_session_projection import (
+from coding_orchestration.run.projections.run_session_projection import (
     build_active_run_session_update,
     build_completion_session_update,
     build_plan_report_session_fields,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from .models import RunMode, agent_run_status_details
+from ...models import RunMode, agent_run_status_details
 
 
 @dataclass(frozen=True)

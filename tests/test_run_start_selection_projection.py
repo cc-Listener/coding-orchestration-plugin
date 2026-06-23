@@ -1,6 +1,7 @@
 import unittest
 
-from coding_orchestration import run_orchestration_service, run_start_selection_projection
+from coding_orchestration import run_orchestration_service
+from coding_orchestration.run.projections import run_start_selection_projection
 from coding_orchestration.models import RunMode, TaskPhase
 
 

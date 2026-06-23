@@ -1,6 +1,6 @@
 import unittest
 
-from coding_orchestration.run_summary_projection import (
+from coding_orchestration.run.projections.run_summary_projection import (
     build_completed_run_summary_writeback_payload,
     build_reconciled_run_summary_writeback_payload,
 )

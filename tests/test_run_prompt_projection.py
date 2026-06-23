@@ -2,7 +2,7 @@ import unittest
 
 from coding_orchestration import run_orchestration_service
 from coding_orchestration.models import RunMode
-from coding_orchestration.run_prompt_projection import build_run_prompt_text
+from coding_orchestration.run.projections.run_prompt_projection import build_run_prompt_text
 
 
 class FakePromptBuilder:

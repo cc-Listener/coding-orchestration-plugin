@@ -40,6 +40,7 @@ from .run.artifacts import (
     run_start_artifact_service,
     run_summary_artifact_service,
 )
+from .run.projections import run_ledger_projection
 from . import (
     run_checkpoint_preparation_service,
     run_completion_writeback_service,
@@ -47,7 +48,6 @@ from . import (
     run_dispatch_service,
     run_evidence_observation_service,
     run_implementation_checkpoint_service,
-    run_ledger_projection,
     run_ledger_writeback_service,
     run_manifest_session_writeback_service,
     run_orchestration_service,

@@ -129,6 +129,7 @@ class ArchitectureGuardTest(unittest.TestCase):
             ("feishu_*.py", "feishu", "feishu_copy.py feishu_document_reader.py feishu_messages.py feishu_project_mcp.py feishu_project_reader.py feishu_work_item_reader.py"),
             ("*_presenter.py", "presenters", "doctor_presenter.py feedback_presenter.py merge_test_presenter.py run_completion_presenter.py run_start_presenter.py task_list_presenter.py task_status_presenter.py"),
             ("run_*artifact*.py", "run/artifacts", "run_artifact_paths.py run_context_artifact_service.py run_manifest_artifact_service.py run_report_artifact_service.py run_start_artifact_service.py run_stderr_artifact_service.py run_summary_artifact_service.py"),
+            ("run_*projection.py", "run/projections", "run_failure_report_projection.py run_ledger_projection.py run_prompt_projection.py run_report_refinement_projection.py run_session_projection.py run_start_selection_projection.py run_summary_projection.py"),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):
