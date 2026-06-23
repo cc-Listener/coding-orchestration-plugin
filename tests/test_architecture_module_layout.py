@@ -107,6 +107,8 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
                 "project_knowledge_initializer.py project_knowledge_inventory.py project_knowledge_resolver.py "
                 "project_profile_catalog.py project_resolver.py project_workitem_binding.py",
             ),
+            ("merge_test_readiness_service.py", "services", "merge_test_readiness_service.py"),
+            ("task_lifecycle_guard_service.py", "services", "task_lifecycle_guard_service.py"),
         ]
         for glob_pattern, package, expected in cases:
             with self.subTest(package=package):

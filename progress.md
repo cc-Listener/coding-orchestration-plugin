@@ -4,6 +4,34 @@
 
 ## 会话：2026-06-23
 
+### 阶段 280：Service boundary 子包治理
+- **状态：** complete
+- 背景：
+  - `merge_test_readiness_service.py` 和 `task_lifecycle_guard_service.py` 已分别承接 blocked merge-test readiness 纯评估、active coding status 列表、取消态保护、cancelled restore 和 merged_test bugfix reopen。
+  - 两者是明确 service 边界，不应继续散落在包根；收拢到 `coding_orchestration/services/` 后，orchestrator façade 只通过 services package 消费。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求两个 service 位于 `coding_orchestration/services/`。
+  - RED 已确认：focused test 先失败，失败点为两个 service 仍在包根。
+  - 将两个 service 移入 `coding_orchestration/services/`，更新 façade、测试和当前事实文档 import / canonical 路径。
+  - Architecture guard 发现 service 层不能内嵌 `/coding` host command 文案后，追加 RED 测试并将 merge-test readiness 的恢复建议改为语义动作，命令提示继续留在 presenter/host 边界。
+- 当前边界：
+  - `coding_orchestration/services/merge_test_readiness_service.py`：blocked merge-test readiness 纯评估，不写 ledger、不推进状态、不触发 runner、不发送 Gateway 回复。
+  - `coding_orchestration/services/task_lifecycle_guard_service.py`：active coding status、取消态保护、cancelled restore 和 merged_test bugfix reopen，不承载 workspace/git、runner 或 run lifecycle。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为两个 service 仍在包根。
+  - Service boundary RED：`rtk python3 -m unittest tests.test_merge_test_readiness_service -v` 先失败，失败点为 service recovery_action 仍包含 `/coding`。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - Service contract：`rtk python3 -m unittest tests.test_merge_test_readiness_service tests.test_task_lifecycle_guard_service -v`：9 tests passed。
+  - Service/Gateway/status/merge-test 相邻回归：`rtk python3 -m unittest tests.test_merge_test_readiness_service tests.test_merge_test_readiness_flow tests.test_merge_test_blocked_flow tests.test_merge_test_qa_gate_flow tests.test_merge_test_basic_flow tests.test_coding_merge_test_command_executor tests.test_gateway_command_executor tests.test_task_lifecycle_guard_service tests.test_cancel_restore_flow tests.test_coding_task_control_command_executor tests.test_coding_feedback_command_executor tests.test_gateway_pending_action_executor tests.test_coding_run_command_executor tests.test_gateway_coding_mode_executor tests.test_status_reconcile_flow -v`：93 tests passed。
+  - 文档合同回归：`rtk python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_module_layout -v`：17 tests passed。
+  - 编译检查：`rtk python3 -m py_compile ...`：passed。
+  - YAML 解析：`rtk python3 -c "import yaml; yaml.safe_load(open('contracts/project-context.yaml', encoding='utf-8')); print('yaml ok')"`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - 包根仍保留 background、command catalog/rewrite、prompt/context/report、runner/workspace/run orchestration 等跨域或核心模块；后续应继续按引用面小、职责单一的模块族切片迁移。
+
 ### 阶段 279：Project domain 子包治理
 - **状态：** complete
 - 背景：

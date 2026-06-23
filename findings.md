@@ -11,6 +11,7 @@
   - Codex runner 使用可见 session，方便 CLI 查看
 
 ## 研究发现
+- 阶段 280 确认：blocked merge-test readiness 纯评估与 task lifecycle guard 都是 service 边界，已收拢到 `coding_orchestration/services/`；包根不再承载 `merge_test_readiness_service.py` 或 `task_lifecycle_guard_service.py`。
 - 阶段 279 确认：项目识别、project profile catalog、项目知识初始化/扫描/文档构造、Feishu Project intake rule 和 work item identity 是同一 project domain，已统一收拢到 `coding_orchestration/project/`；包根不再承载 `project_*.py`。
 - `task_43141b20c03e` 的业务实现基本完成，但最后状态仍被记录为 `blocked`。
 - `blocked` 原因主要是验证环境受限，而不是实现未完成：

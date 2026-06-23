@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from coding_orchestration import merge_test_readiness_service as service
+from coding_orchestration.services import merge_test_readiness_service as service
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskStatus
 
 
@@ -19,7 +19,8 @@ class MergeTestReadinessServiceTest(unittest.TestCase):
 
         self.assertFalse(assessment["mergeable"])
         self.assertEqual(assessment["reason"], "missing_implementation_run")
-        self.assertIn("/coding implement task_1", assessment["recovery_action"])
+        self.assertNotIn("/coding", assessment["recovery_action"])
+        self.assertIn("implementation", assessment["recovery_action"])
 
     def test_codex_ready_report_is_mergeable(self):
         run = {

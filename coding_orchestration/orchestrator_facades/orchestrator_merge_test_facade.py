@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .. import merge_test_readiness_service
+from ..services import merge_test_readiness_service
 from ..models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
 from ..presenters import merge_test_presenter, task_status_presenter
 

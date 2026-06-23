@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from .. import task_lifecycle_guard_service
+from ..services import task_lifecycle_guard_service
 from ..integrations.kanban import kanban_sync_service
 from ..coding_commands import (
     coding_feedback_command_executor,

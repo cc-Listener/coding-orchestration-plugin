@@ -1,6 +1,6 @@
 import unittest
 
-from coding_orchestration import task_lifecycle_guard_service
+from coding_orchestration.services import task_lifecycle_guard_service
 from coding_orchestration.models import AgentRunStatus, RunMode, TaskPhase, TaskStatus
 
 

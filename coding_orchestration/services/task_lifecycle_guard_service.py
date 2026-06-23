@@ -3,8 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
-from .models import AgentRunStatus, RunMode, TaskPhase, TaskStatus, task_status_display
-from .services import RunService
+from ..models import AgentRunStatus, RunMode, TaskPhase, TaskStatus, task_status_display
+from .run_service import RunService
 
 
 def active_coding_statuses() -> list[str]:

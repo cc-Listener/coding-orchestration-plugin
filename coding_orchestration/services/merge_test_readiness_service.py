@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import status_policy
-from .models import AgentRunStatus, RunMode, TaskStatus
+from .. import status_policy
+from ..models import AgentRunStatus, RunMode, TaskStatus
 
 
 def latest_implementation_run(task: dict[str, Any]) -> dict[str, Any] | None:
@@ -44,7 +44,6 @@ def assess_blocked_merge_test(
     report: dict[str, Any] | None,
     merge_test_workspace_path: str = "",
 ) -> dict[str, Any]:
-    task_id = str(task.get("task_id") or "")
     if str(task.get("status") or "") != TaskStatus.BLOCKED.value:
         return {"mergeable": False, "reason": "task_not_blocked"}
 
@@ -54,7 +53,7 @@ def assess_blocked_merge_test(
             "mergeable": False,
             "reason": "missing_implementation_run",
             "impact": "没有找到可用于继续的实现运行记录，无法证明代码已完成。",
-            "recovery_action": f"先执行 /coding implement {task_id}，或补齐实现运行记录后重试。",
+            "recovery_action": "先重新执行 implementation，或补齐实现运行记录后重试。",
         }
 
     run_id = str(run.get("run_id") or "")
@@ -99,7 +98,7 @@ def assess_blocked_merge_test(
             "source_run_id": run_id,
             "reason": "missing_codex_session",
             "impact": "无法续接原 Codex 会话，继续 merge-test 时历史上下文可能不完整。",
-            "recovery_action": f"确认目标改动和工作区正确后，执行 /coding merge-test {task_id} --accept-risk。",
+            "recovery_action": "确认目标改动和工作区正确后，人工接受风险继续 merge-test。",
             "fallback_evidence": str(run.get("workspace_path") or merge_test_workspace_path or ""),
         }
 
@@ -111,7 +110,7 @@ def assess_blocked_merge_test(
             "source_run_id": run_id,
             "reason": "missing_structured_report",
             "impact": "缺少结构化验证报告，只能基于现有运行记录做人工风险放行。",
-            "recovery_action": f"检查现有运行记录后如确认风险可接受，执行 /coding merge-test {task_id} --accept-risk。",
+            "recovery_action": "检查现有运行记录；如确认风险可接受，人工接受风险继续 merge-test。",
             "fallback_evidence": _artifact_value(run, "summary", "stdout", "stderr") or str(run.get("workspace_path") or ""),
         }
 
@@ -127,7 +126,7 @@ def assess_blocked_merge_test(
             "source_run_id": run_id,
             "reason": f"report_{report_status}",
             "impact": "结构化验证报告显示运行失败，默认不合入 test；人工可在确认目标改动无误后覆盖风险。",
-            "recovery_action": f"建议先修复失败原因并重跑 implementation；如确认可接受，执行 /coding merge-test {task_id} --accept-risk。",
+            "recovery_action": "建议先修复失败原因并重跑 implementation；如确认可接受，人工接受风险继续 merge-test。",
             "fallback_evidence": _artifact_value(run, "report"),
         }
 
@@ -139,7 +138,7 @@ def assess_blocked_merge_test(
             "source_run_id": run_id,
             "reason": disallowed_reason,
             "impact": "当前阻断风险较高，默认不合入 test；人工可在确认风险可接受后覆盖。",
-            "recovery_action": f"建议先处理阻断原因并重新执行 implementation；如确认可接受，执行 /coding merge-test {task_id} --accept-risk。",
+            "recovery_action": "建议先处理阻断原因并重新执行 implementation；如确认可接受，人工接受风险继续 merge-test。",
             "fallback_evidence": _artifact_value(run, "report"),
         }
 
@@ -150,7 +149,7 @@ def assess_blocked_merge_test(
             "source_run_id": run_id,
             "reason": "implementation_not_landed",
             "impact": "结构化验证报告显示实现尚未形成可追踪提交，默认不合入 test；如果人工确认目标改动已完成，可覆盖风险。",
-            "recovery_action": f"先让 Codex 完成实现提交，或确认目标改动后执行 /coding merge-test {task_id} --accept-risk。",
+            "recovery_action": "先让 Codex 完成实现提交，或确认目标改动后人工接受风险继续 merge-test。",
             "fallback_evidence": _artifact_value(run, "report"),
         }
 
@@ -162,7 +161,7 @@ def assess_blocked_merge_test(
             "source_run_id": run_id,
             "reason": "merge_readiness_missing",
             "impact": "结构化验证结论缺失，系统不能自动判断是否可继续。",
-            "recovery_action": f"续接 Codex 补齐验证结论，或人工确认后执行 /coding merge-test {task_id} --accept-risk。",
+            "recovery_action": "续接 Codex 补齐验证结论，或人工确认后继续 merge-test。",
             "fallback_evidence": _artifact_value(run, "report"),
         }
 

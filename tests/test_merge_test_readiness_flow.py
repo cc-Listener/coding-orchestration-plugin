@@ -407,7 +407,8 @@ class MergeTestReadinessFlowTest(unittest.TestCase):
             self.assertFalse(assessment["mergeable"])
             self.assertEqual(assessment["reason"], "merge_readiness_missing")
             self.assertEqual(assessment["impact"], "结构化验证结论缺失，系统不能自动判断是否可继续。")
-            self.assertIn("/coding merge-test task_legacy --accept-risk", assessment["recovery_action"])
+            self.assertNotIn("/coding", assessment["recovery_action"])
+            self.assertIn("merge-test", assessment["recovery_action"])
             self.assertEqual(assessment["fallback_evidence"], str(impl_run / "report.json"))
     def test_blocked_merge_test_assessment_rejects_structured_not_landed_implementation(self):
         cases = [
