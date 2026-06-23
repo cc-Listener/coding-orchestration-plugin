@@ -4,6 +4,33 @@
 
 ## 会话：2026-06-23
 
+### 阶段 275：Source resolver 子包治理
+- **状态：** complete
+- 背景：
+  - `source_resolver.py` 维护 `SourceResolver.resolve_source_result()` / legacy `resolve_source()`、Lark preflight 和 Meegle preflight，是 source 域 resolver host 边界。
+  - Source helper、projection、Meegle adapter 和 context repair 已先行收拢；resolver 不应继续散落在 `coding_orchestration/` 包根，也不应吸收 reader、ledger 或 run lifecycle 职责。
+- 执行的操作：
+  - 扩展 `tests/test_architecture_module_layout.py`，要求 `source_resolver.py` 位于 `coding_orchestration/source/`。
+  - RED 已确认：focused test 先失败，失败点为包根仍存在 `source_resolver.py`。
+  - 将 `coding_orchestration/source_resolver.py` 移动到 `coding_orchestration/source/source_resolver.py`，并修正 Feishu reader、Meegle adapter 和 `SourceResult` 的相对 import。
+  - 更新 orchestrator bootstrap façade、install integration、tool façade 错误提示和 SourceResolver/Meegle 测试 import 到新包路径。
+  - 同步项目地图、组件合同、约定、machine-readable context、技术方案、发现和目录治理计划。
+- 当前边界：
+  - `coding_orchestration/source/source_resolver.py`：统一输出 `SourceResult`，保留旧 `resolve_source()` 兼容 dict context，并维护 Lark / Meegle preflight。
+  - 本切片未迁 Feishu reader、Meegle adapter、source context repair、ledger schema、runner/workspace/git 或 run lifecycle。
+- 已验证：
+  - RED：`rtk python3 -m unittest tests.test_architecture_module_layout -v` 先失败，失败点为 `source_resolver.py` 仍在包根。
+  - Focused GREEN：`rtk python3 -m unittest tests.test_architecture_module_layout -v`：1 test passed。
+  - SourceResolver/Feishu/Meegle/diagnostics/CLI 相邻回归：`rtk python3 -m unittest tests.test_source_resolver tests.test_meegle_reader tests.test_source_flow tests.test_source_plan_flow tests.test_orchestrator_tools tests.test_coding_diagnostics_command_executor tests.test_coding_cli tests.test_install tests.test_docs_and_install_entry -v`：95 tests passed。
+  - 文档合同回归：`rtk python3 -m unittest tests.test_docs_and_install_entry tests.test_architecture_module_layout -v`：17 tests passed。
+  - 编译检查：`rtk python3 -m py_compile ...`：passed。
+  - YAML 解析：`rtk python3 -c "import yaml; yaml.safe_load(open('contracts/project-context.yaml', encoding='utf-8')); print('yaml ok')"`：passed。
+  - 架构检查：`rtk python3 scripts/architecture_guard.py`：passed，no findings。
+  - 格式检查：`rtk git diff --check`：passed。
+  - Release gate no-smoke：`rtk python3 scripts/release_readiness.py --skip-hermes-smoke`：passed，完整单测 996 tests passed，architecture guard no findings，敏感扫描 no findings。
+- 剩余风险：
+  - Source 域包根治理已基本收口；后续集中转向 run/project/其他包根模块，仍需逐片判断公共入口是否应保留在包根。
+
 ### 阶段 274：Source context repair service 子包治理
 - **状态：** complete
 - 背景：

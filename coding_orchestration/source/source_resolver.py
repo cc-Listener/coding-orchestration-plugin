@@ -9,9 +9,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from .feishu.feishu_project_reader import FeishuProjectReader
-from .ports import SourceResult
-from .source.adapters.meegle_reader import MeegleReader
+from ..feishu.feishu_project_reader import FeishuProjectReader
+from ..ports import SourceResult
+from .adapters.meegle_reader import MeegleReader
 
 
 CommandRunner = Callable[[list[str]], subprocess.CompletedProcess[str]]

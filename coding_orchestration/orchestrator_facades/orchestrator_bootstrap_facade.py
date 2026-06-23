@@ -23,7 +23,7 @@ from ..project_resolver import ProjectRegistry
 from ..run_manifest_service import RunManifestService
 from ..runner_router import RunnerRouter
 from ..services import DeliveryService, RunService, TaskService, WorkItemService
-from ..source_resolver import SourceResolver
+from ..source.source_resolver import SourceResolver
 from ..symphony_compat.workspace_manager import WorkspaceManager
 from ..workspace_checkpoint_service import WorkspaceCheckpointService
 from ..presenters import run_start_presenter

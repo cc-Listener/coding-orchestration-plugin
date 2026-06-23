@@ -232,7 +232,7 @@ rtk git commit -m "feat: 收拢 presenter 模块目录"
 - Done: `source_work_item_context.py` -> `coding_orchestration/source/source_work_item_context.py`
 - Done: `source_projection.py` -> `coding_orchestration/source/source_projection.py`
 - Done: `source_context_repair_service.py` -> `coding_orchestration/source/source_context_repair_service.py`
-- Move: `source_resolver.py`
+- Done: `source_resolver.py` -> `coding_orchestration/source/source_resolver.py`
 - Done: `meegle_reader.py` -> `coding_orchestration/source/adapters/meegle_reader.py`
 - Keep: `feishu/` as current independent adapter package for now
 

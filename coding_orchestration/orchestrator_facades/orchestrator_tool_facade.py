@@ -81,7 +81,7 @@ class OrchestratorToolFacadeMixin:
                 "ok": False,
                 "status": "unavailable",
                 "error": "SourceResolver is not configured.",
-                "recovery_action": "Install or enable coding_orchestration.source_resolver.",
+                "recovery_action": "Install or enable coding_orchestration.source.source_resolver.",
             }
         return resolver.preflight_lark(args)
 

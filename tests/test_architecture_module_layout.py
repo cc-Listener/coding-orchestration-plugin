@@ -95,6 +95,7 @@ class ArchitectureModuleLayoutTest(unittest.TestCase):
             ("source_links.py", "source", "source_links.py"),
             ("source_projection.py", "source", "source_projection.py"),
             ("source_recovery.py", "source", "source_recovery.py"),
+            ("source_resolver.py", "source", "source_resolver.py"),
             ("source_work_item_context.py", "source", "source_work_item_context.py"),
         ]
         for glob_pattern, package, expected in cases:

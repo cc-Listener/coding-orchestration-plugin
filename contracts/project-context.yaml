@@ -273,7 +273,7 @@ component_contract:
       kind: orchestration_core
     - path: coding_orchestration/runners/
       kind: runner_adapters
-    - path: coding_orchestration/source_resolver.py
+    - path: coding_orchestration/source/source_resolver.py
       kind: source_adapter
     - path: coding_orchestration/feishu/
       kind: feishu_source_adapters
@@ -382,7 +382,7 @@ component_contract:
       preferred: true
       note: "ToolOperationDispatcher 是 ToolSpec.operation_id 统一分发边界，供 plugin_tools.py、cli.py 和 Gateway `/coding project-mcp-preflight` diagnostic leaf 复用；future MCP tool 只有出现真实消费方后再接入。"
     - name: source_resolution
-      path: coding_orchestration/source_resolver.py
+      path: coding_orchestration/source/source_resolver.py
       preferred: true
     - name: source_helpers
       path: coding_orchestration/source/
@@ -835,7 +835,7 @@ component_contract:
       use_instead_of:
         - "在 orchestrator 中手写 Codex CLI 参数。"
     - name: SourceResolver
-      path: coding_orchestration/source_resolver.py
+      path: coding_orchestration/source/source_resolver.py
       use_instead_of:
         - "直接猜测飞书/Meegle 来源正文。"
     - name: source_helpers

@@ -446,6 +446,8 @@ coding_orchestration plugin
 
 阶段 274 目录治理事实：Source context repair service 已收拢到 `coding_orchestration/source/source_context_repair_service.py`；该模块继续只维护 source context 读取、deferred source pre-run enrichment、既有 task context 修复、source summary 回写和项目上下文回填接线，不迁 `source_resolver.py`、reader、ledger schema、runner/workspace/git 或 run lifecycle。
 
+阶段 275 目录治理事实：SourceResolver 已收拢到 `coding_orchestration/source/source_resolver.py`；该模块继续维护 `SourceResolver.resolve_source_result()` / legacy `resolve_source()`、Lark preflight 和 Meegle preflight，不迁 Feishu reader、Meegle adapter、source context repair、ledger schema、runner/workspace/git 或 run lifecycle。
+
 阶段 261 目录治理事实：`coding_orchestration/run/services/` 已继续收拢 runner session metadata 到 manifest 的 host writeback service 与 completed run Project writeback host service；二者仍只消费上游已计算事实和注入 callback，不持有 runner/workspace/git 生命周期，也不直接持有 WorkItem/MCP adapter。
 
 阶段 262 目录治理事实：`coding_orchestration/run/services/` 已继续收拢 checkpoint preparation、diff guard、dispatch、evidence observation 和 implementation checkpoint execution host service；这些模块仍只做注入 callback 编排或执行期观测，不迁 `start_run()` 主体，不持有 runner/workspace/git 生命周期 owner，也不承接完成态 coordinator。

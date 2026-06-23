@@ -1,7 +1,7 @@
 import subprocess
 import unittest
 
-from coding_orchestration.source_resolver import SourceResolver
+from coding_orchestration.source.source_resolver import SourceResolver
 
 ISOLATED_HERMES_HOME = "/tmp/nonexistent-hermes-home-for-source-resolver-tests"
 

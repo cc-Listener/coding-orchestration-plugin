@@ -314,7 +314,7 @@ def _check_lark(
     env: dict[str, str],
     runner: CommandRunner,
 ) -> InstallPreflightCheck:
-    from ...source_resolver import SourceResolver
+    from ...source.source_resolver import SourceResolver
 
     result = SourceResolver(command_runner=runner).preflight_lark(
         {

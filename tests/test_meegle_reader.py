@@ -1,7 +1,7 @@
 import unittest
 
 from coding_orchestration.source.adapters.meegle_reader import MeegleReader
-from coding_orchestration.source_resolver import SourceResolver
+from coding_orchestration.source.source_resolver import SourceResolver
 
 
 def missing_command_runner(command):
