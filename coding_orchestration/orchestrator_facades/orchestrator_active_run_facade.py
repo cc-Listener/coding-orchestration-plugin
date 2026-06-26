@@ -9,6 +9,8 @@ from .. import (
 from ..models import AgentRunStatus, RunnerName
 from ..run.artifacts import run_report_artifact_service, run_summary_artifact_service
 from ..run.services import run_reconcile_writeback_service
+from ..runners.codex_report import runner_failure_from_stdout
+from ..runners.codex_report_writer import CodexReportWriter
 
 
 class OrchestratorActiveRunFacadeMixin:
@@ -32,10 +34,31 @@ class OrchestratorActiveRunFacadeMixin:
         if not report:
             return None
         mode = run_orchestration_service.run_mode_for_existing_run(task, run, report)
+        runner_name = str(
+            run.get("runner")
+            or runner_session.get("provider")
+            or report.get("runner")
+            or RunnerName.CODEX_CLI.value
+        )
         details = self._run_status_details_from_report(report, mode)
         status = str(details["status"])
         if status == AgentRunStatus.RUNNING.value:
-            return None
+            runner_failure = runner_failure_from_stdout(artifacts.stdout)
+            if not runner_failure:
+                return None
+            report = CodexReportWriter(runner_name=runner_name).build_fallback_report(
+                run_dir=artifacts.run_dir,
+                mode=mode,
+                status="runner_failed",
+                limitation_reason=runner_failure["reason"],
+                limitation_impact=runner_failure["impact"],
+                limitation_recovery_action=runner_failure["recovery_action"],
+                limitation_fallback_evidence=runner_failure["fallback_evidence"],
+            )
+            details = self._run_status_details_from_report(report, mode)
+            status = str(details["status"])
+            if status == AgentRunStatus.RUNNING.value:
+                return None
 
         changed_files = run_orchestration_service.changed_files_for_existing_run(run, report)
         report = dict(report)
@@ -43,12 +66,6 @@ class OrchestratorActiveRunFacadeMixin:
         details = self._normalize_implementation_run_status(report, mode)
         status = str(details["status"])
         report.update(details)
-        runner_name = str(
-            run.get("runner")
-            or runner_session.get("provider")
-            or report.get("runner")
-            or RunnerName.CODEX_CLI.value
-        )
         report["runner"] = runner_name
         report.setdefault("mode", mode.value)
         report["modified_files"] = changed_files

@@ -1,15 +1,25 @@
 version: 1
 bootstrap_status:
   level: bootstrap_complete
-  mode: bootstrap
+  mode: refresh
   depth_scope: repo
   app_targets: []
   placement_strategy: root-docs
   trigger_evidence:
-    - "仓库缺少 AGENTS.md。"
-    - "仓库缺少 docs/project-map.md、docs/conventions.md、docs/component-contract.md。"
-    - "仓库缺少 contracts/project-context.yaml。"
-    - "未发现 apps/* 或独立主应用子域，因此未触发 app-deep refresh。"
+    - "核心 bootstrap 合同层已存在：AGENTS.md、docs/project-map.md、docs/conventions.md、docs/component-contract.md、contracts/project-context.yaml。"
+    - "仓库当前为单 Python Hermes plugin 包；未发现 apps/* 或独立主应用子域，因此未触发 app-deep refresh。"
+    - "合同体检未发现旧 coding_orchestration/orchestrator.py 或旧包根模块路径引用。"
+    - "docs/component-contract.md 已具备封装层定位索引表、组件/符号可检索索引、找不到组件时的定位顺序和可执行 rtk rg 检索命令。"
+    - "旧 bootstrap 缺失证据已过期，本次仅刷新 machine-readable 运行证据。"
+  affected_artifacts:
+    - contracts/project-context.yaml
+  unchanged_artifacts:
+    - AGENTS.md
+    - docs/project-map.md
+    - docs/conventions.md
+    - docs/component-contract.md
+  uncertainty:
+    - "未执行 app-deep refresh；当前仓库没有 apps/* 主应用子域。"
 
 navigation_layer:
   agents_md:

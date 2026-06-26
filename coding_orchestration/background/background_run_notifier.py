@@ -6,7 +6,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Any, Callable
 
-from ..models import RunMode
+from ..models import AgentRunStatus, RunMode, TaskStatus
 
 
 def current_event_loop_or_none() -> Any | None:
@@ -52,7 +52,10 @@ def run_and_notify(
         result = execute()
         if after_success is not None:
             after_success(result)
-        message = format_success_message(result)
+        if result_is_failed(result):
+            message = result_failure_message(task_id, mode, result)
+        else:
+            message = format_success_message(result)
     except Exception as exc:
         mark_failed(exc)
         message = failure_message(task_id, mode, exc)
@@ -68,6 +71,36 @@ def failure_message(task_id: str, mode: RunMode, exc: Exception) -> str:
         RunMode.MERGE_TEST: "merge-test",
     }.get(mode, mode.value)
     return f"[{task_id}] {mode_label}执行失败：{exc}\n请查看任务详情和执行日志后重试。"
+
+
+def result_is_failed(result: dict[str, Any]) -> bool:
+    status = str(result.get("status") or "").strip()
+    task_status = str(result.get("task_status") or "").strip()
+    return status in {AgentRunStatus.FAILED.value, AgentRunStatus.CANCELLED.value} or task_status in {
+        TaskStatus.FAILED.value,
+        TaskStatus.CANCELLED.value,
+    }
+
+
+def result_failure_message(task_id: str, mode: RunMode, result: dict[str, Any]) -> str:
+    mode_label = {
+        RunMode.PLAN_ONLY: "计划",
+        RunMode.IMPLEMENTATION: "实现",
+        RunMode.QA: "QA",
+        RunMode.MERGE_TEST: "merge-test",
+    }.get(mode, mode.value)
+    run_id = str(result.get("run_id") or "").strip() or "未知"
+    status = str(result.get("task_status") or result.get("status") or "").strip() or "failed"
+    reason = str(result.get("failure_type") or result.get("status_detail") or "").strip()
+    lines = [
+        f"[{task_id}] {mode_label}执行失败。",
+        f"run_id：{run_id}",
+        f"状态：{status}",
+    ]
+    if reason:
+        lines.append(f"原因：{reason}")
+    lines.append(f"请发送 /coding status {task_id} 查看详情和执行日志后重试。")
+    return "\n".join(lines)
 
 
 def completion_notification_record(

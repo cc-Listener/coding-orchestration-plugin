@@ -129,6 +129,35 @@ class BackgroundRunNotifierTest(unittest.TestCase):
         self.assertEqual(records[0][0], {})
         self.assertIn("[task_1] merge-test执行失败：runner unavailable", gateway.messages[0][1])
 
+    def test_run_and_notify_sends_failure_message_for_failed_result(self):
+        gateway = RecordingGateway()
+        failures = []
+        records = []
+
+        background_run_notifier.run_and_notify(
+            "task_1",
+            gateway,
+            FakeEvent(),
+            None,
+            mode=RunMode.PLAN_ONLY,
+            execute=lambda: {
+                "run_id": "run_failed",
+                "status": "failed",
+                "task_status": "failed",
+                "failure_type": "runner_failed",
+            },
+            format_success_message=lambda result: f"should not happen:{result['run_id']}",
+            mark_failed=lambda exc: failures.append(str(exc)),
+            record_notification=lambda result, reply: records.append((result, reply)),
+        )
+
+        self.assertEqual(failures, [])
+        self.assertEqual(records[0][0]["run_id"], "run_failed")
+        self.assertEqual(records[0][1]["status"], "ok")
+        self.assertIn("[task_1] 计划执行失败。", gateway.messages[0][1])
+        self.assertIn("run_id：run_failed", gateway.messages[0][1])
+        self.assertNotIn("should not happen", gateway.messages[0][1])
+
     def test_start_background_run_names_worker_by_mode(self):
         finished = threading.Event()
         seen = []

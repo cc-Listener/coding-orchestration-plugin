@@ -151,6 +151,10 @@ class RouterPromptSummaryTest(unittest.TestCase):
         self.assertIn("Hermes 已在来源上下文中注入飞书正文", instructions)
         self.assertIn("优先使用来源上下文中的 `lark_cli_command`", instructions)
         self.assertIn("Plan-only 不允许修改项目文件", instructions)
+        self.assertIn("branch_slug_candidate", instructions)
+        self.assertIn("短横线连接的功能简介", instructions)
+        self.assertIn("不要输出完整分支名", instructions)
+        self.assertIn("不要使用 `codex/`", instructions)
 
     def test_decomposition_prompt_forbids_code_changes_and_requires_delivery_breakdown(self):
         prompt = PromptBuilder().build_run_instructions(mode=RunMode.DECOMPOSITION)
@@ -374,9 +378,9 @@ class RouterPromptSummaryTest(unittest.TestCase):
     def test_implementation_run_instructions_require_codex_commit_with_change_summary(self):
         instructions = PromptBuilder().build_run_instructions(mode=RunMode.IMPLEMENTATION)
 
-        self.assertIn("由 Codex 在当前 task workspace 内创建 git commit", instructions)
+        self.assertIn("由 Codex 在当前 task worktree 内创建 feature commit", instructions)
         self.assertIn("commit subject 必须描述本次实际代码改动", instructions)
-        self.assertIn("不要使用 task/run/status/checkpoint", instructions)
+        self.assertIn("不要使用 task/run/status/checkpoint/after/before/QA/merge-test", instructions)
         self.assertIn("status=blocked", instructions)
 
     def test_run_instructions_require_codex_owned_user_summary_and_no_python_fallback(self):

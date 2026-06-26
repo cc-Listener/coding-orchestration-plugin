@@ -8,6 +8,91 @@ from ..models import AgentRunStatus, RunMode
 from .codex_report import REPORT_CONTRACT_FIELDS
 
 
+def _closed_object(properties: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "required": list(properties),
+        "properties": properties,
+    }
+
+
+def _string_array() -> dict[str, Any]:
+    return {"type": "array", "items": {"type": "string"}}
+
+
+def _execution_policy_decision_schema() -> dict[str, Any]:
+    return _closed_object(
+        {
+            "route": {"type": "string"},
+            "planning": {"type": "string"},
+            "context": {"type": "string"},
+            "implementation": {"type": "string"},
+            "verification": {"type": "string"},
+            "allow_browser_qa": {"type": "boolean"},
+            "require_human_confirmation": {"type": "boolean"},
+            "max_duration_seconds": {"type": "integer"},
+            "reasons": _string_array(),
+            "reasoning_summary": {"type": "string"},
+        }
+    )
+
+
+def _merge_readiness_schema() -> dict[str, Any]:
+    return _closed_object(
+        {
+            "ready": {"type": "boolean"},
+            "risk_level": {"type": "string"},
+            "risk_note": {"type": "string"},
+            "required_confirmation": {"type": "boolean"},
+            "reason": {"type": "string"},
+            "impact": {"type": "string"},
+            "recovery_action": {"type": "string"},
+            "fallback_evidence": {"type": "string"},
+        }
+    )
+
+
+def _delivery_unit_schema() -> dict[str, Any]:
+    return _closed_object(
+        {
+            "unit_id": {"type": "string"},
+            "title": {"type": "string"},
+            "summary": {"type": "string"},
+            "project_key": {"type": "string"},
+            "project_path": {"type": "string"},
+            "risk_level": {"type": "string"},
+            "dependencies": _string_array(),
+            "acceptance_criteria": _string_array(),
+        }
+    )
+
+
+def _execution_task_schema() -> dict[str, Any]:
+    return _closed_object(
+        {
+            "unit_id": {"type": "string"},
+            "title": {"type": "string"},
+            "summary": {"type": "string"},
+            "project_key": {"type": "string"},
+            "project_path": {"type": "string"},
+            "dependencies": _string_array(),
+            "acceptance_criteria": _string_array(),
+            "suggested_command": {"type": "string"},
+        }
+    )
+
+
+def _dependency_schema() -> dict[str, Any]:
+    return _closed_object(
+        {
+            "from": {"type": "string"},
+            "to": {"type": "string"},
+            "reason": {"type": "string"},
+        }
+    )
+
+
 def build_report_schema() -> dict[str, Any]:
     return {
         "type": "object",
@@ -81,16 +166,16 @@ def build_report_schema() -> dict[str, Any]:
             "commit_sha": {"type": "string"},
             "changed_files_summary": {"type": "array", "items": {"type": "string"}},
             "branch_slug_candidate": {"type": "string"},
-            "execution_policy_decision": {"type": "object", "additionalProperties": True},
-            "merge_readiness": {"type": "object", "additionalProperties": True},
+            "execution_policy_decision": _execution_policy_decision_schema(),
+            "merge_readiness": _merge_readiness_schema(),
             "classification": {
                 "type": "string",
                 "enum": ["", "single_execution", "multi_task", "multi_project", "needs_clarification"],
             },
             "reason": {"type": "string"},
-            "delivery_units": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-            "execution_tasks": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
-            "dependencies": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+            "delivery_units": {"type": "array", "items": _delivery_unit_schema()},
+            "execution_tasks": {"type": "array", "items": _execution_task_schema()},
+            "dependencies": {"type": "array", "items": _dependency_schema()},
             "acceptance_plan": {"type": "array", "items": {"type": "string"}},
             "open_questions": {"type": "array", "items": {"type": "string"}},
             "materialization_allowed": {"type": "boolean"},

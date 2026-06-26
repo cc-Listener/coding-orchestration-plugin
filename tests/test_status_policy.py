@@ -62,6 +62,23 @@ class StatusPolicyTest(unittest.TestCase):
                 self.assertEqual(details["failure_type"], "implementation_not_landed")
                 self.assertEqual(details["status_detail"], "implementation_not_landed")
 
+    def test_running_implementation_does_not_require_landed_commit_yet(self):
+        details = normalize_implementation_run_status(
+            {
+                "status": AgentRunStatus.RUNNING.value,
+                "raw_status": "queued",
+                "status_detail": "queued",
+                "mode": RunMode.IMPLEMENTATION.value,
+                "implementation_landed": False,
+                "commit_sha": "",
+            },
+            RunMode.IMPLEMENTATION,
+        )
+
+        self.assertEqual(details["status"], AgentRunStatus.RUNNING.value)
+        self.assertEqual(details["status_detail"], "queued")
+        self.assertNotEqual(details["failure_type"], "implementation_not_landed")
+
     def test_control_failures_are_not_overwritten_by_landed_commit_gate(self):
         for report, expected_status, expected_detail in (
             ({"status": "timeout", "mode": RunMode.IMPLEMENTATION.value}, AgentRunStatus.FAILED.value, "timeout"),

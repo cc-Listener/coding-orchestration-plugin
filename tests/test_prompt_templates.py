@@ -22,6 +22,11 @@ class PromptTemplatesTest(unittest.TestCase):
 
         self.assertIn("`status` 只能是 `running`、`succeeded`、`blocked`、`failed`、`cancelled`", instructions)
         self.assertIn("Plan-only 不允许修改项目文件", instructions)
+        self.assertIn("read-only sandbox", instructions)
+        self.assertIn("rtk proxy curl", instructions)
+        self.assertIn("rtk proxy grep", instructions)
+        self.assertIn("即使 JSON 解析失败，也要检索原始响应文本", instructions)
+        self.assertNotIn("先保存原始响应到临时文件", instructions)
         self.assertIn("不要返回 `ready_for_implementation`", instructions)
 
     def test_targeted_qa_template_avoids_full_qa_chain(self):

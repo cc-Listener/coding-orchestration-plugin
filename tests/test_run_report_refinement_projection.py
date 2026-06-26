@@ -41,6 +41,27 @@ class RunReportRefinementProjectionTest(unittest.TestCase):
         self.assertEqual(refinement.report["verification_limitations"][0]["reason"], "diff_guard_violation")
         self.assertFalse(refinement.requires_implementation_commit_check)
 
+    def test_refinement_projection_keeps_running_implementation_active(self):
+        refinement = refine_run_report_projection(
+            {
+                "status": AgentRunStatus.RUNNING.value,
+                "raw_status": "queued",
+                "status_detail": "queued",
+                "mode": RunMode.IMPLEMENTATION.value,
+                "implementation_landed": False,
+                "commit_sha": "",
+            },
+            mode=RunMode.IMPLEMENTATION,
+            fallback_status=AgentRunStatus.RUNNING.value,
+            violations=[],
+            diff_path="/tmp/diff.patch",
+        )
+
+        self.assertEqual(refinement.status, AgentRunStatus.RUNNING.value)
+        self.assertEqual(refinement.details["status_detail"], "queued")
+        self.assertFalse(refinement.requires_implementation_commit_check)
+        self.assertNotEqual(refinement.report["failure_type"], "implementation_not_landed")
+
 
 if __name__ == "__main__":
     unittest.main()

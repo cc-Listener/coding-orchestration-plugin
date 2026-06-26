@@ -66,6 +66,8 @@ def run_details_are_runner_failed(details: dict[str, Any]) -> bool:
 
 def normalize_implementation_run_status(report: dict[str, Any], mode: RunMode) -> dict[str, Any]:
     details = run_status_details_from_report(report, mode)
+    if str(details.get("status") or "") == AgentRunStatus.RUNNING.value:
+        return details
     if details.get("structured") is False and mode != RunMode.MERGE_TEST:
         blocked_details = agent_run_status_details("blocked", mode)
         blocked_details["raw_status"] = str(details.get("raw_status") or "")

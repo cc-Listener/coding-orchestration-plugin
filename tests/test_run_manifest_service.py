@@ -16,6 +16,7 @@ from coding_orchestration.run.services.run_manifest_service import (
     build_start_manifest_updates,
     codex_attach_command,
     codex_resume_command,
+    elevated_permissions_reason,
     elevated_permission_scope,
     is_codex_session_runner,
     permission_profile,
@@ -27,6 +28,37 @@ from coding_orchestration.run.services.run_manifest_service import (
 
 
 class RunManifestServiceTest(unittest.TestCase):
+    def test_permission_profiles_are_explicit_for_each_run_mode(self):
+        self.assertEqual(permission_profile(RunMode.DECOMPOSITION), "decomposition_read_only")
+        self.assertEqual(permission_profile(RunMode.PLAN_ONLY), "plan_read_only")
+        self.assertEqual(permission_profile(RunMode.PLAN_ONLY, source_elevated=True), "plan_source_read_elevated")
+        self.assertEqual(permission_profile(RunMode.IMPLEMENTATION), "implementation_worktree_elevated")
+        self.assertEqual(permission_profile(RunMode.QA), "qa_worktree_elevated")
+        self.assertEqual(permission_profile(RunMode.MERGE_TEST), "merge_test_git_elevated")
+
+        plan_scope = elevated_permission_scope(RunMode.PLAN_ONLY)
+        self.assertIn("no project file writes", plan_scope)
+        self.assertNotIn("git metadata", plan_scope)
+
+        implementation_scope = elevated_permission_scope(RunMode.IMPLEMENTATION)
+        self.assertIn("task worktree source writes", implementation_scope)
+        self.assertIn("semantic implementation commit", implementation_scope)
+        self.assertNotIn("test branch merge and push", implementation_scope)
+
+        qa_scope = elevated_permission_scope(RunMode.QA)
+        self.assertIn("QA fix commits in task worktree", qa_scope)
+        self.assertIn("QA reports", qa_scope)
+        self.assertNotIn("test branch merge and push", qa_scope)
+
+        merge_scope = elevated_permission_scope(RunMode.MERGE_TEST)
+        self.assertIn("test branch merge and push", merge_scope)
+        self.assertIn("source branch push", merge_scope)
+        self.assertNotIn("dependency install", merge_scope)
+
+        self.assertIn("isolated task worktree", elevated_permissions_reason(RunMode.IMPLEMENTATION))
+        self.assertIn("QA fixes", elevated_permissions_reason(RunMode.QA))
+        self.assertIn("test branch", elevated_permissions_reason(RunMode.MERGE_TEST))
+
     def test_codex_resume_command_uses_read_only_for_plain_plan_only(self):
         command = codex_resume_command("019e-plan-thread", mode=RunMode.PLAN_ONLY)
 
@@ -133,7 +165,7 @@ class RunManifestServiceTest(unittest.TestCase):
                 run_dir=run_dir,
                 heartbeat_interval_seconds=30,
                 execution_policy={"route": "standard_change"},
-                source_branch="codex/fix-task-123",
+                source_branch="feature/fix-task-123",
                 source_base_branch="main",
                 now=now,
             )
@@ -143,9 +175,9 @@ class RunManifestServiceTest(unittest.TestCase):
             self.assertEqual(data["workspace_path"], str(workspace))
             self.assertEqual(data["workflow_refs"], [str(project / "WORKFLOW.md")])
             self.assertEqual(data["llm_wiki_refs"], ["wiki_1"])
-            self.assertEqual(data["source_branch"], "codex/fix-task-123")
+            self.assertEqual(data["source_branch"], "feature/fix-task-123")
             self.assertEqual(data["source_base_branch"], "main")
-            self.assertEqual(data["permission_profile"], "implementation_controlled_elevated")
+            self.assertEqual(data["permission_profile"], "implementation_worktree_elevated")
             self.assertEqual(data["deadline_at"], "2026-06-16T08:01:00+00:00")
 
     def test_update_manifest_session_metadata_for_codex_runner(self):

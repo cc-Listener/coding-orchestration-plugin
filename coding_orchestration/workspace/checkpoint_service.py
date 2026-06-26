@@ -8,6 +8,7 @@ from typing import Any
 from ..models import RunMode
 
 
+SOURCE_BRANCH_PREFIX = "feature"
 SOURCE_BRANCH_SLUG_MAX_LENGTH = 64
 
 
@@ -144,13 +145,23 @@ def source_branch_for_task(task: dict[str, Any], project_name: str) -> str:
     if existing:
         return str(existing)
     plan_report = session.get("plan_report") or {}
-    candidate = plan_report.get("branch_slug_candidate") if isinstance(plan_report, dict) else ""
-    slug = slugify_ascii(str(candidate or ""))
+    plan_candidate = plan_report.get("branch_slug_candidate") if isinstance(plan_report, dict) else ""
+    candidates = [
+        plan_candidate,
+        task.get("requirement_summary"),
+        project_name,
+        "task",
+    ]
+    slug = ""
+    for candidate in candidates:
+        slug = slugify_ascii(str(candidate or ""))
+        if slug:
+            break
     if slug:
         slug = slug[:SOURCE_BRANCH_SLUG_MAX_LENGTH].rstrip("-")
     if not slug:
         slug = "task"
-    return f"codex/{slug}-{task_short_id(str(task['task_id']))}"
+    return f"{SOURCE_BRANCH_PREFIX}/{slug}-{task_short_id(str(task['task_id']))}"
 
 
 def source_base_branch_for_task(task: dict[str, Any]) -> str:

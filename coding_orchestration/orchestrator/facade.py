@@ -27,6 +27,7 @@ from ..orchestrator_facades.orchestrator_tool_facade import OrchestratorToolFaca
 from ..orchestrator_facades.orchestrator_workspace_facade import OrchestratorWorkspaceFacadeMixin
 from ..models import (
     RunMode,
+    TaskStatus,
     normalize_agent_run_status,
 )
 from ..ports import KnowledgePort
@@ -357,6 +358,80 @@ class CodingOrchestrator(
             checkpoint_failed_result_callback=self._checkpoint_failed_result,
             runner_failed_result_callback=self._runner_failed_result,
         )
+        active_status = normalize_agent_run_status(result.status, mode)
+        if active_status == "running":
+            active_report = dict(result.report)
+            active_report["run_status"] = active_status
+            active_report["status"] = active_status
+            active_report["task_status"] = TaskStatus.RUNNING.value
+            session_id = self._thread_id_from_artifact(result.artifacts.stdout) or resume_session_id
+            run_manifest_session_writeback_service.write_run_manifest_session_metadata(
+                session_id=session_id,
+                runner_name=runner.name,
+                mode=mode,
+                manifest=manifest,
+                manifest_path=result.artifacts.manifest,
+                update_manifest_session_metadata_callback=self._update_manifest_session_metadata,
+            )
+            run_source_branch = (
+                self._source_branch_for_task(task, project_name)
+                if run_orchestration_service.run_records_source_branch(mode)
+                else None
+            )
+            ledger_records = run_ledger_projection.build_run_ledger_writeback_records(
+                artifacts=result.artifacts,
+                run_id=run_id,
+                runner_name=runner.name,
+                mode=mode,
+                status=active_status,
+                task_status=TaskStatus.RUNNING,
+                report=active_report,
+                exit_code=result.exit_code,
+                workspace_path=workspace_path,
+                source_branch=run_source_branch,
+                implementation_checkpoint=manifest.implementation_checkpoint,
+                qa_artifacts={},
+                tested_commit="",
+                stale_completion=False,
+                changed_files=[],
+                violations=[],
+                merge_record_created_at="",
+            )
+            run_ledger_writeback_service.write_run_ledger_completion(
+                task_id=task_id,
+                records=ledger_records,
+                append_artifact_callback=self.ledger.append_artifact,
+                append_agent_run_callback=self.ledger.append_agent_run,
+                append_merge_record_callback=self.ledger.append_merge_record,
+            )
+            run_session_writeback_service.write_run_session_update(
+                task_id=task_id,
+                update=run_orchestration_service.build_completion_session_update(
+                    mode=mode,
+                    report=active_report,
+                    stale_completion=False,
+                    runner_name=runner.name,
+                    run_id=run_id,
+                    status=active_status,
+                    session_id=session_id,
+                    run_still_active=True,
+                    attach_command=self._codex_attach_command(session_id) if session_id else "",
+                ),
+                update_task_session_callback=self.ledger.update_task_session,
+            )
+            return run_orchestration_service.build_start_run_result_payload(
+                task_id=task_id,
+                run_id=run_id,
+                mode=mode,
+                status=active_status,
+                task_status=TaskStatus.RUNNING,
+                stale_completion=False,
+                current_task_status=TaskStatus.RUNNING.value,
+                observed_active_run_id="",
+                artifact_record=ledger_records.artifact_record,
+                report=active_report,
+                project_writeback={},
+            )
 
         diff_guard_observation = run_diff_guard_service.observe_run_diff_guard(
             diff_guard=self.diff_guard,

@@ -133,9 +133,9 @@ def permission_profile(mode: RunMode, *, source_elevated: bool = False) -> str:
             return "plan_source_read_elevated"
         return "plan_read_only"
     if mode == RunMode.IMPLEMENTATION:
-        return "implementation_controlled_elevated"
+        return "implementation_worktree_elevated"
     if mode == RunMode.QA:
-        return "qa_controlled_elevated"
+        return "qa_worktree_elevated"
     if mode == RunMode.MERGE_TEST:
         return "merge_test_git_elevated"
     return "default"
@@ -156,14 +156,14 @@ def elevated_permissions_reason(mode: RunMode, *, source_elevated: bool = False)
     if mode == RunMode.QA:
         return (
             "QA requires dependency install, test execution, dev server/browser automation, "
-            "git metadata writes for QA fix commits, and QA artifact writes."
+            "git metadata writes for QA fixes in the task worktree, and QA artifact writes."
         )
     if mode == RunMode.IMPLEMENTATION:
         return (
-            "Implementation requires dependency install, test execution, dev server/browser checks, "
-            "and git metadata writes before QA."
+            "Implementation runs in an isolated task worktree and requires dependency install, "
+            "test execution, dev server/browser checks, and git metadata writes for the feature commit before QA."
         )
-    return "Merge-test requires git merge and push operations against the test branch."
+    return "Merge-test requires git merge and push operations from the source branch into the test branch."
 
 
 def elevated_permission_scope(mode: RunMode, *, source_elevated: bool = False) -> list[str]:
@@ -188,6 +188,25 @@ def elevated_permission_scope(mode: RunMode, *, source_elevated: bool = False) -
         ]
     if mode == RunMode.MERGE_TEST:
         return ["git metadata", "source branch push", "test branch merge and push"]
+    if mode == RunMode.IMPLEMENTATION:
+        return [
+            "dependency install",
+            "package manager caches",
+            "task worktree source writes",
+            "git metadata",
+            "semantic implementation commit",
+            "dev server and browser QA",
+            "QA reports",
+        ]
+    if mode == RunMode.QA:
+        return [
+            "dependency install",
+            "package manager caches",
+            "git metadata",
+            "QA fix commits in task worktree",
+            "dev server and browser QA",
+            "QA reports",
+        ]
     return [
         "dependency install",
         "package manager caches",

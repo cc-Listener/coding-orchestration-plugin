@@ -61,9 +61,12 @@ class ImplementationWorkspaceFlowTest(unittest.TestCase):
             self.assertEqual(result["status"], "blocked")
             self.assertEqual(task["status"], "blocked")
             self.assertTrue(fake_runner.calls[0]["workspace_path"].is_dir())
-            self.assertEqual(task["task_session"]["source_branch"], f"codex/task-{task_id.removeprefix('task_')}")
+            self.assertEqual(
+                task["task_session"]["source_branch"],
+                f"feature/order-system-{task_id.removeprefix('task_')}",
+            )
             self.assertEqual(task["task_session"]["worktree_path"], str(fake_runner.calls[0]["workspace_path"]))
-            self.assertEqual(manifest["source_branch"], f"codex/task-{task_id.removeprefix('task_')}")
+            self.assertEqual(manifest["source_branch"], f"feature/order-system-{task_id.removeprefix('task_')}")
             self.assertFalse((project / "deploy" / "release.sh").exists())
             self.assertEqual(report["status"], "blocked")
             self.assertIn("deploy/release.sh", "\n".join(report["risks"]))
@@ -99,8 +102,8 @@ class ImplementationWorkspaceFlowTest(unittest.TestCase):
 
             task = ledger.get_task("task_43141b20c03e")
             manifest = json.loads(Path(task["artifacts"][0]["manifest"]).read_text(encoding="utf-8"))
-            self.assertEqual(task["task_session"]["source_branch"], "codex/fix-order-status-43141b20c03e")
-            self.assertEqual(manifest["source_branch"], "codex/fix-order-status-43141b20c03e")
+            self.assertEqual(task["task_session"]["source_branch"], "feature/fix-order-status-43141b20c03e")
+            self.assertEqual(manifest["source_branch"], "feature/fix-order-status-43141b20c03e")
     def test_implementation_branch_sanitizes_plan_report_candidate_without_requirement_semantics(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -138,8 +141,8 @@ class ImplementationWorkspaceFlowTest(unittest.TestCase):
 
             task = ledger.get_task("task_d7bd20850ef5")
             manifest = json.loads(Path(task["artifacts"][0]["manifest"]).read_text(encoding="utf-8"))
-            self.assertEqual(task["task_session"]["source_branch"], "codex/status-d7bd20850ef5")
-            self.assertEqual(manifest["source_branch"], "codex/status-d7bd20850ef5")
+            self.assertEqual(task["task_session"]["source_branch"], "feature/status-d7bd20850ef5")
+            self.assertEqual(manifest["source_branch"], "feature/status-d7bd20850ef5")
     def test_implementation_branch_uses_candidate_from_prior_plan_report(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -199,8 +202,8 @@ class ImplementationWorkspaceFlowTest(unittest.TestCase):
             self.assertNotIn("commit_sha", task["task_session"]["plan_report"])
             self.assertNotIn("changed_files_summary", task["task_session"]["plan_report"])
             self.assertNotIn("merge_readiness", task["task_session"]["plan_report"])
-            self.assertEqual(task["task_session"]["source_branch"], "codex/fix-order-status-plan_to_impl")
-            self.assertEqual(manifest["source_branch"], "codex/fix-order-status-plan_to_impl")
+            self.assertEqual(task["task_session"]["source_branch"], "feature/fix-order-status-plan_to_impl")
+            self.assertEqual(manifest["source_branch"], "feature/fix-order-status-plan_to_impl")
     def test_implementation_worktree_defaults_to_main_even_when_project_on_test(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

@@ -207,6 +207,51 @@ class HermesRuntimeRunnerTest(unittest.TestCase):
             self.assertEqual(task["task_session"]["runner"]["active_run_id"], result["run_id"])
             self.assertEqual(task["agent_runs"][-1]["status"], AgentRunStatus.QUEUED.value)
 
+    def test_orchestrator_keeps_hermes_background_implementation_active(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            project = root / "project"
+            _write_workflow(project)
+            ledger = TaskLedger(root / "ledger.db")
+            ledger.create_task(
+                task_id="task_background_impl",
+                source={"type": "manual", "project_name": "project"},
+                requirement_summary="后台 implementation",
+                project_path=str(project),
+                status=TaskStatus.PLANNED.value,
+                llm_wiki_refs=[],
+                human_decisions=[],
+                phase=TaskPhase.PLAN_APPROVED.value,
+            )
+            dispatch_tool = FakeDispatchTool()
+            router = RunnerRouter.from_config({"default_runner": "codex_cli"})
+            orchestrator = CodingOrchestrator(
+                ledger=ledger,
+                resolver=ProjectResolver(ProjectRegistry([])),
+                wiki=LocalLlmWikiAdapter(root / "wiki"),
+                runner_router=router,
+                run_root=root / "runs",
+                workspace_root=root / "workspaces",
+            )
+            orchestrator.set_dispatch_tool(dispatch_tool)
+
+            result = orchestrator.start_run(
+                "task_background_impl",
+                mode=RunMode.IMPLEMENTATION,
+                timeout_seconds=1,
+            )
+            task = ledger.get_task("task_background_impl")
+
+            self.assertEqual(result["status"], AgentRunStatus.RUNNING.value)
+            self.assertEqual(result["task_status"], TaskStatus.RUNNING.value)
+            self.assertEqual(task["status"], TaskStatus.RUNNING.value)
+            self.assertEqual(task["phase"], TaskPhase.IMPLEMENTING.value)
+            self.assertEqual(task["task_session"]["runner"]["active_run_id"], result["run_id"])
+            self.assertEqual(task["task_session"]["runner"]["active_mode"], RunMode.IMPLEMENTATION.value)
+            self.assertEqual(task["agent_runs"][-1]["status"], AgentRunStatus.RUNNING.value)
+            self.assertNotEqual(task["agent_runs"][-1]["failure_type"], "implementation_not_landed")
+            self.assertFalse(Path(result["artifacts"]["diff"]).exists())
+
     def test_orchestrator_injects_hermes_runtime_into_codex_runners(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

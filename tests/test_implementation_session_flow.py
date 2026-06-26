@@ -52,7 +52,7 @@ class ImplementationSessionFlowTest(unittest.TestCase):
             self.assertIn("dependency install", manifest["elevated_permissions_reason"])
             self.assertIn("source code changes must stay", manifest["source_modification_boundary"])
             self.assertEqual(manifest["workspace_path"], str(fake_runner.calls[0]["workspace_path"]))
-            self.assertEqual(manifest["source_branch"], "codex/orderflows-filter-actions-43141b20c03e")
+            self.assertEqual(manifest["source_branch"], "feature/orderflows-filter-actions-43141b20c03e")
     def test_task_reuses_one_codex_session_with_incremental_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

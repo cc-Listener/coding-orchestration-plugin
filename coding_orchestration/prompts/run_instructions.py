@@ -53,6 +53,9 @@ def execution_contract(mode: RunMode, execution_policy: dict[str, Any]) -> str:
 - 如果 Hermes 已在来源上下文中注入飞书正文，直接基于该正文规划。
 - 如果来源只有飞书链接但没有正文，不要假设文档内容；优先使用来源上下文中的 `lark_cli_command` 或等价 `rtk lark-cli` 命令在当前 Codex session 中读取。
 - 如果 `rtk lark-cli` 因授权、scope、网络或工具不可用失败，返回 `status=blocked`，并在 `verification_limitations` 写清 reason、impact、recovery_action、fallback_evidence。
+- 读取 Swagger/OpenAPI 时注意 plan-only 常运行在 read-only sandbox，可能不能写 `/tmp` 或项目文件；优先用 `rtk proxy curl -L --max-time 20 -sS <url> | rtk proxy grep -n -E '<schema|field|enum pattern>'` 检索原始响应文本。
+- 不要把 `rtk curl <url> | rtk jq/rg ...` 或无法写入临时文件后的失败作为唯一证据；必要时分别尝试默认网络和 `--noproxy '*'`，并记录 HTTP/DNS/timeout 的具体症状。
+- 如果 Swagger/OpenAPI 返回模板占位符或 invalid JSON，即使 JSON 解析失败，也要检索原始响应文本中的 endpoint、schema、field 和 enum；项目内 skill 写着 template/invalid JSON 时继续 fallback 的，不代表可以跳过 raw text 检索。只有原始响应文本与本地快照都缺失关键信息时，才判定合同缺失。
 - Plan-only 不允许修改项目文件；即使当前 session 具备高权限，也只能读取飞书/Lark、Swagger/OpenAPI、API 元数据和项目上下文。
 - 计划需要包含：范围、涉及模块、实现步骤、风险、待确认问题。
 - 计划完整且可以进入人工确认/implementation 时，返回 `status=succeeded`。
@@ -103,7 +106,7 @@ def execution_contract(mode: RunMode, execution_policy: dict[str, Any]) -> str:
 - 缺少依赖时先安装依赖并继续验证；所有 shell 命令使用 `rtk` 前缀。
 - 源码修改只限当前 task workspace。
 - 项目外写入只允许依赖缓存、git metadata、dev server/browser 临时文件和 `.gstack` QA 产物。
-- 实现和验证完成后，由 Codex 在当前 task workspace 内创建 git commit；commit subject 必须描述本次实际代码改动，使用 Git Flow/Conventional Commit 风格，例如 `fix(order): 修复发货失败`。
+- 实现和验证完成后，由 Codex 在当前 task worktree 内创建 feature commit；commit subject 必须描述本次实际代码改动，使用 Git Flow/Conventional Commit 风格，例如 `fix(order): 修复发货失败`。
 - commit 信息不要使用 task/run/status/checkpoint/after/before/QA/merge-test 这类流程状态词；如果无法提交，返回 `status=blocked` 并写清恢复动作。
 - 提交成功且工作树 clean 后，才能返回 `status=succeeded` 或带 known gaps 的 `status=succeeded`。
 - 不发布、不部署、不操作飞书。
@@ -124,7 +127,7 @@ def output_requirements(mode: RunMode) -> str:
         "- 必须填写 `user_facing_summary`：这是飞书用户直接看到的简短结果，不要写内部字段名。",
         "- 必须填写 `technical_summary`：写给工程审计，说明改动、验证和剩余风险。",
         "- 必须填写 `next_actions`：给出用户下一步能执行的动作；Python 不会替你补默认摘要或下一步。",
-        "- plan-only 必须填写 `execution_policy_decision` 和 `branch_slug_candidate`。",
+        "- plan-only 必须填写 `execution_policy_decision` 和 `branch_slug_candidate`；`branch_slug_candidate` 只能是短横线连接的功能简介，例如 `store-resend-strategy`，不要输出完整分支名，不要使用 `codex/` 或 `feature/` 前缀。",
         "- decomposition 必须填写 `classification`、`reason`、`delivery_units`、`execution_tasks`、`dependencies`、`risks`、`acceptance_plan`、`open_questions` 和 `materialization_allowed`。",
         "- implementation 必须填写 `implementation_landed`、`commit_sha`、`changed_files_summary`、`branch_slug_candidate` 和 `execution_policy_decision`。",
         "- QA 和 merge-test 必须填写 `merge_readiness`，说明是否可继续、风险等级、是否需要人工确认。",

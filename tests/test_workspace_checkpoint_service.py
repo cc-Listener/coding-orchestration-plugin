@@ -45,7 +45,21 @@ class WorkspaceCheckpointServiceTest(unittest.TestCase):
             "order-system",
         )
 
-        self.assertEqual(branch, "codex/task-9f8e7d6c5b4a")
+        self.assertEqual(branch, "feature/order-system-9f8e7d6c5b4a")
+
+    def test_source_branch_for_task_uses_requirement_summary_when_plan_slug_missing(self):
+        branch = source_branch_for_task(
+            {
+                "task_id": "task_add_store_config",
+                "requirement_summary": "add store resend strategy config",
+                "task_session": {
+                    "plan_report": {},
+                },
+            },
+            "order-system",
+        )
+
+        self.assertEqual(branch, "feature/add-store-resend-strategy-config-add_store_config")
 
     def test_source_branch_for_task_prefers_existing_source_branch(self):
         branch = source_branch_for_task(
@@ -76,7 +90,7 @@ class WorkspaceCheckpointServiceTest(unittest.TestCase):
             "order-system",
         )
 
-        self.assertEqual(branch, f"codex/{'a' * 63}-long_slug")
+        self.assertEqual(branch, f"feature/{'a' * 63}-long_slug")
 
     def test_source_branch_for_task_without_candidate_falls_back_to_task(self):
         branch = source_branch_for_task(
@@ -89,7 +103,7 @@ class WorkspaceCheckpointServiceTest(unittest.TestCase):
             "order-system",
         )
 
-        self.assertEqual(branch, "codex/task-no_candidate")
+        self.assertEqual(branch, "feature/order-system-no_candidate")
 
     def test_source_base_branch_prefers_session_then_source_then_main(self):
         self.assertEqual(
@@ -168,7 +182,7 @@ class WorkspaceCheckpointServiceTest(unittest.TestCase):
             self.assertEqual(manager.calls[0]["task_id"], "task_1")
             self.assertEqual(manager.calls[0]["run_id"], "run_new")
             self.assertEqual(manager.calls[0]["base_branch"], "develop")
-            self.assertEqual(manager.calls[0]["branch_name"], "codex/fix-order-status-1")
+            self.assertEqual(manager.calls[0]["branch_name"], "feature/fix-order-status-1")
 
     def test_merge_test_workspace_uses_session_worktree_when_no_agent_run_workspace_exists(self):
         with tempfile.TemporaryDirectory() as tmp:

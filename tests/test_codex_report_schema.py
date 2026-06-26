@@ -47,6 +47,12 @@ class CodexReportSchemaTest(unittest.TestCase):
         def assert_strict_object(node):
             if not isinstance(node, dict):
                 return
+            if node.get("type") == "object":
+                self.assertIs(
+                    node.get("additionalProperties"),
+                    False,
+                    f"object schema must reject additional properties: {node}",
+                )
             if node.get("type") == "object" and "properties" in node:
                 self.assertEqual(
                     set(node.get("required") or []),
